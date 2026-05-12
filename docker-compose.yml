@@ -1,0 +1,24 @@
+services:
+  api:
+    image: node:20-alpine
+    container_name: sech_backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./backend/.env
+    command: sh -c "npm install && npx nodemon index.js"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    image: node:20-alpine
+    container_name: sech_frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host"
