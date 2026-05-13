@@ -29,6 +29,49 @@ db.connect(err => {
 });
 
 // -------------------------------------------------------------------------
+// DASHBOARD
+// -------------------------------------------------------------------------
+app.get('/api/stats', (req, res) => {
+    const queries = {
+        totalEquipamentos: "SELECT COUNT(*) as total FROM equipamentos",
+        chamadosAbertos: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Aberto'",
+        chamadosAndamento: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'",
+        chamadosConcluidos: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'",
+        preventivasAtrasadas: `
+            SELECT COUNT(*) as total FROM equipamentos 
+            WHERE periodicidade_preventiva > 0 
+            AND data_ultima_preventiva IS NOT NULL 
+            AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) <= CURDATE()`,
+        porSetor: `
+            SELECT s.nome, COUNT(c.id) as total 
+            FROM chamados c JOIN setores s ON c.setor_id = s.id 
+            GROUP BY s.id HAVING total > 0 ORDER BY total DESC`,
+        porTecnico: `
+            SELECT tecnico_responsavel as nome, COUNT(*) as total 
+            FROM chamados WHERE tecnico_responsavel IS NOT NULL AND tecnico_responsavel != '' 
+            GROUP BY tecnico_responsavel ORDER BY total DESC`,
+        recentes: "SELECT id, titulo, status, data_abertura FROM chamados ORDER BY id DESC LIMIT 6"
+    };
+
+const promises = Object.keys(queries).map(key => {
+        return new Promise((resolve, reject) => {
+            db.query(queries[key], (err, results) => {
+                if (err) reject(err);
+                else resolve({ key, data: results });
+            });
+        });
+    });
+
+    Promise.all(promises)
+        .then(results => {
+            const stats = {};
+            results.forEach(r => { stats[r.key] = r.data; });
+            res.json(stats);
+        })
+        .catch(err => res.status(500).json(err));
+});
+
+// -------------------------------------------------------------------------
 // FUNÇÕES AUXILIARES
 // -------------------------------------------------------------------------
 const enviarTelegram = async (mensagem) => {
