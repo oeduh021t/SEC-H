@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom' // Importação necessária para o botão de prontuário
 
 const Equipamentos = () => {
   const [equipamentos, setEquipamentos] = useState([])
   const [busca, setBusca] = useState('')
   const [modalAberta, setModalAberta] = useState(false)
   const [manterAberta, setManterAberta] = useState(false)
-  const [editandoId, setEditandoId] = useState(null) // Define se estamos editando ou criando
+  const [editandoId, setEditandoId] = useState(null)
 
   const [setores, setSetores] = useState([])
   const [tipos, setTipos] = useState([])
@@ -16,17 +17,18 @@ const Equipamentos = () => {
   }
   const [form, setForm] = useState(estadoInicial)
 
+  const API_URL = 'http://192.168.5.101:3000/api'
+
   const carregarDados = () => {
-    fetch('http://192.168.5.101:3000/api/equipamentos').then(res => res.json()).then(data => setEquipamentos(data))
+    fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(data => setEquipamentos(data))
   }
 
   useEffect(() => {
     carregarDados()
-    fetch('http://192.168.5.101:3000/api/setores').then(res => res.json()).then(data => setSetores(data))
-    fetch('http://192.168.5.101:3000/api/tipos').then(res => res.json()).then(data => setTipos(data))
+    fetch(`${API_URL}/setores`).then(res => res.json()).then(data => setSetores(data))
+    fetch(`${API_URL}/tipos`).then(res => res.json()).then(data => setTipos(data))
   }, [])
 
-  // Função para abrir modal de edição
   const prepararEdicao = (e) => {
     setEditandoId(e.id)
     setForm({
@@ -36,20 +38,17 @@ const Equipamentos = () => {
     setModalAberta(true)
   }
 
-  // Função para Excluir
   const excluir = (id) => {
     if (window.confirm("🚨 Tem certeza que deseja excluir este equipamento? Esta ação é permanente.")) {
-      fetch(`http://192.168.5.101:3000/api/equipamentos/${id}`, { method: 'DELETE' })
+      fetch(`${API_URL}/equipamentos/${id}`, { method: 'DELETE' })
         .then(() => carregarDados())
     }
   }
 
   const salvar = (e) => {
     e.preventDefault()
-    const url = editandoId 
-      ? `http://192.168.5.101:3000/api/equipamentos/${editandoId}` 
-      : 'http://192.168.5.101:3000/api/equipamentos'
-    
+    const url = editandoId ? `${API_URL}/equipamentos/${editandoId}` : `${API_URL}/equipamentos`
+
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -62,49 +61,97 @@ const Equipamentos = () => {
         setEditandoId(null)
         setForm(estadoInicial)
       } else {
-        setForm({ ...estadoInicial, setor_id: form.setor_id, tipo_id: form.tipo_id }) // Mantém contexto se for novo
+        setForm({ ...estadoInicial, setor_id: form.setor_id, tipo_id: form.tipo_id })
       }
     })
   }
 
   return (
     <div className="p-4">
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Gestão de Ativos</h1>
+        <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+           <span className="bg-blue-100 p-2 rounded-lg text-blue-600 text-sm">🛠️</span> GESTÃO DE ATIVOS
+        </h1>
         <div className="flex gap-3">
-          <input type="text" placeholder="Buscar..." className="px-4 py-2 border rounded-xl w-64 outline-none focus:ring-2 focus:ring-blue-500" onChange={e => setBusca(e.target.value)} />
-          <button onClick={() => { setEditandoId(null); setForm(estadoInicial); setModalAberta(true); }} className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all">+ Novo Ativo</button>
+          <input 
+            type="text" 
+            placeholder="Buscar por nome ou patrimônio..." 
+            className="px-4 py-2 border-2 border-slate-100 rounded-xl w-72 outline-none focus:border-blue-500 transition-all text-sm font-medium" 
+            onChange={e => setBusca(e.target.value)} 
+          />
+          <button 
+            onClick={() => { setEditandoId(null); setForm(estadoInicial); setModalAberta(true); }} 
+            className="bg-blue-600 text-white px-6 py-2 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-sm uppercase tracking-wider"
+          >
+            + Novo Ativo
+          </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-left">
+      {/* TABELA PRINCIPAL */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <table className="w-full text-left border-collapse">
           <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
             <tr>
-              <th className="p-4">Equipamento</th>
-              <th className="p-4">Série / Patrimônio</th>
-              <th className="p-4">Status</th>
-              <th className="p-4 text-center">Ações</th>
+              <th className="p-5">Equipamento / Setor</th>
+              <th className="p-5">Patrimônio / Série</th>
+              <th className="p-5">Status</th>
+              <th className="p-5 text-center">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {equipamentos.filter(e => e.nome?.toLowerCase().includes(busca.toLowerCase())).map(e => (
-              <tr key={e.id} className="hover:bg-slate-50/50">
-                <td className="p-4">
-                  <div className="font-bold text-slate-700">{e.nome}</div>
-                  <div className="text-[10px] text-blue-500 font-bold uppercase tracking-tight">{e.setor_nome}</div>
+            {equipamentos
+              .filter(e => 
+                e.nome?.toLowerCase().includes(busca.toLowerCase()) || 
+                e.patrimonio?.toLowerCase().includes(busca.toLowerCase())
+              )
+              .map(e => (
+              <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group text-dark">
+                <td className="p-5">
+                  <div className="font-bold text-slate-700 text-sm">{e.nome}</div>
+                  <div className="text-[10px] text-blue-500 font-black uppercase tracking-tight">{e.setor_nome || 'Setor não definido'}</div>
                 </td>
-                <td className="p-4">
-                  <div className="text-xs text-slate-400 font-mono">{e.num_serie || 'S/N'}</div>
-                  <div className="text-xs font-black text-slate-600">{e.patrimonio}</div>
+                <td className="p-5">
+                  <div className="text-xs font-black text-slate-600 bg-slate-100 inline-block px-2 py-1 rounded font-mono uppercase">{e.patrimonio || 'S/P'}</div>
+                  <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tighter">Série: {e.num_serie || '---'}</div>
                 </td>
-                <td className="p-4">
-                  <span className={`px-2 py-1 rounded text-[10px] font-black ${e.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{e.status}</span>
+                <td className="p-5">
+                  <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                    e.status === 'Ativo' ? 'bg-green-100 text-green-700' : 
+                    e.status === 'Reserva' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {e.status}
+                  </span>
                 </td>
-                <td className="p-4">
-                  <div className="flex justify-center gap-4">
-                    <button onClick={() => prepararEdicao(e)} className="text-xl hover:scale-125 transition-transform">📝</button>
-                    <button onClick={() => excluir(e.id)} className="text-xl hover:scale-125 transition-transform text-red-500">🗑️</button>
+                <td className="p-5">
+                  <div className="flex justify-center gap-2">
+                    {/* BOTÃO DO PRONTUÁRIO - ESTILO SIM-H */}
+                    <Link 
+                      to={`/prontuario/${e.id}`} 
+                      className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm border border-blue-100"
+                      title="Ver Prontuário Clínico"
+                    >
+                      <span className="text-sm">📋</span>
+                    </Link>
+
+                    {/* BOTÃO EDITAR */}
+                    <button 
+                      onClick={() => prepararEdicao(e)} 
+                      className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm border border-amber-100"
+                      title="Editar Ativo"
+                    >
+                      <span className="text-sm">✏️</span>
+                    </button>
+
+                    {/* BOTÃO EXCLUIR */}
+                    <button 
+                      onClick={() => excluir(e.id)} 
+                      className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100"
+                      title="Remover do Inventário"
+                    >
+                      <span className="text-sm">🗑️</span>
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -113,44 +160,70 @@ const Equipamentos = () => {
         </table>
       </div>
 
+      {/* MODAL: CADASTRO / EDIÇÃO */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl animate-in zoom-in duration-200">
-            <div className={`p-4 text-white font-bold flex justify-between ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
-              <span>{editandoId ? 'Editar Equipamento' : 'Novo Equipamento'}</span>
-              <button onClick={() => setModalAberta(false)}>✕</button>
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+            <div className={`p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
+              <span>{editandoId ? '✏️ Editar Equipamento' : '🆕 Novo Equipamento'}</span>
+              <button onClick={() => setModalAberta(false)} className="hover:scale-110 transition-transform">✕</button>
             </div>
-            <form onSubmit={salvar} className="p-6 grid grid-cols-2 gap-4">
+            
+            <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark">
               <div className="col-span-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase">Nome</label>
-                <input type="text" required value={form.nome} className="w-full p-2 border rounded-lg" onChange={e => setForm({...form, nome: e.target.value})} />
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome do Equipamento</label>
+                <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 transition-all font-bold" onChange={e => setForm({...form, nome: e.target.value})} />
               </div>
-              <input type="text" placeholder="Modelo" value={form.modelo} className="p-2 border rounded-lg" onChange={e => setForm({...form, modelo: e.target.value})} />
-              <input type="text" placeholder="Fabricante" value={form.fabricante} className="p-2 border rounded-lg" onChange={e => setForm({...form, fabricante: e.target.value})} />
-              <input type="text" placeholder="Patrimônio" value={form.patrimonio} className="p-2 border rounded-lg" onChange={e => setForm({...form, patrimonio: e.target.value})} />
-              <input type="text" placeholder="Nº Série" value={form.num_serie} className="p-2 border rounded-lg" onChange={e => setForm({...form, num_serie: e.target.value})} />
               
-              <select value={form.setor_id} className="p-2 border rounded-lg text-xs" onChange={e => setForm({...form, setor_id: e.target.value})}>
-                <option value="">Setor...</option>
-                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-              </select>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Modelo</label>
+                <input type="text" value={form.modelo} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, modelo: e.target.value})} />
+              </div>
               
-              <select value={form.status} className="p-2 border rounded-lg text-xs" onChange={e => setForm({...form, status: e.target.value})}>
-                <option value="Ativo">Ativo</option>
-                <option value="Reserva">Reserva</option>
-                <option value="Em Manutenção">Em Manutenção</option>
-              </select>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Fabricante</label>
+                <input type="text" value={form.fabricante} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, fabricante: e.target.value})} />
+              </div>
 
-              <div className="col-span-2 flex justify-between items-center border-t pt-4 mt-2">
-                {!editandoId && (
-                   <label className="flex items-center gap-2 text-[10px] font-bold text-slate-400">
-                    <input type="checkbox" checked={manterAberta} onChange={e => setManterAberta(e.target.checked)} /> Manter Janela Aberta
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nº Patrimônio</label>
+                <input type="text" value={form.patrimonio} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono" onChange={e => setForm({...form, patrimonio: e.target.value})} />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nº Série</label>
+                <input type="text" value={form.num_serie} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, num_serie: e.target.value})} />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Setor Responsável</label>
+                <select value={form.setor_id} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-sm" onChange={e => setForm({...form, setor_id: e.target.value})}>
+                  <option value="">Selecione o Setor...</option>
+                  {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Status Operacional</label>
+                <select value={form.status} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-sm" onChange={e => setForm({...form, status: e.target.value})}>
+                  <option value="Ativo">🟢 Ativo</option>
+                  <option value="Reserva">🔵 Reserva</option>
+                  <option value="Em Manutenção">🟡 Em Manutenção</option>
+                </select>
+              </div>
+
+              <div className="col-span-2 flex justify-between items-center border-t border-slate-50 pt-6 mt-4">
+                {!editandoId ? (
+                  <label className="flex items-center gap-3 text-[10px] font-black text-slate-400 uppercase cursor-pointer select-none">
+                    <input type="checkbox" className="w-4 h-4 rounded border-2 border-slate-200 text-blue-600" checked={manterAberta} onChange={e => setManterAberta(e.target.checked)} /> 
+                    Manter janela aberta após salvar
                   </label>
-                )}
-                <div className="flex gap-2 ml-auto">
-                  <button type="button" onClick={() => setModalAberta(false)} className="px-4 py-2 text-slate-400">Cancelar</button>
-                  <button type="submit" className={`px-6 py-2 rounded-lg text-white font-bold ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
-                    {editandoId ? 'Atualizar Dados' : 'Salvar Ativo'}
+                ) : <div />}
+                
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setModalAberta(false)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
+                  <button type="submit" className={`px-8 py-3 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 ${editandoId ? 'bg-amber-500 shadow-amber-100' : 'bg-blue-600 shadow-blue-100'}`}>
+                    {editandoId ? 'Atualizar Dados' : 'Salvar no Inventário'}
                   </button>
                 </div>
               </div>
@@ -162,4 +235,4 @@ const Equipamentos = () => {
   )
 }
 
-export default Equipamentos
+export default Equipamentos;
