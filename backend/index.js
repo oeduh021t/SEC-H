@@ -4,11 +4,33 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const axios = require('axios');
 const bcrypt = require('bcrypt');
+const multer = require('multer'); // ADICIONADO
+const path = require('path');   // ADICIONADO
 const saltRounds = 10;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// --- CONFIGURAÇÃO DE UPLOADS (FOTOS) ---
+// Torna a pasta 'uploads' acessível via URL (Ex: http://ip:3000/uploads/foto.jpg)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        // Nome único: timestamp-aleatorio.extensao
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // Limite de 10MB
+});
 
 // -------------------------------------------------------------------------
 // CONFIGURAÇÃO DO BANCO DE DADOS
@@ -38,22 +60,22 @@ app.get('/api/stats', (req, res) => {
         chamadosAndamento: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'",
         chamadosConcluidos: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'",
         preventivasAtrasadas: `
-            SELECT COUNT(*) as total FROM equipamentos 
-            WHERE periodicidade_preventiva > 0 
-            AND data_ultima_preventiva IS NOT NULL 
+            SELECT COUNT(*) as total FROM equipamentos
+            WHERE periodicidade_preventiva > 0
+            AND data_ultima_preventiva IS NOT NULL
             AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) <= CURDATE()`,
         porSetor: `
-            SELECT s.nome, COUNT(c.id) as total 
-            FROM chamados c JOIN setores s ON c.setor_id = s.id 
+            SELECT s.nome, COUNT(c.id) as total
+            FROM chamados c JOIN setores s ON c.setor_id = s.id
             GROUP BY s.id HAVING total > 0 ORDER BY total DESC`,
         porTecnico: `
-            SELECT tecnico_responsavel as nome, COUNT(*) as total 
-            FROM chamados WHERE tecnico_responsavel IS NOT NULL AND tecnico_responsavel != '' 
+            SELECT tecnico_responsavel as nome, COUNT(*) as total
+            FROM chamados WHERE tecnico_responsavel IS NOT NULL AND tecnico_responsavel != ''
             GROUP BY tecnico_responsavel ORDER BY total DESC`,
         recentes: "SELECT id, titulo, status, data_abertura FROM chamados ORDER BY id DESC LIMIT 6"
     };
 
-const promises = Object.keys(queries).map(key => {
+    const promises = Object.keys(queries).map(key => {
         return new Promise((resolve, reject) => {
             db.query(queries[key], (err, results) => {
                 if (err) reject(err);
@@ -139,7 +161,6 @@ app.delete('/api/equipamentos/:id', (req, res) => {
 // ROTAS DE CHAMADOS / OS
 // -------------------------------------------------------------------------
 
-// 1. Listar todos os chamados
 app.get('/api/chamados', (req, res) => {
     const query = `
         SELECT c.*, s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
@@ -161,7 +182,6 @@ app.get('/api/chamados', (req, res) => {
     });
 });
 
-// 2. BUSCAR DETALHES DE UM CHAMADO (Dados + Histórico)
 app.get('/api/chamados/:id', (req, res) => {
     const { id } = req.params;
 
@@ -178,23 +198,22 @@ app.get('/api/chamados/:id', (req, res) => {
         if (results.length === 0) return res.status(404).json({ message: "Chamado não encontrado" });
 
         const chamado = results[0];
-
-        // Busca o histórico (linha do tempo) deste chamado
         const queryHist = `SELECT * FROM chamados_historico WHERE chamado_id = ? ORDER BY data_registro DESC`;
         db.query(queryHist, [id], (err, logs) => {
             if (err) return res.status(500).json({ error: err.message });
-            
             chamado.historico = logs || [];
             res.json(chamado);
         });
     });
 });
 
-// 3. Abrir novo chamado (POST)
-app.post('/api/chamados', (req, res) => {
+// ABRIR CHAMADO (MODIFICADO PARA FOTO)
+app.post('/api/chamados', upload.single('foto'), (req, res) => {
     const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao } = req.body;
-    const query = `INSERT INTO chamados (setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
-    const values = [setor_id || null, equipamento_id || null, titulo, descricao_problema, prioridade || 'Média', categoria || 'Manutenção', tipo_manutencao || 'Corretiva'];
+    const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const query = `INSERT INTO chamados (setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
+    const values = [setor_id || null, equipamento_id || null, titulo, descricao_problema, prioridade || 'Média', categoria || 'Manutenção', tipo_manutencao || 'Corretiva', foto_abertura];
 
     db.query(query, values, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -203,10 +222,11 @@ app.post('/api/chamados', (req, res) => {
     });
 });
 
-// 4. Finalizar ou Alterar Status (Atendimento)
-app.patch('/api/chamados/:id/finalizar', (req, res) => {
+// FINALIZAR CHAMADO (MODIFICADO PARA FOTO)
+app.patch('/api/chamados/:id/finalizar', upload.single('foto'), (req, res) => {
     const { id } = req.params;
     const { status, tecnico_responsavel, descricao_solucao, tipo_atendimento } = req.body;
+    const foto_conclusao = req.file ? `/uploads/${req.file.filename}` : null;
 
     db.beginTransaction(err => {
         if (err) return res.status(500).json(err);
@@ -214,11 +234,12 @@ app.patch('/api/chamados/:id/finalizar', (req, res) => {
         const queryUpdate = `
             UPDATE chamados
             SET status = ?, tecnico_responsavel = ?, descricao_solucao = ?, tipo_atendimento = ?,
+                foto_conclusao = COALESCE(?, foto_conclusao),
                 data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
             WHERE id = ?
         `;
 
-        db.query(queryUpdate, [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, status, id], (err) => {
+        db.query(queryUpdate, [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id], (err) => {
             if (err) return db.rollback(() => res.status(500).json(err));
 
             const queryHist = `
@@ -238,18 +259,25 @@ app.patch('/api/chamados/:id/finalizar', (req, res) => {
     });
 });
 
-// 5. Adicionar Observação do Coordenador
 app.patch('/api/chamados/:id/observacao', (req, res) => {
     const { id } = req.params;
-    const { nova_obs } = req.body;
-    const usuario = "Eduardo Nascimento";
-    const data = new Date().toLocaleString('pt-BR');
-    const carimbo = `\n\n--- ${data} (${usuario}) ---\n${nova_obs}`;
+    const { nova_obs, usuario_nome, usuario_nivel } = req.body;
+
+    // 1. Bloqueio de Segurança: Apenas Admin ou Coordenador
+    const niveisPermitidos = ['admin', 'coordenador', 'Coordenador', 'Admin'];
+    if (!niveisPermitidos.includes(usuario_nivel)) {
+        return res.status(403).json({ error: "Acesso negado: Apenas gestores podem adicionar notas." });
+    }
+
+    // 2. Montagem do Carimbo com dados dinâmicos
+    const data = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const carimbo = `\n\n--- ${data} (${usuario_nome} | ${usuario_nivel}) ---\n${nova_obs}`;
 
     const query = `UPDATE chamados SET observacao_coordenador = CONCAT(COALESCE(observacao_coordenador, ''), ?) WHERE id = ?`;
+    
     db.query(query, [carimbo, id], (err) => {
         if (err) return res.status(500).json(err);
-        res.json({ message: "Nota adicionada!" });
+        res.json({ message: "Nota adicionada com sucesso!" });
     });
 });
 
@@ -320,7 +348,7 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
         db.query(queryTimeline, [id, id, id, id], (err, timeline) => {
             const queryCusto = `
                 SELECT (SELECT IFNULL(SUM(custo_servico), 0) FROM chamados WHERE equipamento_id = ? AND status = 'Concluído') +
-                       (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?)
+                        (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?)
                 as total`;
             db.query(queryCusto, [id, id], (err, custo) => {
                 if (err) return res.status(500).json(err);
@@ -334,7 +362,6 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
 // ROTAS DE USUÁRIOS
 // -------------------------------------------------------------------------
 
-// Listar todos
 app.get('/api/usuarios', (req, res) => {
     db.query("SELECT id, nome, login, nivel FROM usuarios ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
@@ -342,10 +369,8 @@ app.get('/api/usuarios', (req, res) => {
     });
 });
 
-// Criar Usuário
 app.post('/api/usuarios', async (req, res) => {
     const { nome, login, senha, nivel } = req.body;
-    
     try {
         const hash = await bcrypt.hash(senha, saltRounds);
         const query = "INSERT INTO usuarios (nome, login, senha, nivel) VALUES (?, ?, ?, ?)";
@@ -358,11 +383,9 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-// Editar Usuário
 app.put('/api/usuarios/:id', async (req, res) => {
     const { id } = req.params;
     const { nome, login, nivel, senha_nova } = req.body;
-
     try {
         if (senha_nova) {
             const hash = await bcrypt.hash(senha_nova, saltRounds);
@@ -383,48 +406,71 @@ app.put('/api/usuarios/:id', async (req, res) => {
     }
 });
 
-// Excluir Usuário
 app.delete('/api/usuarios/:id', (req, res) => {
     const { id } = req.params;
-    // Lógica para evitar que o admin se exclua (ID 1 geralmente é o principal)
     if (id == "1") return res.status(403).json({ error: "Não é possível excluir o administrador mestre." });
-
     db.query("DELETE FROM usuarios WHERE id = ?", [id], (err) => {
         if (err) return res.status(500).json(err);
         res.json({ message: "Removido!" });
     });
 });
 
-// ROTA DE LOGIN
 app.post('/api/login', (req, res) => {
     const { login, senha } = req.body;
-
     const query = "SELECT * FROM usuarios WHERE LOWER(login) = LOWER(?) LIMIT 1";
+    
     db.query(query, [login], async (err, results) => {
         if (err) return res.status(500).json({ error: "Erro no banco" });
         if (results.length === 0) return res.status(401).json({ error: "Usuário não encontrado" });
-
+        
         const user = results[0];
 
-        // Compara a senha digitada com o Hash do banco
+        // O bcrypt.compare é inteligente o suficiente para ler qualquer hash 
+        // (tanto o $2y do PHP/GLPI quanto o $2b do Node.js)
         const senhaCorreta = await bcrypt.compare(senha, user.senha);
-        
-        // Mantive seu fallback de senha '123' caso precise para testes iniciais
-        const fallback123 = (senha === '123' && user.senha.startsWith('$2y$10$f6pGz'));
 
-        if (senhaCorreta || fallback123) {
-            // Em um sistema real, aqui usaríamos JWT. Por hora, vamos retornar os dados básicos.
-            res.json({
-                id: user.id,
-                nome: user.nome,
-                nivel: user.nivel
-            });
+        if (senhaCorreta) {
+            res.json({ id: user.id, nome: user.nome, nivel: user.nivel });
         } else {
             res.status(401).json({ error: "Senha incorreta" });
         }
     });
 });
 
+// ROTA PARA O PRÓPRIO USUÁRIO ALTERAR SUA SENHA
+app.patch('/api/usuarios/alterar-senha', async (req, res) => {
+    const { id, senhaAtual, novaSenha } = req.body;
+
+    if (!id || !senhaAtual || !novaSenha) {
+        return res.status(400).json({ error: "Preencha todos os campos." });
+    }
+
+    // 1. Busca a senha atual no banco
+    db.query("SELECT senha FROM usuarios WHERE id = ?", [id], async (err, results) => {
+        if (err || results.length === 0) return res.status(500).json({ error: "Usuário não encontrado." });
+
+        const hashBanco = results[0].senha;
+
+        try {
+            // 2. Verifica se a senha atual digitada bate com a do banco
+            const senhaOk = await bcrypt.compare(senhaAtual, hashBanco);
+
+            if (!senhaOk) {
+                return res.status(401).json({ error: "A senha atual está incorreta." });
+            }
+
+            // 3. Se estiver ok, gera o novo hash e salva
+            const novoHash = await bcrypt.hash(novaSenha, saltRounds);
+            db.query("UPDATE usuarios SET senha = ? WHERE id = ?", [novoHash, id], (err) => {
+                if (err) return res.status(500).json({ error: "Erro ao salvar nova senha." });
+                res.json({ message: "Senha alterada com sucesso!" });
+            });
+
+        } catch (e) {
+            res.status(500).json({ error: "Erro interno no servidor." });
+        }
+    });
+});
 
 // -------------------------------------------------------------------------
 // AUXILIARES
@@ -432,8 +478,8 @@ app.post('/api/login', (req, res) => {
 
 app.get('/api/setores', (req, res) => {
     const query = `SELECT s1.id, TRIM(LEADING ' > ' FROM CONCAT_WS(' > ', s3.nome, s2.nome, s1.nome)) as nome
-                   FROM setores s1 LEFT JOIN setores s2 ON s1.setor_pai_id = s2.id LEFT JOIN setores s3 ON s2.setor_pai_id = s3.id
-                   ORDER BY s3.nome, s2.nome, s1.nome ASC`;
+                    FROM setores s1 LEFT JOIN setores s2 ON s1.setor_pai_id = s2.id LEFT JOIN setores s3 ON s2.setor_pai_id = s3.id
+                    ORDER BY s3.nome, s2.nome, s1.nome ASC`;
     db.query(query, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
