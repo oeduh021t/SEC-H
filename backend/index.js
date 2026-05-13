@@ -3,6 +3,8 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const axios = require('axios');
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
 
 const app = express();
 app.use(cors());
@@ -284,6 +286,102 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
         });
     });
 });
+
+// -------------------------------------------------------------------------
+// ROTAS DE USUÁRIOS
+// -------------------------------------------------------------------------
+
+// Listar todos
+app.get('/api/usuarios', (req, res) => {
+    db.query("SELECT id, nome, login, nivel FROM usuarios ORDER BY nome ASC", (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json(result);
+    });
+});
+
+// Criar Usuário
+app.post('/api/usuarios', async (req, res) => {
+    const { nome, login, senha, nivel } = req.body;
+    
+    try {
+        const hash = await bcrypt.hash(senha, saltRounds);
+        const query = "INSERT INTO usuarios (nome, login, senha, nivel) VALUES (?, ?, ?, ?)";
+        db.query(query, [nome, login, hash, nivel], (err) => {
+            if (err) return res.status(400).json({ error: "Login já em uso." });
+            res.json({ message: "Usuário criado!" });
+        });
+    } catch (err) {
+        res.status(500).json(err);
+    }
+});
+
+// Editar Usuário
+app.put('/api/usuarios/:id', async (req, res) => {
+    const { id } = req.params;
+    const { nome, login, nivel, senha_nova } = req.body;
+
+    try {
+        if (senha_nova) {
+            const hash = await bcrypt.hash(senha_nova, saltRounds);
+            const query = "UPDATE usuarios SET nome=?, login=?, nivel=?, senha=? WHERE id=?";
+            db.query(query, [nome, login, nivel, hash, id], (err) => {
+                if (err) return res.status(400).json(err);
+                res.json({ message: "Usuário e senha atualizados!" });
+            });
+        } else {
+            const query = "UPDATE usuarios SET nome=?, login=?, nivel=? WHERE id=?";
+            db.query(query, [nome, login, nivel, id], (err) => {
+                if (err) return res.status(400).json(err);
+                res.json({ message: "Usuário atualizado!" });
+            });
+        }
+    } catch (err) {
+        res.status(500).json(err);
+    }
+});
+
+// Excluir Usuário
+app.delete('/api/usuarios/:id', (req, res) => {
+    const { id } = req.params;
+    // Lógica para evitar que o admin se exclua (ID 1 geralmente é o principal)
+    if (id == "1") return res.status(403).json({ error: "Não é possível excluir o administrador mestre." });
+
+    db.query("DELETE FROM usuarios WHERE id = ?", [id], (err) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Removido!" });
+    });
+});
+
+// ROTA DE LOGIN
+app.post('/api/login', (req, res) => {
+    const { login, senha } = req.body;
+
+    const query = "SELECT * FROM usuarios WHERE LOWER(login) = LOWER(?) LIMIT 1";
+    db.query(query, [login], async (err, results) => {
+        if (err) return res.status(500).json({ error: "Erro no banco" });
+        if (results.length === 0) return res.status(401).json({ error: "Usuário não encontrado" });
+
+        const user = results[0];
+
+        // Compara a senha digitada com o Hash do banco
+        const senhaCorreta = await bcrypt.compare(senha, user.senha);
+        
+        // Mantive seu fallback de senha '123' caso precise para testes iniciais
+        const fallback123 = (senha === '123' && user.senha.startsWith('$2y$10$f6pGz'));
+
+        if (senhaCorreta || fallback123) {
+            // Em um sistema real, aqui usaríamos JWT. Por hora, vamos retornar os dados básicos.
+            res.json({
+                id: user.id,
+                nome: user.nome,
+                nivel: user.nivel
+            });
+        } else {
+            res.status(401).json({ error: "Senha incorreta" });
+        }
+    });
+});
+
 
 // -------------------------------------------------------------------------
 // AUXILIARES
