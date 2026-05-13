@@ -65,23 +65,36 @@ const Sidebar = ({ user, onLogout }) => {
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2">
           <Link to="/" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>🏠 Dashboard</Link>
           
-          {/* MENU EQUIPAMENTOS */}
-          <div>
-            <button
-              onClick={() => setMenuEquipAberto(!menuEquipAberto)}
-              className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isEquipActive ? 'text-blue-400' : ''}`}
-            >
-              <div className="flex items-center gap-3">🛠️ Equipamentos</div>
-              <span className={`text-[10px] transition-transform ${menuEquipAberto ? 'rotate-180' : ''}`}>▼</span>
-            </button>
-            {(menuEquipAberto || isEquipActive) && (
-              <div className="ml-4 mt-2 space-y-1">
-                <Link to="/equipamentos" className="block p-2 text-xs hover:text-white">Listar Ativos</Link>
-                <Link to="/preventivas" className="block p-2 text-xs hover:text-white">Preventivas</Link>
-              </div>
-            )}
-          </div>
+{/* MENU EQUIPAMENTOS */}
+<div>
+  <button
+    onClick={() => setMenuEquipAberto(!menuEquipAberto)}
+    className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isEquipActive ? 'text-blue-400' : ''}`}
+  >
+    <div className="flex items-center gap-3">🛠️ Equipamentos</div>
+    <span className={`text-[10px] transition-transform duration-300 ${menuEquipAberto || isEquipActive ? 'rotate-180' : ''}`}>▼</span>
+  </button>
 
+  {/* SUBMENU - Reativado com todos os itens */}
+  <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'}`}>
+    
+    <Link to="/equipamentos" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
+      Listar Ativos
+    </Link>
+
+    <Link to="/preventivas" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${isActive('/preventivas') ? 'bg-green-500' : 'bg-slate-600'}`}></span>
+      Preventivas / PMOC
+    </Link>
+
+    <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
+      Novo Cadastro
+    </Link>
+    
+  </div>
+</div>
           <Link to="/chamados" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm ${isActive('/chamados') ? 'bg-amber-500 text-white' : 'hover:bg-slate-800'}`}>🎫 Chamados / OS</Link>
           
           {user?.nivel === 'admin' && (
