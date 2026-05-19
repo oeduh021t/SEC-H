@@ -472,6 +472,28 @@ app.patch('/api/usuarios/alterar-senha', async (req, res) => {
     });
 });
 
+// ROTA DE INVENTÁRIO GERAL (COM CUSTOS ACUMULADOS)
+app.get('/api/relatorios/inventario-geral', (req, res) => {
+    const query = `
+        SELECT 
+            e.id, e.nome, e.modelo, e.patrimonio, e.fabricante as marca, e.status,
+            IFNULL(s.nome, 'Sem Setor') as setor_nome, 
+            IFNULL(t.nome, 'Sem Tipo') as tipo_nome,
+            IFNULL(SUM(c.custo_servico), 0) as total_gasto
+        FROM equipamentos e 
+        LEFT JOIN setores s ON e.setor_id = s.id 
+        LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id 
+        LEFT JOIN chamados c ON e.id = c.equipamento_id AND c.status = 'Concluído'
+        GROUP BY e.id
+        ORDER BY s.nome ASC, e.nome ASC
+    `;
+
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
+});
+
 // -------------------------------------------------------------------------
 // AUXILIARES
 // -------------------------------------------------------------------------

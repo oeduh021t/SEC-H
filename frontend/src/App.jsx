@@ -11,6 +11,7 @@ import NovoEquipamento from './pages/NovoEquipamento';
 import Preventivas from './pages/Preventivas';
 import Usuarios from './pages/Usuarios';
 import Dashboard from './pages/Dashboard';
+import InventarioGeral from './pages/InventarioGeral';
 
 // --- COMPONENTE PRINCIPAL ---
 function App() {
@@ -53,6 +54,9 @@ function App() {
 
               {/* Módulo Chamados */}
               <Route path="/chamados" element={<Chamados />} />
+
+              {/* Relatórios */}
+              <Route path="relatorios/inventario" element={<InventarioGeral />} />
 
               {/* Módulo Usuarios - PROTEÇÃO: Só Admin entra */}
               <Route 

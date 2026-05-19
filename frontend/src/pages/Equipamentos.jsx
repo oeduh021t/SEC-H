@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom' // Importação necessária para o botão de prontuário
+import { Link } from 'react-router-dom'
 
 const Equipamentos = () => {
   const [equipamentos, setEquipamentos] = useState([])
@@ -7,6 +7,9 @@ const Equipamentos = () => {
   const [modalAberta, setModalAberta] = useState(false)
   const [manterAberta, setManterAberta] = useState(false)
   const [editandoId, setEditandoId] = useState(null)
+  
+  // --- NOVOS ESTADOS PARA O CONTROLE DO QR CODE ---
+  const [qrZoomUrl, setQrZoomUrl] = useState(null)
 
   const [setores, setSetores] = useState([])
   const [tipos, setTipos] = useState([])
@@ -18,6 +21,13 @@ const Equipamentos = () => {
   const [form, setForm] = useState(estadoInicial)
 
   const API_URL = 'http://192.168.5.101:3000/api'
+
+  // --- FUNÇÃO PARA GERAR O LINK DO QR CODE (IGUAL AO PHP) ---
+  const gerarLinkQRCodeLocal = (id) => {
+    // Aponta para a rota correspondente no ecossistema do seu novo frontend/sistema
+    const urlDestino = `${window.location.origin}/prontuario/${id}`
+    return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(urlDestino)}`
+  }
 
   const carregarDados = () => {
     fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(data => setEquipamentos(data))
@@ -74,14 +84,14 @@ const Equipamentos = () => {
            <span className="bg-blue-100 p-2 rounded-lg text-blue-600 text-sm">🛠️</span> GESTÃO DE ATIVOS
         </h1>
         <div className="flex gap-3">
-          <input 
-            type="text" 
-            placeholder="Buscar por nome ou patrimônio..." 
-            className="px-4 py-2 border-2 border-slate-100 rounded-xl w-72 outline-none focus:border-blue-500 transition-all text-sm font-medium" 
-            onChange={e => setBusca(e.target.value)} 
+          <input
+            type="text"
+            placeholder="Buscar por nome ou patrimônio..."
+            className="px-4 py-2 border-2 border-slate-100 rounded-xl w-72 outline-none focus:border-blue-500 transition-all text-sm font-medium"
+            onChange={e => setBusca(e.target.value)}
           />
-          <button 
-            onClick={() => { setEditandoId(null); setForm(estadoInicial); setModalAberta(true); }} 
+          <button
+            onClick={() => { setEditandoId(null); setForm(estadoInicial); setModalAberta(true); }}
             className="bg-blue-600 text-white px-6 py-2 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-sm uppercase tracking-wider"
           >
             + Novo Ativo
@@ -97,13 +107,14 @@ const Equipamentos = () => {
               <th className="p-5">Equipamento / Setor</th>
               <th className="p-5">Patrimônio / Série</th>
               <th className="p-5">Status</th>
+              <th className="p-5 text-center">QR</th> {/* ADICIONADO TH DO QR */}
               <th className="p-5 text-center">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {equipamentos
-              .filter(e => 
-                e.nome?.toLowerCase().includes(busca.toLowerCase()) || 
+              .filter(e =>
+                e.nome?.toLowerCase().includes(busca.toLowerCase()) ||
                 e.patrimonio?.toLowerCase().includes(busca.toLowerCase())
               )
               .map(e => (
@@ -118,35 +129,44 @@ const Equipamentos = () => {
                 </td>
                 <td className="p-5">
                   <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                    e.status === 'Ativo' ? 'bg-green-100 text-green-700' : 
+                    e.status === 'Ativo' ? 'bg-green-100 text-green-700' :
                     e.status === 'Reserva' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
                   }`}>
                     {e.status}
                   </span>
                 </td>
+                
+                {/* TD DO QR CODE RE-IMPLEMENTADO COM ESTILO PREMIUM */}
+                <td className="p-5 text-center">
+                  <button 
+                    onClick={() => setQrZoomUrl(gerarLinkQRCodeLocal(e.id))}
+                    className="inline-block p-1 bg-slate-50 border border-slate-200 rounded-lg hover:scale-110 active:scale-95 transition-all shadow-sm"
+                    title="Visualizar QR Code"
+                  >
+                    <img src={gerarLinkQRCodeLocal(e.id)} alt="QR Thumb" className="w-8 h-8 rounded" />
+                  </button>
+                </td>
+
                 <td className="p-5">
                   <div className="flex justify-center gap-2">
-                    {/* BOTÃO DO PRONTUÁRIO - ESTILO SIM-H */}
-                    <Link 
-                      to={`/prontuario/${e.id}`} 
+                    <Link
+                      to={`/prontuario/${e.id}`}
                       className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm border border-blue-100"
                       title="Ver Prontuário Clínico"
                     >
                       <span className="text-sm">📋</span>
                     </Link>
 
-                    {/* BOTÃO EDITAR */}
-                    <button 
-                      onClick={() => prepararEdicao(e)} 
+                    <button
+                      onClick={() => prepararEdicao(e)}
                       className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm border border-amber-100"
                       title="Editar Ativo"
                     >
                       <span className="text-sm">✏️</span>
                     </button>
 
-                    {/* BOTÃO EXCLUIR */}
-                    <button 
-                      onClick={() => excluir(e.id)} 
+                    <button
+                      onClick={() => excluir(e.id)}
                       className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100"
                       title="Remover do Inventário"
                     >
@@ -168,18 +188,18 @@ const Equipamentos = () => {
               <span>{editandoId ? '✏️ Editar Equipamento' : '🆕 Novo Equipamento'}</span>
               <button onClick={() => setModalAberta(false)} className="hover:scale-110 transition-transform">✕</button>
             </div>
-            
+
             <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark">
               <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome do Equipamento</label>
                 <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 transition-all font-bold" onChange={e => setForm({...form, nome: e.target.value})} />
               </div>
-              
+
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Modelo</label>
                 <input type="text" value={form.modelo} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, modelo: e.target.value})} />
               </div>
-              
+
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Fabricante</label>
                 <input type="text" value={form.fabricante} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, fabricante: e.target.value})} />
@@ -215,11 +235,11 @@ const Equipamentos = () => {
               <div className="col-span-2 flex justify-between items-center border-t border-slate-50 pt-6 mt-4">
                 {!editandoId ? (
                   <label className="flex items-center gap-3 text-[10px] font-black text-slate-400 uppercase cursor-pointer select-none">
-                    <input type="checkbox" className="w-4 h-4 rounded border-2 border-slate-200 text-blue-600" checked={manterAberta} onChange={e => setManterAberta(e.target.checked)} /> 
+                    <input type="checkbox" className="w-4 h-4 rounded border-2 border-slate-200 text-blue-600" checked={manterAberta} onChange={e => setManterAberta(e.target.checked)} />
                     Manter janela aberta após salvar
                   </label>
                 ) : <div />}
-                
+
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setModalAberta(false)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
                   <button type="submit" className={`px-8 py-3 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 ${editandoId ? 'bg-amber-500 shadow-amber-100' : 'bg-blue-600 shadow-blue-100'}`}>
@@ -228,6 +248,33 @@ const Equipamentos = () => {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- NOVO MODAL: ZOOM DO QR CODE RE-IMPLEMENTADO EM REACT --- */}
+      {qrZoomUrl && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 border border-slate-100">
+            <div className="p-4 bg-amber-500 text-white font-black uppercase text-[10px] tracking-widest flex justify-between items-center">
+              <span className="flex items-center gap-2">🔍 QR CODE DO ATIVO</span>
+              <button onClick={() => setQrZoomUrl(null)} className="hover:scale-110 transition-transform font-sans text-sm font-bold">✕</button>
+            </div>
+            <div className="p-6 flex flex-col items-center justify-center bg-white">
+              <img src={qrZoomUrl} alt="QR Code Expandido" className="w-48 h-48 rounded-2xl shadow-md p-2 bg-slate-50 border border-slate-100" />
+              <p className="mt-4 text-[10px] text-slate-400 font-black tracking-widest uppercase text-center">
+                Escaneie para acessar o prontuário
+              </p>
+            </div>
+            <div className="p-3 bg-slate-50 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={() => setQrZoomUrl(null)} 
+                className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
