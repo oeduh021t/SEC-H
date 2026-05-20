@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 
 // --- IMPORTAÇÃO DAS PÁGINAS ---
@@ -12,6 +12,14 @@ import Preventivas from './pages/Preventivas';
 import Usuarios from './pages/Usuarios';
 import Dashboard from './pages/Dashboard';
 import InventarioGeral from './pages/InventarioGeral';
+import { TratarChamado } from "./pages/TratarChamado";
+import Fornecedores from './pages/Fornecedores'; // ADICIONADO
+import { ImprimirOS } from './pages/ImprimirOS'; // ADICIONADO
+
+// --- COMPONENTE DE PROTEÇÃO DE ROTA ---
+function PrivateRoute({ children, user }) {
+  return user ? children : <Navigate to="/" />;
+}
 
 // --- COMPONENTE PRINCIPAL ---
 function App() {
@@ -52,16 +60,32 @@ function App() {
               {/* Módulo Preventivas */}
               <Route path="/preventivas" element={<Preventivas />} />
 
-              {/* Módulo Chamados */}
-              <Route path="/chamados" element={<Chamados />} />
+              {/* Módulo Chamados / Atendimentos */}
+              <Route path="/chamados" element={<Chamados user={user} />} />
+              <Route
+                path="/chamados/:id/tratar"
+                element={<PrivateRoute user={user}><TratarChamado /></PrivateRoute>}
+              />
+              
+              {/* ROTA DA FOLHA DE ASSINATURA CANVAS DA OS (ADICIONADA) */}
+              <Route
+                path="/chamados/:id/imprimir"
+                element={<PrivateRoute user={user}><ImprimirOS /></PrivateRoute>}
+              />
+
+              {/* Módulo Fornecedores (ADICIONADO) */}
+              <Route 
+                path="/fornecedores" 
+                element={<PrivateRoute user={user}><Fornecedores /></PrivateRoute>} 
+              />
 
               {/* Relatórios */}
-              <Route path="relatorios/inventario" element={<InventarioGeral />} />
+              <Route path="/relatorios/inventario" element={<InventarioGeral />} />
 
               {/* Módulo Usuarios - PROTEÇÃO: Só Admin entra */}
-              <Route 
-                path="/usuarios" 
-                element={user.nivel === 'admin' ? <Usuarios /> : <Navigate to="/" />} 
+              <Route
+                path="/usuarios"
+                element={user.nivel === 'admin' ? <Usuarios /> : <Navigate to="/" />}
               />
 
               {/* Fallback */}

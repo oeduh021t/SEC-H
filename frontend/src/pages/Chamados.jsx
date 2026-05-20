@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const Chamados = ({ user: userProp }) => {
+  const navigate = useNavigate();
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
@@ -15,7 +17,6 @@ const Chamados = ({ user: userProp }) => {
   // Modais
   const [modalAberta, setModalAberta] = useState(false);
   const [modalObsAberta, setModalObsAberta] = useState(false);
-  const [modalAtenderAberta, setModalAtenderAberta] = useState(false);
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
 
   // Filtros e Seleção
@@ -25,7 +26,6 @@ const Chamados = ({ user: userProp }) => {
 
   // Estados para Fotos
   const [fotoAbertura, setFotoAbertura] = useState(null);
-  const [fotoConclusao, setFotoConclusao] = useState(null);
 
   const [form, setForm] = useState({
     setor_id: '', equipamento_id: '', titulo: '',
@@ -33,15 +33,9 @@ const Chamados = ({ user: userProp }) => {
   });
 
   const [textoObs, setTextoObs] = useState('');
-  const [formAtender, setFormAtender] = useState({
-    tecnico: user?.nome || 'Eduardo Nascimento',
-    solucao: '',
-    status: 'Concluído',
-    tipo_atendimento: 'Interno'
-  });
 
   const API_URL = 'http://192.168.5.101:3000/api';
-  const BASE_URL = 'http://192.168.5.101:3000'; 
+  const BASE_URL = 'http://192.168.5.101:3000';
 
   const carregarDados = () => {
     fetch(`${API_URL}/chamados`).then(res => res.json()).then(setChamados);
@@ -71,7 +65,7 @@ const Chamados = ({ user: userProp }) => {
 
     fetch(`${API_URL}/chamados`, {
       method: 'POST',
-      body: formData 
+      body: formData
     }).then(() => {
       setModalAberta(false);
       setFotoAbertura(null);
@@ -105,26 +99,6 @@ const Chamados = ({ user: userProp }) => {
         } else {
             alert("Erro nas permissões.");
         }
-    });
-  };
-
-  const finalizarAtendimento = (e) => {
-    e.preventDefault();
-    const formData = new FormData();
-    formData.append('status', formAtender.status);
-    formData.append('tecnico_responsavel', formAtender.tecnico);
-    formData.append('descricao_solucao', formAtender.solucao);
-    formData.append('tipo_atendimento', formAtender.tipo_atendimento);
-    if (fotoConclusao) formData.append('foto', fotoConclusao);
-
-    fetch(`${API_URL}/chamados/${chamadoSelecionado.id}/finalizar`, {
-      method: 'PATCH',
-      body: formData 
-    }).then(() => {
-      setModalAtenderAberta(false);
-      setFotoConclusao(null);
-      setFormAtender({ tecnico: user?.nome || 'Eduardo Nascimento', solucao: '', status: 'Concluído', tipo_atendimento: 'Interno' });
-      carregarDados();
     });
   };
 
@@ -168,7 +142,7 @@ const Chamados = ({ user: userProp }) => {
                 </div>
                 <span className={`px-3 py-1 rounded-full text-[10px] font-black text-white uppercase ${c.status === 'Aberto' ? 'bg-red-500' : c.status === 'Em Atendimento' ? 'bg-amber-400' : 'bg-green-500'}`}>{c.status}</span>
               </div>
-              
+
               {c.equip_nome && (
                 <div className="mb-4 p-2 bg-blue-50 rounded-lg border-l-4 border-blue-400 shrink-0">
                   <span className="text-[10px] font-black text-blue-600 uppercase block">Equipamento:</span>
@@ -176,11 +150,27 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               )}
 
-              <div className="flex gap-3 mb-6 shrink-0">
+              <div className="flex flex-wrap gap-2 mb-6 shrink-0">
                 <button onClick={() => abrirDetalhes(c.id)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-200">DETALHES</button>
+
+                {/* BOTÃO ATENDER COMPLETO */}
                 {c.status !== 'Concluído' && (
-                  <button onClick={() => { setChamadoSelecionado(c); setModalAtenderAberta(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black shadow-md">ATENDER</button>
+                  <button
+                    onClick={() => navigate(`/chamados/${c.id}/tratar`)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black shadow-md transition-transform active:scale-95"
+                  >
+                    ATENDER
+                  </button>
                 )}
+
+                {/* MODIFICADO: BOTÃO IMPRIMIR DISPONÍVEL SEMPRE NO CARD */}
+                <button
+                  onClick={() => window.open(`/chamados/${c.id}/imprimir`, '_blank')}
+                  className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95"
+                >
+                  🖨️ IMPRIMIR OS
+                </button>
+
                 {/* BOTÃO COM TRAVA REVISADA */}
                 {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
                   <button onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} className="px-4 py-2 bg-cyan-500 text-white rounded-xl text-[11px] font-black shadow-md italic">OBS. COORDENAÇÃO</button>
@@ -197,37 +187,6 @@ const Chamados = ({ user: userProp }) => {
           </div>
         ))}
       </div>
-
-      {/* MODAL: ATENDIMENTO */}
-      {modalAtenderAberta && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <form onSubmit={finalizarAtendimento} className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 text-dark">
-            <div className="bg-blue-600 p-5 text-white font-black uppercase text-[10px] tracking-widest">Tratar Chamado #{chamadoSelecionado?.id}</div>
-            <div className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <select className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={formAtender.status} onChange={e => setFormAtender({...formAtender, status: e.target.value})}>
-                    <option value="Concluído">🟢 Concluído</option>
-                    <option value="Em Atendimento">🟡 Em Atendimento</option>
-                </select>
-                <input type="text" className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-slate-50" value={formAtender.tecnico} readOnly />
-              </div>
-
-              <div className="bg-slate-50 p-4 rounded-2xl border-2 border-dashed border-slate-200">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Foto da Conclusão (Opcional)</label>
-                  <input type="file" accept="image/*" className="text-xs w-full" onChange={(e) => setFotoConclusao(e.target.files[0])} />
-                  {fotoConclusao && <p className="text-[10px] text-blue-600 font-bold mt-2">✓ {fotoConclusao.name}</p>}
-              </div>
-
-              <textarea placeholder="Relatório da Solução..." className="w-full border-2 border-slate-100 p-4 rounded-2xl h-32 resize-none outline-none focus:border-blue-400 transition-all font-medium text-sm text-dark" value={formAtender.solucao} onChange={e => setFormAtender({...formAtender, solucao: e.target.value})} required />
-
-              <div className="flex gap-3">
-                <button type="button" onClick={() => {setModalAtenderAberta(false); setFotoConclusao(null);}} className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Cancelar</button>
-                <button type="submit" className="flex-[2] bg-green-600 hover:bg-green-700 text-white py-4 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all">SALVAR ATENDIMENTO</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
 
       {/* MODAL: DETALHES */}
       {modalDetalhesAberta && chamadoSelecionado && (
@@ -248,13 +207,13 @@ const Chamados = ({ user: userProp }) => {
                           {chamadoSelecionado.foto_abertura && (
                               <div>
                                   <label className="text-[10px] font-black text-blue-500 uppercase block mb-1">Foto Abertura:</label>
-                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} alt="Abertura" />
+                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} />
                               </div>
                           )}
                           {chamadoSelecionado.foto_conclusao && (
                               <div>
                                   <label className="text-[10px] font-black text-green-500 uppercase block mb-1">Foto Conclusão:</label>
-                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} alt="Conclusão" />
+                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} />
                               </div>
                           )}
                       </div>
@@ -313,7 +272,10 @@ const Chamados = ({ user: userProp }) => {
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
           <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
-            <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">📣 Nova Solicitação</div>
+            <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">
+              <span>📣 Nova Solicitação</span>
+              <button type="button" onClick={() => setModalAberta(false)} className="text-xl text-white">✕</button>
+            </div>
             <div className="p-8 space-y-4">
               <select required className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.setor_id} onChange={e => setForm({...form, setor_id: e.target.value})}>
                 <option value="">-- Selecione o Setor --</option>

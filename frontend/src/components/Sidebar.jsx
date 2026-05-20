@@ -16,7 +16,7 @@ const Sidebar = ({ user, onLogout }) => {
   const API_URL = 'http://192.168.5.101:3000/api';
 
   const isActive = (path) => location.pathname === path;
-  
+
   // Verifica se o grupo está ativo para manter aberto visualmente
   const isEquipActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas');
   const isRelatActive = location.pathname.includes('relatorios');
@@ -59,7 +59,7 @@ const Sidebar = ({ user, onLogout }) => {
   return (
     <>
       <div className="w-64 bg-slate-900 h-screen text-slate-300 p-4 flex flex-col shrink-0 border-r border-slate-800 fixed left-0 top-0 z-50">
-        
+
         {/* LOGO */}
         <div className="mb-10 p-2 text-center shrink-0">
           <h2 className="text-2xl font-black text-white tracking-tighter italic">SEC-H</h2>
@@ -68,7 +68,7 @@ const Sidebar = ({ user, onLogout }) => {
 
         {/* NAVEGAÇÃO PRINCIPAL */}
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2 custom-scrollbar">
-          
+
           {/* DASHBOARD */}
           <Link to="/" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
             🏠 Dashboard
@@ -85,17 +85,17 @@ const Sidebar = ({ user, onLogout }) => {
             </button>
 
             <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'}`}>
-              <Link to="/equipamentos" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+              <Link to="/equipamentos" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-slate-300'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
                 Listar Ativos
               </Link>
 
-              <Link to="/preventivas" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+              <Link to="/preventivas" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-slate-300'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/preventivas') ? 'bg-green-500' : 'bg-slate-600'}`}></span>
                 Preventivas / PMOC
               </Link>
 
-              <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+              <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-slate-300'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
                 Novo Cadastro
               </Link>
@@ -107,6 +107,11 @@ const Sidebar = ({ user, onLogout }) => {
             🎫 Chamados / OS
           </Link>
 
+          {/* MÓDULO ADICIONADO: FORNECEDORES */}
+          <Link to="/fornecedores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/fornecedores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+            🚚 Fornecedores
+          </Link>
+
           {/* MENU RELATÓRIOS */}
           <div>
             <button
@@ -116,9 +121,8 @@ const Sidebar = ({ user, onLogout }) => {
               <div className="flex items-center gap-3">📊 Relatórios</div>
               <span className={`text-[10px] transition-transform duration-300 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`}>▼</span>
             </button>
-
             <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
-              <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+              <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-slate-300'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
                 Inventário Geral
               </Link>
@@ -174,7 +178,6 @@ const Sidebar = ({ user, onLogout }) => {
                   required
                 />
               </div>
-
               <div className="grid grid-cols-1 gap-4 pt-2 border-t border-slate-50">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Nova Senha</label>

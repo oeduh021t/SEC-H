@@ -2,6 +2,7 @@ services:
   api:
     image: node:20-alpine
     container_name: sech_backend
+    restart: always
     working_dir: /app
     volumes:
       - ./backend:/app
