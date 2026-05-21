@@ -182,3 +182,46 @@
     border-right-color: var(--border);
   }
 }
+
+/* =========================================================================
+   BLOQUEIO CIRÚRGICO DE OVERFLOW PARA IMPRESSÃO (RESOLVE TELA EM BRANCO)
+   ========================================================================= */
+@media print {
+  /* Força todas as estruturas pai e containers flex a liberarem o conteúdo para o papel */
+  html, 
+  body, 
+  #root, 
+  div[class*="min-h-screen"], 
+  div[class*="flex"], 
+  main, 
+  #center {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-y: visible !important;
+    position: static !important;
+    display: block !important; /* Desfaz o modelo flexbox que corta páginas */
+  }
+
+  /* Garante que o grid do Tailwind usado no relatório quebre em linhas verticais normais */
+  div[class*="grid"] {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  /* Expande o miolo do relatório para ocupar toda a largura da folha A4 */
+  div[class*="max-w-7xl"], 
+  div[class*="mx-auto"] {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Limpa fundos escuros residuais ou cinzas para não bugar o contraste da impressão */
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}

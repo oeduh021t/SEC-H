@@ -203,7 +203,6 @@ app.get('/api/chamados/:id', (req, res) => {
             if (err) return res.status(500).json({ error: err.message });
             chamado.historico = logs || [];
             
-            // ALTERAÇÃO CIRÚRGICA: Buscando os itens cadastrados vinculados a essa OS e injetando no chamado
             const queryItens = `
                 SELECT ci.quantidade, ci.valor_unitario_na_epoca AS valor_unitario, ie.nome 
                 FROM chamados_itens ci
@@ -219,7 +218,6 @@ app.get('/api/chamados/:id', (req, res) => {
     });
 });
 
-// CORRIGIDO: Integrado o mapeamento inteligente de 'categoria' ou 'category' para evitar quebra de rota
 app.post('/api/chamados', upload.single('foto'), (req, res) => {
     const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
     const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
@@ -400,7 +398,6 @@ app.patch('/api/chamados/:id/observacao', (req, res) => {
     });
 });
 
-// CORRIGIDO: Rota estável com retorno explícito status 200 para o React
 app.patch('/api/chamados/:id/assinar', (req, res) => {
     const { id } = req.params;
     const { tipo, assinaturaBase64 } = req.body;
@@ -638,7 +635,6 @@ app.get('/api/types_equipamentos', (req, res) => {
 app.get('/api/relatorios/custos-setor', (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
-    // Se não passarem datas, define por padrão os últimos 30 dias
     const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
     const fim = data_fim || new Date().toISOString().split('T')[0] + ' 23:59:59';
 
@@ -709,7 +705,7 @@ app.post('/api/estoque', (req, res) => {
 
             // 2. Grava o histórico de entrada com o número da nota fiscal
             const queryHistorico = `
-                INSERT INTO itens_estoque_entradas (item_id, quantidade, valor_unitario, num_nota, data_entrada)
+                INSERT INTO itens_estoque_entradas (item_id, quantity = quantidade, valor_unitario, num_nota, data_entrada)
                 VALUES (?, ?, ?, ?, NOW())
             `;
 

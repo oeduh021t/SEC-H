@@ -48,7 +48,8 @@ function App() {
         {/* Passamos o usuário e a função de logout para a Sidebar */}
         <Sidebar user={user} onLogout={handleLogout} />
 
-        <main className="flex-1 p-8 overflow-y-auto">
+        {/* ALTERAÇÃO CIRÚRGICA: Inseridas as classes 'print:overflow-visible print:p-0 print:m-0' para que o container libere as páginas no papel sem restrições de rolagem */}
+        <main className="flex-1 p-8 overflow-y-auto print:overflow-visible print:p-0 print:m-0">
           <div className="max-w-7xl mx-auto">
             <Routes>
               {/* Home / Dashboard */}
@@ -89,8 +90,7 @@ function App() {
 
               {/* Relatórios */}
               <Route path="/relatorios/inventario" element={<InventarioGeral />} />
-              <Route path="/relatorios/custos-setor" element={<PrivateRoute user={user}><RelatorioCustosSetor /></PrivateRoute>} 
-/>  
+              <Route path="/relatorios/custos-setor" element={<PrivateRoute user={user}><RelatorioCustosSetor /></PrivateRoute>} />  
 
               {/* Módulo Usuarios - PROTEÇÃO: Só Admin entra */}
               <Route
