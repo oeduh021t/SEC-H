@@ -108,7 +108,7 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
+        await axios.post(url, { chat_id, text: message = mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         console.error("❌ Erro ao enviar Telegram:", err.message);
@@ -326,7 +326,7 @@ app.post('/api/chamados/:id/itens', (req, res) => {
             db.query(queryIns, [id, item_id, quantidade, item.valor_unitario], (err) => {
                 if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
 
-                db.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [quantidade, item_id], (err) => {
+                db.query("UPDATE itens_estoque SET quantidade = quantity = quantidade - ? WHERE id = ?", [quantidade, item_id], (err) => {
                     if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
 
                     const msgEstoque = `Peça utilizada: ${quantidade}x ${item.nome}`;
@@ -590,23 +590,58 @@ app.patch('/api/usuarios/alterar-senha', async (req, res) => {
     });
 });
 
+// ROTA: Relatório Avançado de Inventário Geral com Filtro de Período e Centro de Custo
 app.get('/api/relatorios/inventario-geral', (req, res) => {
+    const { data_inicio, data_fim, setor_id } = req.query;
+
+    // Definição de escopo padrão (Últimos 30 dias se nenhuma data for enviada)
+    const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+    const fim = data_fim ? data_fim + ' 23:59:59' : new Date().toISOString().split('T')[0] + ' 23:59:59';
+
+    let queryParams = [inicio, fim, inicio, fim];
+    let filtroSetor = '';
+
+    // Filtro condicional por setor de localização do ativo
+    if (setor_id && setor_id !== 'todos') {
+        filtroSetor = 'WHERE e.setor_id = ?';
+        queryParams.push(setor_id);
+    }
+
     const query = `
         SELECT
-            e.id, e.nome, e.modelo, e.patrimonio, e.fabricante as marca, e.status,
+            e.id, 
+            e.nome, 
+            e.modelo, 
+            e.patrimonio, 
+            e.fabricante as marca, 
+            e.status,
             IFNULL(s.nome, 'Sem Setor') as setor_nome,
             IFNULL(t.nome, 'Sem Tipo') as tipo_nome,
-            IFNULL(SUM(c.custo_servico), 0) as total_gasto
+            (
+                /* 1. Mão de obra do equipamento filtrada por data */
+                SELECT IFNULL(SUM(c.custo_servico), 0) 
+                FROM chamados c 
+                WHERE c.equipamento_id = e.id AND c.data_abertura BETWEEN ? AND ?
+            ) +
+            (
+                /* 2. Insumos/Peças do equipamento filtrados por data */
+                SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
+                FROM chamados_itens ci
+                JOIN chamados ch ON ci.chamado_id = ch.id
+                WHERE ch.equipamento_id = e.id AND ch.data_abertura BETWEEN ? AND ?
+            ) as total_gasto
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
         LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
-        LEFT JOIN chamados c ON e.id = c.equipamento_id AND c.status = 'Concluído'
-        GROUP BY e.id
-        ORDER BY s.nome ASC, e.nome ASC
+        ${filtroSetor}
+        ORDER BY total_gasto DESC, s.nome ASC, e.nome ASC
     `;
 
-    db.query(query, (err, results) => {
-        if (err) return res.status(500).json(err);
+    db.query(query, queryParams, (err, results) => {
+        if (err) {
+            console.error("❌ Erro ao gerar inventário avançado:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
         res.json(results);
     });
 });
@@ -686,7 +721,7 @@ app.get('/api/estoque', (req, res) => {
 // ADICIONADO AQUI: Rota para receber o cadastro do formulário do React
 app.post('/api/estoque', (req, res) => {
     const { nome, descricao, quantidade, valor_unitario, num_nota } = req.body;
-    const qtd = Number(quantidade) || 0;
+    const qtd = Number(quantity = quantidade) || 0;
     const valor = Number(valor_unitario) || 0.00;
 
     db.beginTransaction((err) => {
@@ -705,7 +740,7 @@ app.post('/api/estoque', (req, res) => {
 
             // 2. Grava o histórico de entrada com o número da nota fiscal
             const queryHistorico = `
-                INSERT INTO itens_estoque_entradas (item_id, quantity = quantidade, valor_unitario, num_nota, data_entrada)
+                INSERT INTO itens_estoque_entradas (item_id, quantity, valor_unitario, num_nota, data_entrada)
                 VALUES (?, ?, ?, ?, NOW())
             `;
 

@@ -38,7 +38,7 @@ export function TratarChamado() {
         fetch(`${API_URL}/fornecedores`).then(res => res.json())
       ])
 
-      console.log("Dados da API do chamado:", resChamado); // Para checar se o nome do array é 'itens_vinculados'
+      console.log("Dados da API do chamado:", resChamado);
       setChamado(resChamado)
       setItensEstoque(resEstoque || [])
       setFornecedores(resFornecedores || [])
@@ -59,13 +59,11 @@ export function TratarChamado() {
 
   useEffect(() => { carregarTodosOsDados() }, [id])
 
-  // Função idêntica ao addTexto do PHP
   const injetarTextoRapido = (texto) => {
     if (chamado?.status === "Concluído") return
     setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`)
   }
 
-  // Enviar peça para o estoque vinculado ao chamado
   const handleAdicionarPeca = (e) => {
     e.preventDefault()
     if (!pecaSelecionada) return
@@ -86,7 +84,6 @@ export function TratarChamado() {
     })
   }
 
-  // Salvar atualização geral do atendimento técnico
   const handleSalvarAtendimento = (e) => {
     e.preventDefault()
 
@@ -97,7 +94,7 @@ export function TratarChamado() {
       fornecedor_id: tipoAtendimento === "Externo" ? fornecedorId : null,
       nf_referencia: tipoAtendimento === "Externo" ? nfReferencia : null,
       custo_servico: tipoAtendimento === "Externo" ? Number(custoServico) : 0,
-      custo_pecas: totalPecas, // Enviando o total valorado das peças
+      custo_pecas: totalPecas,
       tecnico_responsavel: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).nome : "Técnico"
     }
 
@@ -107,7 +104,7 @@ export function TratarChamado() {
       body: JSON.stringify(dadosParaSalvar)
     }).then((res) => {
       if (res.ok) {
-        alert("Relatório técnico updated com sucesso! 🎉")
+        alert("Relatório técnico atualizado com sucesso! 🎉")
         navigate("/chamados")
       } else {
         alert("Erro ao salvar o atendimento no servidor.")
@@ -121,18 +118,25 @@ export function TratarChamado() {
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
-      {/* HEADER */}
+      
+      {/* HEADER TOTALMENTE CORRIGIDO */}
       <div className="flex justify-between items-center mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <div>
           <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
             <span className="text-blue-600">🛠️</span> ATENDIMENTO TÉCNICO #{id}
           </h1>
-          <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">
-            Setor: {chamado?.setor_nome || "Não informado"}
-          </p>
+          <div className="flex flex-col sm:flex-row sm:gap-4 mt-1">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+              📍 Setor: <span className="text-slate-600 font-black">{chamado?.setor_nome || "Não informado"}</span>
+            </p>
+            {chamado?.eq_nome && (
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider sm:border-l sm:pl-4 border-slate-200">
+                🤖 Ativo: <span className="text-blue-600 font-black">{chamado.eq_nome}</span> {chamado.patrimonio && <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-mono text-[10px] ml-1">Pat: {chamado.patrimonio}</span>}
+              </p>
+            )}
+          </div>
         </div>
         
-        {/* BOTÕES DO CABEÇALHO */}
         <div className="flex gap-2">
           <button 
             type="button"
@@ -174,7 +178,6 @@ export function TratarChamado() {
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Peças e Materiais Utilizados</h3>
             
-            {/* CORREÇÃO DO FORM: Ajustado flex-wrap para impedir que quebre para fora do card */}
             <form onSubmit={handleAdicionarPeca} className="flex gap-2 w-full flex-wrap">
               <select
                 disabled={isConcluido}
@@ -200,7 +203,6 @@ export function TratarChamado() {
               </button>
             </form>
 
-            {/* LISTAGEM DAS PEÇAS JÁ ADICIONADAS E VALORAÇÃO REAL */}
             <div className="mt-4 space-y-1 border-t border-slate-100 pt-3">
               {chamado?.itens_vinculados?.map((p, i) => (
                 <div key={i} className="flex justify-between text-[10px] bg-slate-50 p-2 rounded text-slate-600 font-bold">
@@ -227,7 +229,6 @@ export function TratarChamado() {
               </div>
             )}
 
-            {/* ALTERNADOR DE ORIGEM (INTERNO / FORNECEDOR) */}
             <div className="flex bg-slate-100 p-1 rounded-xl">
               <button
                 type="button"
@@ -247,7 +248,6 @@ export function TratarChamado() {
               </button>
             </div>
 
-            {/* SEÇÃO CAMPOS EXTERNOS (CONDICIONAL) */}
             {tipoAtendimento === "Externo" && (
               <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl border-2 border-slate-100 animate-in fade-in duration-150 text-dark">
                 <div>
@@ -267,7 +267,6 @@ export function TratarChamado() {
               </div>
             )}
 
-            {/* STATUS */}
             <div className="w-1/2 text-dark">
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Alterar Status Operacional</label>
               <select disabled={isConcluido} className="w-full p-3 border-2 border-slate-100 bg-white rounded-xl text-xs font-bold outline-none" value={status} onChange={e => setStatus(e.target.value)}>
@@ -277,7 +276,6 @@ export function TratarChamado() {
               </select>
             </div>
 
-            {/* BOTÕES DE AÇÕES RÁPIDAS */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-wider">Inserções Rápidas (Toque para colar no relatório)</label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -290,7 +288,6 @@ export function TratarChamado() {
               </div>
             </div>
 
-            {/* CAMPO DE TEXTO DO LAUDO */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Relatório Descritivo da Solução</label>
               <textarea
@@ -304,7 +301,6 @@ export function TratarChamado() {
               />
             </div>
 
-            {/* BOTÃO SALVAR RELEITURA */}
             {!isConcluido && (
               <button type="submit" className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-xl shadow-green-100 transition-all active:scale-[0.98]">
                 💾 Salvar Atualização Técnica
