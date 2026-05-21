@@ -5,7 +5,9 @@ const Prontuario = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const [dados, setDados] = useState(null);
+    
     const API_URL = 'http://192.168.5.101:3000/api';
+    const BASE_URL = 'http://192.168.5.101:3000'; // Adicionado para carregar as mídias do backend
 
     useEffect(() => {
         fetch(`${API_URL}/equipamentos/${id}/prontuario`)
@@ -13,11 +15,9 @@ const Prontuario = () => {
             .then(setDados);
     }, [id]);
 
-   // Redireciona para a listagem principal de chamados injetando o contexto do ativo
     const handleCriarChamadoContextualizado = () => {
         if (!dados || !dados.dados) return;
         
-        // CORREÇÃO: Mudado de '/chamados/novo' para '/chamados'
         navigate('/chamados', {
             state: {
                 equipamento_id: dados.dados.id,
@@ -38,7 +38,6 @@ const Prontuario = () => {
                     <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Prontuário do Ativo</h1>
                 </div>
                 <div className="flex gap-2">
-                    {/* AÇÃO RE-IMPLEMENTADA: Redireciona com contexto */}
                     <button 
                         onClick={handleCriarChamadoContextualizado}
                         className="bg-amber-500 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-amber-600 transition-colors active:scale-95 shadow-md shadow-amber-100"
@@ -55,11 +54,23 @@ const Prontuario = () => {
                 <div className="lg:col-span-4 space-y-6">
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                         <div className="p-6 text-center">
-                            <div className="bg-slate-100 w-full h-48 rounded-2xl mb-4 flex items-center justify-center text-slate-300">
-                                <span className="text-5xl">📷</span>
+                            
+                            {/* BOX DE FOTO CORRIGIDO E ATUALIZADO COm RENDERS DINÂMICOS */}
+                            <div className="bg-slate-100 w-full h-48 rounded-2xl mb-4 flex items-center justify-center text-slate-300 overflow-hidden border border-slate-200">
+                                {dados.dados.foto_equipamento ? (
+                                    <img 
+                                        src={`${BASE_URL}${dados.dados.foto_equipamento}`} 
+                                        alt={dados.dados.nome}
+                                        className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                        onClick={() => window.open(`${BASE_URL}${dados.dados.foto_equipamento}`, '_blank')}
+                                    />
+                                ) : (
+                                    <span className="text-5xl">📷</span>
+                                )}
                             </div>
+
                             <h2 className="font-black text-slate-800 text-xl uppercase leading-tight">{dados.dados.nome}</h2>
-                            <p className="text-slate-400 font-bold text-[10px] mt-1 tracking-widest">{dados.dados.modelo}</p>
+                            <p className="text-slate-400 font-bold text-[10px] mt-1 tracking-widest uppercase">{dados.dados.modelo || 'Modelo não cadastrado'}</p>
                         </div>
                         <div className="border-t border-slate-50 p-4 space-y-3">
                             <div className="flex justify-between text-xs"><span className="text-slate-400 font-bold">LOCAL:</span><span className="text-blue-600 font-black uppercase">{dados.dados.setor_nome}</span></div>

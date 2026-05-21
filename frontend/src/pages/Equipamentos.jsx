@@ -8,14 +8,17 @@ const Equipamentos = () => {
   const [manterAberta, setManterAberta] = useState(false)
   const [editandoId, setEditandoId] = useState(null)
   
-  // NOVOS ESTADOS PARA O CONTROLE DO QR CODE E IMPRESSÃO
+  // Controle do QR Code e Impressão de Etiquetas
   const [qrZoomUrl, setQrZoomUrl] = useState(null)
   const [ativoSelecionadoQR, setAtivoSelecionadoQR] = useState(null)
+
+  // NOVO ESTADO: Armazena temporariamente o arquivo binário da foto selecionada
+  const [fotoEquipamento, setFotoEquipamento] = useState(null)
 
   const [setores, setSetores] = useState([])
   const [tipos, setTipos] = useState([])
 
-  // Filtros adicionais na barra superior
+  // Filtros dinâmicos da barra superior
   const [filtroSetor, setFiltroSetor] = useState('todos')
   const [filtroStatus, setFiltroStatus] = useState('todos')
 
@@ -25,7 +28,7 @@ const Equipamentos = () => {
   }
   const [form, setForm] = useState(estadoInicial)
 
-  const API_URL = 'http://192.168.5.101:3000/api'
+  const API_URL = 'http://192.168.5.101:3000/api';
 
   const gerarLinkQRCodeLocal = (id) => {
     const urlDestino = `${window.location.origin}/prontuario/${id}`
@@ -39,7 +42,7 @@ const Equipamentos = () => {
   useEffect(() => {
     carregarDados()
     fetch(`${API_URL}/setores`).then(res => res.json()).then(data => setSetores(data))
-    fetch(`${API_URL}/tipos`).then(res => res.json()).then(data => setTipos(data))
+    fetch(`${API_URL}/types_equipamentos`).then(res => res.json()).then(data => setTipos(data))
   }, [])
 
   const prepararEdicao = (e) => {
@@ -48,6 +51,7 @@ const Equipamentos = () => {
       ...e,
       data_ultima_preventiva: e.data_ultima_preventiva ? e.data_ultima_preventiva.split('T')[0] : ''
     })
+    setFotoEquipamento(null) // Reseta o campo de arquivo ao abrir uma nova edição
     setModalAberta(true)
   }
 
@@ -61,13 +65,29 @@ const Equipamentos = () => {
     e.preventDefault()
     const url = editandoId ? `${API_URL}/equipamentos/${editandoId}` : `${API_URL}/equipamentos`
 
+    // MODIFICADO: Uso de FormData no lugar de JSON para empacotar texto e arquivos binários na mesma requisição
+    const formData = new FormData()
+    formData.append('nome', form.nome || '')
+    formData.append('modelo', form.modelo || '')
+    formData.append('patrimonio', form.patrimonio || '')
+    formData.append('num_serie', form.num_serie || '')
+    formData.append('fabricante', form.fabricante || '')
+    formData.append('setor_id', form.setor_id || '')
+    formData.append('status', form.status || 'Ativo')
+    formData.append('tipo_id', form.tipo_id || '')
+    formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0)
+    
+    if (fotoEquipamento) {
+      formData.append('foto_equipamento', fotoEquipamento)
+    }
+
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form)
+      body: formData // O navegador gerencia o Content-Type multipart/form-data automaticamente
     })
     .then(() => {
       carregarDados()
+      setFotoEquipamento(null)
       if (!manterAberta || editandoId) {
         setModalAberta(false)
         setEditandoId(null)
@@ -81,7 +101,6 @@ const Equipamentos = () => {
   // FILTRAGEM GLOBAL MULTI-CAMPO EM TEMPO REAL
   const equipamentosFiltrados = equipamentos.filter(e => {
     const termo = busca.toLowerCase();
-    
     const matchesBusca = 
       (e.nome && e.nome.toLowerCase().includes(termo)) ||
       (e.patrimonio && e.patrimonio.toLowerCase().includes(termo)) ||
@@ -103,23 +122,14 @@ const Equipamentos = () => {
           body * { visibility: hidden; background: white !important; }
           #bloco-etiqueta-impressao, #bloco-etiqueta-impressao * { visibility: visible; }
           #bloco-etiqueta-impressao { 
-            position: absolute; 
-            left: 0; 
-            top: 0; 
-            width: 60mm; /* Tamanho padrão de etiqueta térmica */
-            height: auto;
-            padding: 5px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
+            position: absolute; left: 0; top: 0; width: 60mm; height: auto; padding: 5px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
           }
           @page { size: auto; margin: 0; }
         }
       `}</style>
 
-      {/* HEADER E BARRA DE BUSCA */}
+      {/* HEADER E BARRA DE FILTROS */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-slate-50 pb-4 mb-4">
           <div>
@@ -129,14 +139,13 @@ const Equipamentos = () => {
             <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Inventário patrimonial, controle operacional e prontuários</p>
           </div>
           <button
-            onClick={() => { setEditandoId(null); setForm(estadoInicial); setModalAberta(true); }}
+            onClick={() => { setEditandoId(null); setForm(estadoInicial); setFotoEquipamento(null); setModalAberta(true); }}
             className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-xs uppercase tracking-wider"
           >
             + Novo Ativo
           </button>
         </div>
 
-        {/* PAINEL DE FILTROS DINÂMICOS COMBINADOS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Busca Global</label>
@@ -198,40 +207,19 @@ const Equipamentos = () => {
                     {e.status}
                   </span>
                 </td>
-                
                 <td className="p-5 text-center">
                   <button 
                     onClick={() => { setQrZoomUrl(gerarLinkQRCodeLocal(e.id)); setAtivoSelecionadoQR(e); }}
                     className="inline-block p-1 bg-slate-50 border border-slate-100 rounded-xl hover:scale-105 transition-all shadow-sm"
-                    title="Visualizar e Imprimir Etiqueta QR"
                   >
-                    <img src={gerarLinkQRCodeLocal(e.id)} alt="QR Thumb" className="w-8 h-8 rounded-lg" />
+                    <img src={gerarLinkQRCodeLocal(e.id)} alt="QR" className="w-8 h-8 rounded-lg" />
                   </button>
                 </td>
-
                 <td className="p-5">
                   <div className="flex justify-center gap-2">
-                    <Link
-                      to={`/prontuario/${e.id}`}
-                      className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm border border-blue-100"
-                      title="Ver Prontuário Clínico"
-                    >
-                      <span className="text-sm">📋</span>
-                    </Link>
-                    <button
-                      onClick={() => prepararEdicao(e)}
-                      className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm border border-amber-100"
-                      title="Editar Ativo"
-                    >
-                      <span className="text-sm">✏️</span>
-                    </button>
-                    <button
-                      onClick={() => excluir(e.id)}
-                      className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100"
-                      title="Remover do Inventário"
-                    >
-                      <span className="text-sm">🗑️</span>
-                    </button>
+                    <Link to={`/prontuario/${e.id}`} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all border border-blue-100">📋</Link>
+                    <button onClick={() => prepararEdicao(e)} className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all border border-amber-100">✏️</button>
+                    <button onClick={() => excluir(e.id)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all border border-red-100">🗑️</button>
                   </div>
                 </td>
               </tr>
@@ -257,32 +245,32 @@ const Equipamentos = () => {
             <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark">
               <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome do Equipamento</label>
-                <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 transition-all font-bold text-xs" onChange={e => setForm({...form, nome: e.target.value})} />
+                <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 text-xs font-bold" onChange={e => setForm({...form, nome: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Modelo</label>
-                <input type="text" value={form.modelo || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-xs" onChange={e => setForm({...form, modelo: e.target.value})} />
+                <input type="text" value={form.modelo || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none" onChange={e => setForm({...form, modelo: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Fabricante</label>
-                <input type="text" value={form.fabricante || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-xs" onChange={e => setForm({...form, fabricante: e.target.value})} />
+                <input type="text" value={form.fabricante || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none" onChange={e => setForm({...form, fabricante: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nº Patrimônio</label>
-                <input type="text" value={form.patrimonio || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-xs font-bold" onChange={e => setForm({...form, patrimonio: e.target.value})} />
+                <input type="text" value={form.patrimonio || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-mono font-bold outline-none" onChange={e => setForm({...form, patrimonio: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nº Série</label>
-                <input type="text" value={form.num_serie || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-xs" onChange={e => setForm({...form, num_serie: e.target.value})} />
+                <input type="text" value={form.num_serie || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none" onChange={e => setForm({...form, num_serie: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Setor Responsável</label>
-                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-xs" onChange={e => setForm({...form, setor_id: e.target.value})}>
+                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none" onChange={e => setForm({...form, setor_id: e.target.value})}>
                   <option value="">Selecione o Setor...</option>
                   {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
@@ -290,14 +278,25 @@ const Equipamentos = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Status Operacional</label>
-                <select value={form.status || 'Ativo'} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-xs" onChange={e => setForm({...form, status: e.target.value})}>
+                <select value={form.status || 'Ativo'} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none" onChange={e => setForm({...form, status: e.target.value})}>
                   <option value="Ativo">🟢 Ativo</option>
                   <option value="Reserva">🔵 Reserva</option>
                   <option value="Em Manutenção">🟡 Em Manutenção</option>
                 </select>
               </div>
 
-              <div className="col-span-2 flex justify-between items-center border-t border-slate-50 pt-6 mt-4">
+              {/* MODIFICADO: NOVO CAMPO DE ANEXAR IMAGEM BINÁRIA */}
+              <div className="col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Foto do Ativo (Opcional)</label>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-white hover:file:bg-slate-900 file:cursor-pointer"
+                  onChange={(e) => setFotoEquipamento(e.target.files[0])} 
+                />
+              </div>
+
+              <div className="col-span-2 flex justify-between items-center border-t border-slate-50 pt-6 mt-2">
                 {!editandoId ? (
                   <label className="flex items-center gap-3 text-[10px] font-black text-slate-400 uppercase cursor-pointer select-none">
                     <input type="checkbox" className="w-4 h-4 rounded border-2 border-slate-200 text-blue-600" checked={manterAberta} onChange={e => setManterAberta(e.target.checked)} />
@@ -320,39 +319,22 @@ const Equipamentos = () => {
       {/* MODAL DE EXPANSÃO E IMPRESSÃO DO QR CODE */}
       {qrZoomUrl && ativoSelecionadoQR && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 border border-slate-100">
+          <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl overflow-hidden border border-slate-100">
             <div className="p-4 bg-slate-800 text-white font-black uppercase text-[10px] tracking-widest flex justify-between items-center">
-              <span className="flex items-center gap-2">🔍 Identificador QR</span>
+              <span>🔍 Identificador QR</span>
               <button onClick={() => { setQrZoomUrl(null); setAtivoSelecionadoQR(null); }} className="font-bold hover:text-red-200">✕</button>
             </div>
             
-            {/* CONTAINER ADAPTADO PARA IMPRESSORA TÉRMICA */}
             <div className="p-6 flex flex-col items-center justify-center bg-white" id="bloco-etiqueta-impressao">
               <span className="text-[8px] font-black text-slate-400 tracking-widest uppercase mb-1">SEC-H ENGENHARIA CLÍNICA</span>
-              <img src={qrZoomUrl} alt="QR Code Expandido" className="w-40 h-40 rounded-xl p-1 bg-white border border-slate-100" />
-              <p className="mt-2 text-xs font-black text-slate-800 uppercase tracking-tight max-w-full truncate">
-                {ativoSelecionadoQR.nome}
-              </p>
-              <p className="text-[10px] font-mono font-black text-blue-600 mt-0.5">
-                PAT: {ativoSelecionadoQR.patrimonio || 'S/P'}
-              </p>
+              <img src={qrZoomUrl} alt="QR Code" className="w-40 h-40 rounded-xl p-1 bg-white border border-slate-100" />
+              <p className="mt-2 text-xs font-black text-slate-800 uppercase tracking-tight max-w-full truncate">{ativoSelecionadoQR.nome}</p>
+              <p className="text-[10px] font-mono font-black text-blue-600 mt-0.5">PAT: {ativoSelecionadoQR.patrimonio || 'S/P'}</p>
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-col gap-2">
-              <button 
-                type="button" 
-                onClick={() => window.print()} 
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 text-center"
-              >
-                🖨️ Imprimir Etiqueta
-              </button>
-              <button 
-                type="button" 
-                onClick={() => { setQrZoomUrl(null); setAtivoSelecionadoQR(null); }} 
-                className="w-full py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl transition-colors text-center"
-              >
-                Fechar
-              </button>
+              <button type="button" onClick={() => window.print()} className="w-full py-3 bg-blue-600 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-md active:scale-95 text-center">🖨️ Imprimir Etiqueta</button>
+              <button type="button" onClick={() => { setQrZoomUrl(null); setAtivoSelecionadoQR(null); }} className="w-full py-2 bg-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest rounded-xl transition-colors text-center">Fechar</button>
             </div>
           </div>
         </div>

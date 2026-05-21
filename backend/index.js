@@ -137,15 +137,40 @@ app.post('/api/equipamentos', (req, res) => {
     });
 });
 
-app.put('/api/equipamentos/:id', (req, res) => {
+// PUT: Editar Equipamento com tratamento de dados e suporte a foto
+app.put('/api/equipamentos/:id', upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
-    const query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=? WHERE id=?`;
-    const values = [nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, id];
+    
+    // TRATAMENTO CRÍTICO: Evita o erro 500 convertendo strings vazias do FormData em NULL para o MySQL
+    const v_nome = nome || 'Sem Nome';
+    const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
+    const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio : 'S/P';
+    const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
+    const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
+    const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
+    const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
+    const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
+    const v_status = status || 'Ativo';
+
+    let query, values;
+
+    // Se o técnico enviou uma nova foto, atualiza o caminho. Caso contrário, não mexe no campo da foto.
+    if (req.file) {
+        const foto_equipamento = `/uploads/${req.file.filename}`;
+        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, foto_equipamento=? WHERE id=?`;
+        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento, id];
+    } else {
+        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=? WHERE id=?`;
+        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, id];
+    }
 
     db.query(query, values, (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Dados updated!" });
+        if (err) {
+            console.error("❌ Erro interno do MySQL no PUT de equipamentos:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: "Dados atualizados com sucesso!" });
     });
 });
 
