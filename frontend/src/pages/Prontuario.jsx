@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 
 const Prontuario = () => {
     const { id } = useParams();
+    const navigate = useNavigate();
     const [dados, setDados] = useState(null);
     const API_URL = 'http://192.168.5.101:3000/api';
 
@@ -11,6 +12,20 @@ const Prontuario = () => {
             .then(res => res.json())
             .then(setDados);
     }, [id]);
+
+   // Redireciona para a listagem principal de chamados injetando o contexto do ativo
+    const handleCriarChamadoContextualizado = () => {
+        if (!dados || !dados.dados) return;
+        
+        // CORREÇÃO: Mudado de '/chamados/novo' para '/chamados'
+        navigate('/chamados', {
+            state: {
+                equipamento_id: dados.dados.id,
+                setor_id: dados.dados.setor_id,
+                pre_configurado: true
+            }
+        });
+    };
 
     if (!dados) return <div className="p-10 text-slate-400 font-bold">Carregando prontuário...</div>;
 
@@ -23,9 +38,15 @@ const Prontuario = () => {
                     <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Prontuário do Ativo</h1>
                 </div>
                 <div className="flex gap-2">
-                    <button className="bg-amber-500 text-white px-4 py-2 rounded-lg font-bold text-xs">+ ABRIR CHAMADO</button>
+                    {/* AÇÃO RE-IMPLEMENTADA: Redireciona com contexto */}
+                    <button 
+                        onClick={handleCriarChamadoContextualizado}
+                        className="bg-amber-500 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-amber-600 transition-colors active:scale-95 shadow-md shadow-amber-100"
+                    >
+                        + ABRIR CHAMADO
+                    </button>
                     <button className="bg-sky-500 text-white px-4 py-2 rounded-lg font-bold text-xs">↔ EMPRESTAR</button>
-                    <Link to="/equipamentos" className="bg-slate-200 text-slate-600 px-4 py-2 rounded-lg font-bold text-xs">VOLTAR</Link>
+                    <Link to="/equipamentos" className="bg-slate-200 text-slate-600 px-4 py-2 rounded-lg font-bold text-xs hover:bg-slate-300 transition-colors">VOLTAR</Link>
                 </div>
             </div>
 
@@ -70,7 +91,7 @@ const Prontuario = () => {
                                 <tbody className="text-xs font-medium text-slate-600">
                                     {dados.timeline.map((item, i) => (
                                         <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                                            <td className="p-4 whitespace-nowrap font-bold text-slate-400">{new Date(item.data).toLocaleDateString()}</td>
+                                            <td className="p-4 whitespace-nowrap font-bold text-slate-400">{new Date(item.data).toLocaleDateString('pt-BR')}</td>
                                             <td className="p-4">{item.evento}</td>
                                             <td className="p-4">
                                                 <span className={`px-2 py-1 rounded text-[9px] font-black text-white uppercase ${item.tipo.includes('Abertura') ? 'bg-amber-400' : 'bg-blue-500'}`}>
@@ -80,6 +101,11 @@ const Prontuario = () => {
                                             <td className="p-4 italic">{item.responsavel}</td>
                                         </tr>
                                     ))}
+                                    {dados.timeline.length === 0 && (
+                                        <tr>
+                                            <td colSpan="4" className="p-8 text-center text-slate-400 font-bold italic">Nenhum evento registrado no prontuário.</td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>

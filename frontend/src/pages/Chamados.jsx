@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
+  const location = useLocation(); // Habilitado para ler o estado vindo do prontuário
+  
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
@@ -43,7 +45,24 @@ const Chamados = ({ user: userProp }) => {
     fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(setEquipamentos);
   };
 
-  useEffect(() => { carregarDados(); }, []);
+  useEffect(() => { 
+    carregarDados(); 
+  }, []);
+
+  // --- LOGICA DE CAPTURA DE CONTEXTO DO PRONTUÁRIO ---
+  useEffect(() => {
+    if (location.state?.pre_configurado) {
+      setForm(prev => ({
+        ...prev,
+        setor_id: location.state.setor_id || '',
+        equipamento_id: location.state.equipamento_id || ''
+      }));
+      setModalAberta(true);
+
+      // Limpa o estado da rota para o modal não abrir sozinho em futuros F5
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state]);
 
   const abrirDetalhes = (id) => {
     fetch(`${API_URL}/chamados/${id}`).then(res => res.json()).then(data => {
@@ -126,7 +145,7 @@ const Chamados = ({ user: userProp }) => {
             <option value="Concluído">🟢 Concluídos</option>
           </select>
           <input type="text" placeholder="Buscar..." className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none" onChange={(e) => setBusca(e.target.value)} />
-          <button onClick={() => setModalAberta(true)} className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all">+ NOVO CHAMADO</button>
+          <button onClick={() => { setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); setModalAberta(true); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all">+ NOVO CHAMADO</button>
         </div>
       </div>
 
@@ -153,7 +172,6 @@ const Chamados = ({ user: userProp }) => {
               <div className="flex flex-wrap gap-2 mb-6 shrink-0">
                 <button onClick={() => abrirDetalhes(c.id)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-200">DETALHES</button>
 
-                {/* BOTÃO ATENDER COMPLETO */}
                 {c.status !== 'Concluído' && (
                   <button
                     onClick={() => navigate(`/chamados/${c.id}/tratar`)}
@@ -163,7 +181,6 @@ const Chamados = ({ user: userProp }) => {
                   </button>
                 )}
 
-                {/* MODIFICADO: BOTÃO IMPRIMIR DISPONÍVEL SEMPRE NO CARD */}
                 <button
                   onClick={() => window.open(`/chamados/${c.id}/imprimir`, '_blank')}
                   className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95"
@@ -171,7 +188,6 @@ const Chamados = ({ user: userProp }) => {
                   🖨️ IMPRIMIR OS
                 </button>
 
-                {/* BOTÃO COM TRAVA REVISADA */}
                 {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
                   <button onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} className="px-4 py-2 bg-cyan-500 text-white rounded-xl text-[11px] font-black shadow-md italic">OBS. COORDENAÇÃO</button>
                 )}
@@ -268,7 +284,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* MODAL: NOVO CHAMADO */}
+      {/* MODAL: NOVO CHAMADO MODIFICADO */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
           <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
@@ -277,13 +293,14 @@ const Chamados = ({ user: userProp }) => {
               <button type="button" onClick={() => setModalAberta(false)} className="text-xl text-white">✕</button>
             </div>
             <div className="p-8 space-y-4">
-              <select required className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.setor_id} onChange={e => setForm({...form, setor_id: e.target.value})}>
+              <select required className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.setor_id} onChange={e => setForm({...form, setor_id: e.target.value, equipamento_id: ''})}>
                 <option value="">-- Selecione o Setor --</option>
                 {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
               <select className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.equipamento_id} onChange={e => setForm({...form, equipamento_id: e.target.value})}>
                 <option value="">Equipamento (Opcional)</option>
-                {equipamentos.filter(eq => eq.setor_id == form.setor_id).map(eq => (
+                {/* Modificação de consistência: Se o formulário tiver um setor atrelado, exibe apenas os equipamentos daquele local */}
+                {equipamentos.filter(eq => String(eq.setor_id) === String(form.setor_id)).map(eq => (
                   <option key={eq.id} value={eq.id}>[{eq.patrimonio}] {eq.nome}</option>
                 ))}
               </select>
