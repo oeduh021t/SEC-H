@@ -108,7 +108,6 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        // CORRIGIDO: Alterado de 'message' para 'mensagem' para corresponder ao parâmetro da função
         await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
@@ -203,7 +202,19 @@ app.get('/api/chamados/:id', (req, res) => {
         db.query(queryHist, [id], (err, logs) => {
             if (err) return res.status(500).json({ error: err.message });
             chamado.historico = logs || [];
-            res.json(chamado);
+            
+            // ALTERAÇÃO CIRÚRGICA: Buscando os itens cadastrados vinculados a essa OS e injetando no chamado
+            const queryItens = `
+                SELECT ci.quantidade, ci.valor_unitario_na_epoca AS valor_unitario, ie.nome 
+                FROM chamados_itens ci
+                JOIN itens_estoque ie ON ci.item_id = ie.id
+                WHERE ci.chamado_id = ?
+            `;
+            db.query(queryItens, [id], (errItens, items) => {
+                if (errItens) return res.status(500).json({ error: errItens.message });
+                chamado.itens_vinculados = items || [];
+                res.json(chamado);
+            });
         });
     });
 });
@@ -623,10 +634,94 @@ app.get('/api/types_equipamentos', (req, res) => {
     });
 });
 
+// ROTA: Relatório de Custos Operacionais e Chamados por Setor com filtro de período
+app.get('/api/relatorios/custos-setor', (req, res) => {
+    const { data_inicio, data_fim, setor_id } = req.query;
+
+    // Se não passarem datas, define por padrão os últimos 30 dias
+    const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+    const fim = data_fim || new Date().toISOString().split('T')[0] + ' 23:59:59';
+
+    let queryParams = [inicio, fim];
+    let filtroSetor = '';
+
+    if (setor_id && setor_id !== 'todos') {
+        filtroSetor = 'AND s.id = ?';
+        queryParams.push(setor_id);
+    }
+
+    const sql = `
+        SELECT 
+            s.id AS setor_id,
+            s.nome AS nome_setor,
+            COUNT(c.id) AS total_chamados,
+            SUM(COALESCE(c.custo_servico, 0)) AS total_custo_servico,
+            SUM(COALESCE(ci.total_pecas, 0)) AS total_custo_pecas,
+            (SUM(COALESCE(c.custo_servico, 0)) + SUM(COALESCE(ci.total_pecas, 0))) AS custo_total_geral
+        FROM setores s
+        LEFT JOIN chamados c ON c.setor_id = s.id AND c.data_abertura BETWEEN ? AND ?
+        LEFT JOIN (
+            SELECT chamado_id, SUM(quantidade * valor_unitario_na_epoca) AS total_pecas
+            FROM chamados_itens
+            GROUP BY chamado_id
+        ) ci ON ci.chamado_id = c.id
+        WHERE 1=1 ${filtroSetor}
+        GROUP BY s.id, s.nome
+        ORDER BY custo_total_geral DESC
+    `;
+
+    db.query(sql, queryParams, (err, result) => {
+        if (err) {
+            console.error("Erro ao gerar relatório por setor:", err);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result);
+    });
+});
+
+
+// ALTERAÇÃO CIRÚRGICA: Adicionado 'valor_unitario' no SELECT para passar os valores ao React populate o select
 app.get('/api/estoque', (req, res) => {
-    db.query("SELECT id, nome, quantidade FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
+    db.query("SELECT id, nome, descricao, quantidade, valor_unitario FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
+    });
+});
+// ADICIONADO AQUI: Rota para receber o cadastro do formulário do React
+app.post('/api/estoque', (req, res) => {
+    const { nome, descricao, quantidade, valor_unitario, num_nota } = req.body;
+    const qtd = Number(quantidade) || 0;
+    const valor = Number(valor_unitario) || 0.00;
+
+    db.beginTransaction((err) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Insere ou atualiza o item na tabela principal de saldo
+        const queryItem = `
+            INSERT INTO itens_estoque (nome, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao) 
+            VALUES (?, ?, ?, ?, NOW(), NOW())
+        `;
+        
+        db.query(queryItem, [nome, descricao || null, qtd, valor], (errItem, resultItem) => {
+            if (errItem) return db.rollback(() => res.status(500).json({ error: errItem.message }));
+
+            const novoItemId = resultItem.insertId;
+
+            // 2. Grava o histórico de entrada com o número da nota fiscal
+            const queryHistorico = `
+                INSERT INTO itens_estoque_entradas (item_id, quantidade, valor_unitario, num_nota, data_entrada)
+                VALUES (?, ?, ?, ?, NOW())
+            `;
+
+            db.query(queryHistorico, [novoItemId, qtd, valor, num_nota || null], (errHist) => {
+                if (errHist) return db.rollback(() => res.status(500).json({ error: errHist.message }));
+
+                db.commit((errCommit) => {
+                    if (errCommit) return db.rollback(() => res.status(500).json({ error: errCommit.message }));
+                    res.status(201).json({ message: "Item e nota fiscal registrados com sucesso!", id: novoItemId });
+                });
+            });
+        });
     });
 });
 

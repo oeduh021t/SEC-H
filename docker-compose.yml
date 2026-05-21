@@ -2,14 +2,16 @@ services:
   api:
     image: node:20-alpine
     container_name: sech_backend
-    restart: always
+    restart: unless-stopped
     working_dir: /app
+    tty: true
     volumes:
       - ./backend:/app
     ports:
       - "3000:3000"
     env_file:
       - ./backend/.env
+    # O ideal aqui seria rodar "npm start" (com um script de produção)
     command: sh -c "npm install && npx nodemon index.js"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -17,7 +19,9 @@ services:
   web:
     image: node:20-alpine
     container_name: sech_frontend
+    restart: unless-stopped
     working_dir: /app
+    tty: true
     volumes:
       - ./frontend:/app
     ports:

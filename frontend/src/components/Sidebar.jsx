@@ -77,8 +77,8 @@ const Sidebar = ({ user, onLogout }) => {
         />
       )}
 
-      {/* SIDEBAR */}
-      <div className={`bg-slate-900 h-screen text-slate-300 p-4 flex flex-col shrink-0 border-r border-slate-800 fixed left-0 top-0 z-50 transition-all duration-300 ease-in-out ${sidebarAberta ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'}`}>
+      {/* SIDEBAR - CORRIGIDO: Removida a linha duplicada que quebrava o fechamento da div anterior */}
+      <div className={`bg-slate-900 h-screen text-slate-300 p-4 flex flex-col shrink-0 border-r border-slate-800 fixed left-0 top-0 z-50 transition-all duration-300 ease-in-out print:hidden ${sidebarAberta ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'}`}>
 
         {/* LOGO */}
         <div className={`mb-10 p-2 text-center shrink-0 transition-opacity ${sidebarAberta ? 'opacity-100' : 'opacity-0'}`}>
@@ -126,6 +126,10 @@ const Sidebar = ({ user, onLogout }) => {
             🚚 Fornecedores
           </Link>
 
+          <Link to="/estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+            📦 Gestão de Estoque
+          </Link>
+
           <div>
             <button
               onClick={() => setMenuRelatAberto(!menuRelatAberto)}
@@ -138,6 +142,11 @@ const Sidebar = ({ user, onLogout }) => {
               <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
                 Inventário Geral
+              </Link>
+              
+              <Link to="/relatorios/custos-setor" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
+                Custos por Setor
               </Link>
             </div>
           </div>

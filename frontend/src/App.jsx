@@ -12,9 +12,11 @@ import Preventivas from './pages/Preventivas';
 import Usuarios from './pages/Usuarios';
 import Dashboard from './pages/Dashboard';
 import InventarioGeral from './pages/InventarioGeral';
+import { RelatorioCustosSetor } from './pages/RelatorioCustosSetor';
 import { TratarChamado } from "./pages/TratarChamado";
 import Fornecedores from './pages/Fornecedores'; // ADICIONADO
 import { ImprimirOS } from './pages/ImprimirOS'; // ADICIONADO
+import { GestaoEstoque } from './pages/GestaoEstoque'; // ADICIONADO CIRURGICAMENTE
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA ---
 function PrivateRoute({ children, user }) {
@@ -79,8 +81,16 @@ function App() {
                 element={<PrivateRoute user={user}><Fornecedores /></PrivateRoute>} 
               />
 
+              {/* Módulo Estoque e Peças (ADICIONADO CIRURGICAMENTE) */}
+              <Route 
+                path="/estoque" 
+                element={<PrivateRoute user={user}><GestaoEstoque /></PrivateRoute>} 
+              />
+
               {/* Relatórios */}
               <Route path="/relatorios/inventario" element={<InventarioGeral />} />
+              <Route path="/relatorios/custos-setor" element={<PrivateRoute user={user}><RelatorioCustosSetor /></PrivateRoute>} 
+/>  
 
               {/* Módulo Usuarios - PROTEÇÃO: Só Admin entra */}
               <Route

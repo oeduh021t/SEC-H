@@ -27,6 +27,9 @@ export function TratarChamado() {
 
   const API_URL = "http://192.168.5.101:3000/api"
 
+  // CÁLCULO DA VALORAÇÃO: Soma das peças multiplicadas pelo valor unitário
+  const totalPecas = chamado?.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade) * Number(item.valor_unitario)), 0) || 0;
+
   const carregarTodosOsDados = async () => {
     try {
       const [resChamado, resEstoque, resFornecedores] = await Promise.all([
@@ -35,6 +38,7 @@ export function TratarChamado() {
         fetch(`${API_URL}/fornecedores`).then(res => res.json())
       ])
 
+      console.log("Dados da API do chamado:", resChamado); // Para checar se o nome do array é 'itens_vinculados'
       setChamado(resChamado)
       setItensEstoque(resEstoque || [])
       setFornecedores(resFornecedores || [])
@@ -93,6 +97,7 @@ export function TratarChamado() {
       fornecedor_id: tipoAtendimento === "Externo" ? fornecedorId : null,
       nf_referencia: tipoAtendimento === "Externo" ? nfReferencia : null,
       custo_servico: tipoAtendimento === "Externo" ? Number(custoServico) : 0,
+      custo_pecas: totalPecas, // Enviando o total valorado das peças
       tecnico_responsavel: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).nome : "Técnico"
     }
 
@@ -102,7 +107,7 @@ export function TratarChamado() {
       body: JSON.stringify(dadosParaSalvar)
     }).then((res) => {
       if (res.ok) {
-        alert("Relatório técnico atualizado com sucesso! 🎉")
+        alert("Relatório técnico updated com sucesso! 🎉")
         navigate("/chamados")
       } else {
         alert("Erro ao salvar o atendimento no servidor.")
@@ -168,10 +173,12 @@ export function TratarChamado() {
           {/* PAINEL DE BAIXA EM PEÇAS DO ESTOQUE */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Peças e Materiais Utilizados</h3>
-            <form onSubmit={handleAdicionarPeca} className="flex gap-2">
+            
+            {/* CORREÇÃO DO FORM: Ajustado flex-wrap para impedir que quebre para fora do card */}
+            <form onSubmit={handleAdicionarPeca} className="flex gap-2 w-full flex-wrap">
               <select
                 disabled={isConcluido}
-                className="flex-1 p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white outline-none"
+                className="flex-[3] min-w-[150px] p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white outline-none"
                 value={pecaSelecionada}
                 onChange={e => setPecaSelecionada(e.target.value)}
               >
@@ -184,14 +191,28 @@ export function TratarChamado() {
                 disabled={isConcluido}
                 type="number"
                 min="1"
-                className="w-16 p-3 border-2 border-slate-100 rounded-xl text-center font-bold outline-none"
+                className="flex-[1] min-w-[60px] p-3 border-2 border-slate-100 rounded-xl text-center font-bold outline-none"
                 value={qtdPeca}
                 onChange={e => setQtdPeca(Number(e.target.value))}
               />
-              <button disabled={isConcluido} type="submit" className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 font-bold text-xs uppercase transition-colors">
+              <button disabled={isConcluido} type="submit" className="flex-none w-12 bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 font-bold text-xs uppercase transition-colors">
                 +
               </button>
             </form>
+
+            {/* LISTAGEM DAS PEÇAS JÁ ADICIONADAS E VALORAÇÃO REAL */}
+            <div className="mt-4 space-y-1 border-t border-slate-100 pt-3">
+              {chamado?.itens_vinculados?.map((p, i) => (
+                <div key={i} className="flex justify-between text-[10px] bg-slate-50 p-2 rounded text-slate-600 font-bold">
+                  <span>{p.nome} x {p.quantidade}</span>
+                  <span>R$ {(Number(p.quantidade) * Number(p.valor_unitario)).toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between items-center pt-2 mt-2 border-t border-slate-200 font-black text-xs uppercase">
+                <span>Total Peças:</span>
+                <span className="text-blue-600">R$ {totalPecas.toFixed(2)}</span>
+              </div>
+            </div>
           </div>
         </div>
 

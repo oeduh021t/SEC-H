@@ -19,6 +19,7 @@ export function ImprimirOS() {
       const res = await fetch(`${API_URL}/chamados/${id}`);
       if (!res.ok) throw new Error("Erro ao carregar OS");
       const data = await res.json();
+      console.log("Dados da OS recebidos:", data); // VERIFIQUE OS NOMES DOS CAMPOS AQUI
       setChamado(data);
     } catch (err) {
       console.error(err);
@@ -27,9 +28,7 @@ export function ImprimirOS() {
     }
   };
 
-  useEffect(() => {
-    carregarOS();
-  }, [id]);
+  useEffect(() => { carregarOS(); }, [id]);
 
   const salvarAssinatura = async (tipo) => {
     const padRef = tipo === "tecnico" ? padTecnico : padSetor;
@@ -104,19 +103,32 @@ export function ImprimirOS() {
 
         <div className="mt-6">
           <p className="font-bold border-b border-black mb-2">Diagnóstico</p>
-          <div className="min-h-[80px] whitespace-pre-wrap">{chamado.descricao_problema || "Sem descrição"}</div>
+          <div className="min-h-[80px] whitespace-pre-wrap text-sm">{chamado.descricao_problema || "Sem descrição"}</div>
         </div>
 
+        {/* Seção de Assinaturas */}
         <div className="grid grid-cols-2 gap-10 mt-16">
           {["tecnico", "setor"].map((tipo) => (
             <div key={tipo} className="text-center">
               {chamado[tipo === "tecnico" ? "assinatura_tecnico" : "assinatura_setor"] ? (
-                <img src={chamado[tipo === "tecnico" ? "assinatura_tecnico" : "assinatura_setor"]} alt="Assinatura" className="h-24 mx-auto object-contain" />
+                <div className="flex flex-col items-center">
+                  {/* Rubrica/Assinatura Digital */}
+                  <img 
+                    src={chamado[tipo === "tecnico" ? "assinatura_tecnico" : "assinatura_setor"]} 
+                    alt="Assinatura" 
+                    className="h-16 mx-auto object-contain" 
+                  />
+                  {/* Nome por extenso salvo no banco */}
+                  <p className="text-sm font-bold mt-1 uppercase">
+                    {tipo === "tecnico" ? chamado.nome_tecnico || chamado.tecnico_responsavel : chamado.nome_setor}
+                  </p>
+                </div>
               ) : (
                 <div className="hide-print">
+                  {/* Nome digitado pelo usuário */}
                   <input 
                     type="text" 
-                    placeholder={tipo === "tecnico" ? "Nome Técnico" : "Nome Responsável"} 
+                    placeholder={tipo === "tecnico" ? "Nome Técnico por Extenso" : "Nome Responsável por Extenso"} 
                     value={nomes[tipo]} 
                     onChange={(e) => setNomes({ ...nomes, [tipo]: e.target.value })} 
                     className="w-full border p-1 text-center mb-2"
@@ -131,8 +143,11 @@ export function ImprimirOS() {
                   </div>
                 </div>
               )}
-              <div className="border-t border-black mt-4 pt-1">
-                <p className="text-xs font-bold uppercase">{tipo === "tecnico" ? "Técnico Executante" : "Aceite do Setor"}</p>
+              {/* Linha e Rótulo */}
+              <div className="border-t border-black mt-1 pt-1">
+                <p className="text-[10px] font-bold uppercase">
+                  {tipo === "tecnico" ? "Técnico Executante" : "Aceite do Setor / Responsável"}
+                </p>
               </div>
             </div>
           ))}
