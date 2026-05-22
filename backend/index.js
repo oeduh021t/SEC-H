@@ -9,7 +9,11 @@ const path = require('path');
 const saltRounds = 10;
 
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: '*', // Permite requisições do seu frontend (Vite)
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-usuario-nivel']
+}));
 
 // CONFIGURAÇÃO: Aumentado o limite de recepção de JSON para suportar strings pesadas de Base64 (Assinatura Digital)
 app.use(express.json({ limit: '50mb' }));
@@ -68,9 +72,31 @@ const db = {
 console.log('✅ Pool de conexões do MySQL configurado contra ECONNRESET!');
 
 // -------------------------------------------------------------------------
+// MIDDLEWARE DE CONTROLE DE ACESSO (RBAC) - VALIDAÇÃO DE PERMISSÕES
+// -------------------------------------------------------------------------
+const permitirApenas = (niveisPermitidos) => {
+    return (req, res, next) => {
+        const usuarioNivel = req.headers['x-usuario-nivel'];
+
+        if (!usuarioNivel) {
+            return res.status(401).json({ error: "Acesso não autorizado: Cabeçalho de privilégio ausente." });
+        }
+
+        const nivelLimpo = usuarioNivel.toLowerCase().trim();
+
+        if (niveisPermitidos.includes(nivelLimpo)) {
+            next();
+        } else {
+            console.warn(`⚠️ Bloqueio de Segurança: Nível '${nivelLimpo}' tentou acessar rota restrita: ${req.method} ${req.originalUrl}`);
+            return res.status(403).json({ error: "Acesso negado: Seu perfil de usuário não tem permissão para esta ação." });
+        }
+    };
+};
+
+// -------------------------------------------------------------------------
 // DASHBOARD
 // -------------------------------------------------------------------------
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const queries = {
         totalEquipamentos: "SELECT COUNT(*) as total FROM equipamentos",
         chamadosAbertos: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Aberto'",
@@ -124,7 +150,7 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
+        await axios.post(url, { chat_id, text: message, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         console.error("❌ Erro ao enviar Telegram:", err.message);
@@ -134,7 +160,8 @@ const enviarTelegram = async (mensagem) => {
 // -------------------------------------------------------------------------
 // ROTAS DE EQUIPAMENTOS
 // -------------------------------------------------------------------------
-app.get('/api/equipamentos', (req, res) => {
+// Admin, Coordenador e Técnico acessam visualização. Usuário (Solicitante) não vê inventário geral.
+app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
 const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
     db.query(query, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -142,7 +169,7 @@ const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN se
     });
 });
 
-app.post('/api/equipamentos', (req, res) => {
+app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
     const query = `INSERT INTO equipamentos (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())`;
     const values = [nome || 'Sem Nome', modelo || null, patrimonio || 'S/P', num_serie || null, fabricante || null, setor_id || null, status || 'Ativo', tipo_id || null, periodicidade_preventiva || 0];
@@ -153,7 +180,7 @@ app.post('/api/equipamentos', (req, res) => {
     });
 });
 
-app.put('/api/equipamentos/:id', upload.single('foto_equipamento'), (req, res) => {
+app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
     
@@ -187,7 +214,7 @@ app.put('/api/equipamentos/:id', upload.single('foto_equipamento'), (req, res) =
     });
 });
 
-app.delete('/api/equipamentos/:id', (req, res) => {
+app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     db.query(`DELETE FROM equipamentos WHERE id = ?`, [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -198,7 +225,8 @@ app.delete('/api/equipamentos/:id', (req, res) => {
 // -------------------------------------------------------------------------
 // ROTAS DE CHAMADOS / OS
 // -------------------------------------------------------------------------
-app.get('/api/chamados', (req, res) => {
+// Todos os níveis listam e abrem chamados.
+app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT c.*, s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
         FROM chamados c
@@ -218,7 +246,7 @@ app.get('/api/chamados', (req, res) => {
     });
 });
 
-app.get('/api/chamados/:id', (req, res) => {
+app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { id } = req.params;
 
     const queryChamado = `
@@ -256,7 +284,7 @@ app.get('/api/chamados/:id', (req, res) => {
     });
 });
 
-app.post('/api/chamados', upload.single('foto'), (req, res) => {
+app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), upload.single('foto'), (req, res) => {
     const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
     const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
 
@@ -298,7 +326,8 @@ app.post('/api/chamados', upload.single('foto'), (req, res) => {
     });
 });
 
-app.put('/api/chamados/:id/atualizar', (req, res) => {
+// Tratar/Atualizar Chamado: Admin, Coordenador e Técnico realizam a ação. Usuário (solicitante) é bloqueado.
+app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { status, tipo_atendimento, descricao_solucao, fornecedor_id, nf_referencia, custo_servico } = req.body;
     const tecnico_nome = req.body.tecnico_responsavel || "Técnico do Sistema";
@@ -339,7 +368,7 @@ app.put('/api/chamados/:id/atualizar', (req, res) => {
     });
 });
 
-app.post('/api/chamados/:id/itens', (req, res) => {
+app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { item_id, quantidade = 0 } = req.body;
 
@@ -354,7 +383,7 @@ app.post('/api/chamados/:id/itens', (req, res) => {
                 return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Estoque insuficiente!" }); });
             }
 
-            const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
+            const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantity, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
             conn.query(queryIns, [id, item_id, quantidade, item.valor_unitario], (err) => {
                 if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
 
@@ -378,7 +407,7 @@ app.post('/api/chamados/:id/itens', (req, res) => {
     });
 });
 
-app.patch('/api/chamados/:id/finalizar', upload.single('foto'), (req, res) => {
+app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador', 'tecnico']), upload.single('foto'), (req, res) => {
     const { id } = req.params;
     const { status, tecnico_responsavel, descricao_solucao, tipo_atendimento } = req.body;
     const foto_conclusao = req.file ? `/uploads/${req.file.filename}` : null;
@@ -411,11 +440,11 @@ app.patch('/api/chamados/:id/finalizar', upload.single('foto'), (req, res) => {
     });
 });
 
-app.patch('/api/chamados/:id/observacao', (req, res) => {
+app.patch('/api/chamados/:id/observacao', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const { nova_obs, usuario_nome, usuario_nivel } = req.body;
-    const niveisPermitidos = ['admin', 'coordenador', 'Coordenador', 'Admin'];
-    if (!niveisPermitidos.includes(usuario_nivel)) {
+    const niveisPermitidos = ['admin', 'coordenador'];
+    if (!niveisPermitidos.includes(usuario_nivel?.toLowerCase())) {
         return res.status(403).json({ error: "Acesso negado: Apenas gestores podem adicionar notas." });
     }
 
@@ -429,7 +458,7 @@ app.patch('/api/chamados/:id/observacao', (req, res) => {
     });
 });
 
-app.patch('/api/chamados/:id/assinar', (req, res) => {
+app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { tipo, assinaturaBase64 } = req.body;
 
@@ -445,7 +474,7 @@ app.patch('/api/chamados/:id/assinar', (req, res) => {
 // -------------------------------------------------------------------------
 // ROTAS DE PREVENTIVAS
 // -------------------------------------------------------------------------
-app.get('/api/preventivas', (req, res) => {
+app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `
         SELECT e.id, e.nome, e.patrimonio, e.setor_id, s.nome as setor_nome, t.nome as tipo_nome,
                e.data_ultima_preventiva, e.periodicidade_preventiva,
@@ -463,7 +492,7 @@ app.get('/api/preventivas', (req, res) => {
     });
 });
 
-app.post('/api/preventivas/baixa', (req, res) => {
+app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { equipamento_id, relatorio_tecnico, tecnico_nome } = req.body;
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
@@ -486,7 +515,7 @@ app.post('/api/preventivas/baixa', (req, res) => {
 // -------------------------------------------------------------------------
 // PRONTUÁRIO
 // -------------------------------------------------------------------------
-app.get('/api/equipamentos/:id/prontuario', (req, res) => {
+app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const queryEquip = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id WHERE e.id = ?`;
     const queryTimeline = `
@@ -519,16 +548,16 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE USUÁRIOS
+// ROTAS DE USUÁRIOS (Apenas ADMIN gerencia operadores)
 // -------------------------------------------------------------------------
-app.get('/api/usuarios', (req, res) => {
+app.get('/api/usuarios', permitirApenas(['admin']), (req, res) => {
     db.query("SELECT id, nome, login, nivel FROM usuarios ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
 });
 
-app.post('/api/usuarios', async (req, res) => {
+app.post('/api/usuarios', permitirApenas(['admin']), async (req, res) => {
     const { nome, login, senha, nivel } = req.body;
     try {
         const hash = await bcrypt.hash(senha, saltRounds);
@@ -542,7 +571,7 @@ app.post('/api/usuarios', async (req, res) => {
     }
 });
 
-app.put('/api/usuarios/:id', async (req, res) => {
+app.put('/api/usuarios/:id', permitirApenas(['admin']), async (req, res) => {
     const { id } = req.params;
     const { nome, login, nivel, senha_nova } = req.body;
     try {
@@ -565,7 +594,7 @@ app.put('/api/usuarios/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/usuarios/:id', (req, res) => {
+app.delete('/api/usuarios/:id', permitirApenas(['admin']), (req, res) => {
     const { id } = req.params;
     if (id == "1") return res.status(403).json({ error: "Não é possível excluir o administrador mestre." });
     db.query("DELETE FROM usuarios WHERE id = ?", [id], (err) => {
@@ -593,7 +622,7 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-app.patch('/api/usuarios/alterar-senha', async (req, res) => {
+app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), async (req, res) => {
     const { id, senhaAtual, novaSenha } = req.body;
 
     if (!id || !senhaAtual || !novaSenha) {
@@ -621,8 +650,8 @@ app.patch('/api/usuarios/alterar-senha', async (req, res) => {
     });
 });
 
-// ROTA: Relatório Avançado de Inventário Geral com Filtro de Período e Centro de Custo
-app.get('/api/relatorios/inventario-geral', (req, res) => {
+// RELATÓRIOS GERAIS: Admin e Coordenador acessam.
+app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
     const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
@@ -673,106 +702,7 @@ app.get('/api/relatorios/inventario-geral', (req, res) => {
     });
 });
 
-//Relatórios filtros
-
-// GET: Relatório de Trocas e Custos de Filtros com Filtro de Data
-app.get('/api/filtros/relatorio', (req, res) => {
-    const { data_inicio, data_fim } = req.query;
-
-    // Se não informadas, assume os últimos 30 dias por padrão
-    const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const fim = data_fim || new Date().toISOString().split('T')[0];
-
-    const query = `
-        SELECT 
-            h.id,
-            h.data_troca,
-            h.tecnico_nome,
-            h.obs_intervencao,
-            f.nome AS filtro_nome,
-            s.nome AS setor_nome
-        FROM filtros_historico h
-        JOIN filtros_agua f ON h.filtro_id = f.id
-        LEFT JOIN setores s ON f.setor_id = s.id
-        WHERE h.data_troca BETWEEN ? AND ?
-        ORDER BY h.data_troca DESC
-    `;
-
-    db.query(query, [inicio, fim], (err, results) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        let totalFiltrosTrocados = results.length;
-        let custoTotalPeriodo = 0;
-
-        // Processa as strings do log de intervenção para extrair os valores financeiros salvos
-        results.forEach(row => {
-            if (row.obs_intervencao && row.obs_intervencao.includes('Custo Médio: R$')) {
-                try {
-                    const partes = row.obs_intervencao.split('Custo Médio: R$');
-                    if (partes[1]) {
-                        const valorLimpo = partes[1].replace(']', '').trim();
-                        custoTotalPeriodo += parseFloat(valorLimpo) || 0;
-                    }
-                } catch (e) {
-                    console.error("Erro ao processar custo do log:", e);
-                }
-            }
-        });
-
-        res.json({
-            periodo: { inicio, fim },
-            indicadores: {
-                total_trocas: totalFiltrosTrocados,
-                custo_total: custoTotalPeriodo
-            },
-            detalhes: results
-        });
-    });
-});
-
-// -------------------------------------------------------------------------
-// AUXILIARES & CADASTROS ADICIONAIS
-// -------------------------------------------------------------------------
-app.get('/api/setores', (req, res) => {
-    const query = `SELECT s1.id, TRIM(LEADING ' > ' FROM CONCAT_WS(' > ', s3.nome, s2.nome, s1.nome)) as nome
-                    FROM setores s1 LEFT JOIN setores s2 ON s1.setor_pai_id = s2.id LEFT JOIN setores s3 ON s2.setor_pai_id = s3.id
-                    ORDER BY s3.nome, s2.nome, s1.nome ASC`;
-    db.query(query, (err, result) => {
-        if (err) return res.status(500).json(err);
-        res.json(result);
-    });
-});
-
-// ROTA: Cadastrar Novo Setor na Estrutura Hierárquica
-app.post('/api/setores', (req, res) => {
-    const { nome, setor_pai_id } = req.body;
-    
-    if (!nome || nome.trim() === "") {
-        return res.status(400).json({ error: "O nome do setor é obrigatório." });
-    }
-
-    const v_setor_pai = setor_pai_id && setor_pai_id !== "" ? Number(setor_pai_id) : null;
-
-    const query = `INSERT INTO setores (nome, setor_pai_id) VALUES (?, ?)`;
-    
-    db.query(query, [nome.trim(), v_setor_pai], (err, result) => {
-        if (err) {
-            console.error("❌ Erro ao cadastrar setor:", err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        res.status(201).json({ message: "Setor cadastrado com sucesso!", id: result.insertId });
-    });
-});
-
-app.get('/api/types_equipamentos', (req, res) => {
-    db.query(`SELECT * FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
-        if (err) return res.status(500).json(err);
-        res.json(result);
-    });
-});
-
-// ROTA: Relatório de Custos Operacionais e Chamados por Setor com filtro de período
-app.get('/api/relatorios/custos-setor', (req, res) => {
+app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
     const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
@@ -815,14 +745,52 @@ app.get('/api/relatorios/custos-setor', (req, res) => {
     });
 });
 
-app.get('/api/estoque', (req, res) => {
+// AUXILIARES: Todos listam setores e tipos para carregar nos formulários
+app.get('/api/setores', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const query = `SELECT s1.id, TRIM(LEADING ' > ' FROM CONCAT_WS(' > ', s3.nome, s2.nome, s1.nome)) as nome
+                    FROM setores s1 LEFT JOIN setores s2 ON s1.setor_pai_id = s2.id LEFT JOIN setores s3 ON s2.setor_pai_id = s3.id
+                    ORDER BY s3.nome, s2.nome, s1.nome ASC`;
+    db.query(query, (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json(result);
+    });
+});
+
+app.post('/api/setores', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { nome, setor_pai_id } = req.body;
+    
+    if (!nome || nome.trim() === "") {
+        return res.status(400).json({ error: "O nome do setor é obrigatório." });
+    }
+
+    const v_setor_pai = setor_pai_id && setor_pai_id !== "" ? Number(setor_pai_id) : null;
+    const query = `INSERT INTO setores (nome, setor_pai_id) VALUES (?, ?)`;
+    
+    db.query(query, [nome.trim(), v_setor_pai], (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao cadastrar setor:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: "Setor cadastrado com sucesso!", id: result.insertId });
+    });
+});
+
+app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    db.query(`SELECT * FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json(result);
+    });
+});
+
+// ALMOXARIFADO / ESTOQUE: Admin e Coordenador gerenciam
+app.get('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
     db.query("SELECT id, nome, referencia, descricao, quantidade, valor_unitario FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
 });
 
-app.post('/api/estoque', (req, res) => {
+app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { nome, descricao, quantidade, valor_unitario, num_nota, referencia } = req.body;
     
     const qtd = Number(quantidade) || 0;
@@ -847,7 +815,6 @@ app.post('/api/estoque', (req, res) => {
             }
 
             const novoItemId = resultItem.insertId;
-
             const queryHistorico = `
                 INSERT INTO itens_estoque_entradas (item_id, quantidade, valor_unitario, num_nota, data_entrada)
                 VALUES (?, ?, ?, ?, NOW())
@@ -872,25 +839,60 @@ app.post('/api/estoque', (req, res) => {
     });
 });
 
-app.get('/api/fornecedores', (req, res) => {
-    db.query("SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status FROM fornecedores ORDER BY nome_fantasia ASC", (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(result);
+// =========================================================================
+// MÓDULO FORNECEDORES - CORRIGIDO CIRURGICAMENTE (TELEPHONE -> TELEFONE)
+// =========================================================================
+
+// 1. LISTAGEM (GET)
+app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    // CORRIGIDO: Alinhada a coluna para 'telefone' de acordo com o padrão estrutural do banco
+    const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status FROM fornecedores ORDER BY nome_fantasia ASC";
+    
+    db.query(query, (err, result) => {
+        if (err) {
+            console.error("❌ Erro no MySQL ao listar fornecedores:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result || []);
     });
 });
 
-app.post('/api/fornecedores', (req, res) => {
+// 2. CADASTRO (POST)
+app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade } = req.body;
+    
+    // CORRIGIDO: Alinhada a inserção explícita para a coluna 'telefone'
     const query = "INSERT INTO fornecedores (nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo')";
     const values = [nome_fantasia, razao_social || null, cnpj || null, contato || null, telefone || null, email || null, especialidade || null];
 
     db.query(query, values, (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+            console.error("❌ Erro ao cadastrar fornecedor:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
         res.json({ message: "Fornecedor cadastrado com sucesso!", id: result.insertId });
     });
 });
 
-app.put('/api/fornecedores/:id', (req, res) => {
+// 3. EDIÇÃO (PUT)
+app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status } = req.body;
+    
+    // CORRIGIDO: Alinhado o mapeamento do UPDATE para a coluna 'telefone'
+    const query = "UPDATE fornecedores SET nome_fantasia=?, razao_social=?, cnpj=?, contato=?, telefone=?, email=?, especialidade=?, status=? WHERE id=?";
+    const values = [nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, id];
+
+    db.query(query, values, (err) => {
+        if (err) {
+            console.error("❌ Erro ao atualizar fornecedor:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: "Fornecedor atualizado com sucesso!" });
+    });
+});
+
+app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status } = req.body;
     const query = "UPDATE fornecedores SET nome_fantasia=?, razao_social=?, cnpj=?, contato=?, telefone=?, email=?, especialidade=?, status=? WHERE id=?";
@@ -902,7 +904,7 @@ app.put('/api/fornecedores/:id', (req, res) => {
     });
 });
 
-app.delete('/api/fornecedores/:id', (req, res) => {
+app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     db.query("DELETE FROM fornecedores WHERE id = ?", [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -911,11 +913,9 @@ app.delete('/api/fornecedores/:id', (req, res) => {
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CONTROLE DE FILTROS DE ÁGUA
+// ROTAS DE CONTROLE DE FILTROS DE ÁGUA (Apenas ADMIN gerencia privilégios)
 // -------------------------------------------------------------------------
-
-// GET: Listar todos os filtros com cálculo dinâmico de vencimento e tratamento contra strings vazias (COALESCE)
-app.get('/api/filtros', (req, res) => {
+app.get('/api/filtros', permitirApenas(['admin']), (req, res) => {
     const query = `
         SELECT f.id, f.nome, f.setor_id, f.modelo_refil, f.data_ultima_troca, f.periodicidade_meses, f.observacoes,
                s.nome as setor_nome,
@@ -934,8 +934,7 @@ app.get('/api/filtros', (req, res) => {
     });
 });
 
-// POST: Cadastrar um novo ponto de filtro
-app.post('/api/filtros', (req, res) => {
+app.post('/api/filtros', permitirApenas(['admin']), (req, res) => {
     const { nome, setor_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes } = req.body;
     
     const v_setor = setor_id ? Number(setor_id) : null;
@@ -949,22 +948,17 @@ app.post('/api/filtros', (req, res) => {
     });
 });
 
-// POST: Dar baixa (Registrar troca do elemento filtrante com dedução de estoque e custo)
-app.post('/api/filtros/baixa', (req, res) => {
-    // Agora o backend recebe também o ID do item e a quantidade usada vindos do React
+app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
     const { filtro_id, tecnico_nome, obs_intervencao, item_id, quantidade } = req.body;
-
     const qtd_usada = Number(quantidade) || 0;
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 1. Atualiza a data da última troca no filtro principal para o dia de hoje
         const queryUpdate = `UPDATE filtros_agua SET data_ultima_troca = CURDATE() WHERE id = ?`;
         conn.query(queryUpdate, [filtro_id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-            // 2. Fluxo Inteligente: Se o técnico selecionou um refil do estoque, processa o custo e o saldo
             if (item_id && qtd_usada > 0) {
                 conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
                     if (errEstoque || results.length === 0) {
@@ -976,16 +970,13 @@ app.post('/api/filtros/baixa', (req, res) => {
                         return conn.rollback(() => { conn.release(); res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
                     }
 
-                    // Calcula o impacto financeiro com base no valor real da nota do item
                     const custo_total = item.valor_unitario * qtd_usada;
                     const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${custo_total.toFixed(2)}]`;
 
-                    // 3. Insere a troca no histórico da Engenharia Clínica com o rastro do custo
                     const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
                     conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', log_intervencao], (errHist) => {
                         if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
-                        // 4. Dá a baixa automática retirando as unidades do estoque principal
                         conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
                             if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
@@ -998,7 +989,6 @@ app.post('/api/filtros/baixa', (req, res) => {
                     });
                 });
             } else {
-                // Caso a troca seja avulsa, sem usar insumos controlados do almoxarifado
                 const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
                 conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', obs_intervencao || 'Troca preventiva padrão (Sem refil do estoque)'], (errHist) => {
                     if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
@@ -1010,6 +1000,48 @@ app.post('/api/filtros/baixa', (req, res) => {
                     });
                 });
             }
+        });
+    });
+});
+
+app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
+    const { data_inicio, data_fim } = req.query;
+    const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const fim = data_fim || new Date().toISOString().split('T')[0];
+
+    const query = `
+        SELECT h.id, h.data_troca, h.tecnico_nome, h.obs_intervencao, f.nome AS filtro_nome, s.nome AS setor_nome
+        FROM filtros_historico h
+        JOIN filtros_agua f ON h.filtro_id = f.id
+        LEFT JOIN setores s ON f.setor_id = s.id
+        WHERE h.data_troca BETWEEN ? AND ?
+        ORDER BY h.data_troca DESC
+    `;
+
+    db.query(query, [inicio, fim], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        let totalFiltrosTrocados = results.length;
+        let custoTotalPeriodo = 0;
+
+        results.forEach(row => {
+            if (row.obs_intervencao && row.obs_intervencao.includes('Custo Médio: R$')) {
+                try {
+                    const partes = row.obs_intervencao.split('Custo Médio: R$');
+                    if (partes[1]) {
+                        const valorLimpo = partes[1].replace(']', '').trim();
+                        custoTotalPeriodo += parseFloat(valorLimpo) || 0;
+                    }
+                } catch (e) {
+                    console.error("Erro ao processar custo do log:", e);
+                }
+            }
+        });
+
+        res.json({
+            periodo: { inicio, fim },
+            indicators: { total_trocas: totalFiltrosTrocados, custo_total: custoTotalPeriodo },
+            detalhes: results
         });
     });
 });

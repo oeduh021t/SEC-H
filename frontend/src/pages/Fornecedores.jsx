@@ -20,10 +20,25 @@ const Fornecedores = () => {
 
   const API_URL = 'http://192.168.5.101:3000/api'
 
-  // Carrega os dados do backend
+  // Auxiliar para extrair o nível de privilégio atualizado do operador logado
+  const obterNivelUsuario = () => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser).nivel : '';
+  }
+
+  // Carrega os dados do backend injetando o cabeçalho de validação
   const carregarFornecedores = () => {
-    fetch(`${API_URL}/fornecedores`)
-      .then(res => res.json())
+    fetch(`${API_URL}/fornecedores`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+      }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+        return res.json();
+      })
       .then(data => setFornecedores(data || []))
       .catch(err => console.error("Erro ao buscar fornecedores:", err))
   }
@@ -48,22 +63,35 @@ const Fornecedores = () => {
     setModalAberta(true)
   }
 
-  // Remove um fornecedor do banco
+  // Remove um fornecedor do banco injetando o cabeçalho de validação
   const excluirFornecedor = (id) => {
     if (window.confirm("🚨 Tem certeza que deseja remover este fornecedor? Esta ação é permanente.")) {
-      fetch(`${API_URL}/fornecedores/${id}`, { method: 'DELETE' })
-        .then(() => carregarFornecedores())
+      fetch(`${API_URL}/fornecedores/${id}`, { 
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+        }
+      })
+        .then(res => {
+          if (!res.ok) alert("Você não possui permissão para excluir registros.");
+          carregarFornecedores();
+        })
+        .catch(err => console.error("Erro ao deletar fornecedor:", err))
     }
   }
 
-  // Salva (Post) ou Atualiza (Put) os dados no banco
+  // Salva (Post) ou Atualiza (Put) os dados no banco injetando o cabeçalho de validação
   const salvar = (e) => {
     e.preventDefault()
     const url = editandoId ? `${API_URL}/fornecedores/${editandoId}` : `${API_URL}/fornecedores`
 
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+      },
       body: JSON.stringify(form)
     })
     .then(res => {
@@ -73,9 +101,10 @@ const Fornecedores = () => {
         setEditandoId(null)
         setForm(estadoInicial)
       } else {
-        alert("Erro ao salvar os dados do fornecedor.")
+        alert("Erro ao salvar os dados do fornecedor. Verifique suas permissões de acesso.")
       }
     })
+    .catch(err => console.error("Erro na requisição salvar:", err))
   }
 
   return (

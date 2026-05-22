@@ -21,10 +21,19 @@ const Sidebar = ({ user, onLogout }) => {
 
   const isActive = (path) => location.pathname === path;
 
+  // Normalização do nível de privilégio atual para checagens seguras
+  const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
+
+  // Mapeamento dinâmico de visibilidade de módulos com base no cargo
+  const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
+  const podeVerEquipamentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
+  const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
+  const podeVerFiltrosAgua = nivelUsuario === 'admin';
+  const podeVerRelatorios = ['admin', 'coordenador'].includes(nivelUsuario);
+  const podeGerenciarUsuarios = nivelUsuario === 'admin';
+
   // Verifica se o grupo está ativo para manter aberto visualmente
   const isEquipActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas');
-  
-  // ATUALIZADO: Inclui a rota do novo relatório de filtros para manter o dropdown aberto
   const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
 
   const handleMudarSenha = async (e) => {
@@ -91,84 +100,107 @@ const Sidebar = ({ user, onLogout }) => {
         {/* NAVEGAÇÃO PRINCIPAL */}
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2 custom-scrollbar">
 
-          <Link to="/" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-            🏠 Dashboard
-          </Link>
+          {/* DASHBOARD: Oculto para o Solicitante (usuario) */}
+          {podeVerDashboard && (
+            <Link to="/" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              🏠 Dashboard
+            </Link>
+          )}
 
-          <div>
-            <button
-              onClick={() => setMenuEquipAberto(!menuEquipAberto)}
-              className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isEquipActive ? 'text-blue-400' : ''}`}
-            >
-              <div className="flex items-center gap-3">🛠️ Equipamentos</div>
-              <span className={`text-[10px] transition-transform duration-300 ${menuEquipAberto || isEquipActive ? 'rotate-180' : ''}`}>▼</span>
-            </button>
+          {/* EQUIPAMENTOS: Apenas Admin, Coordenador e Técnico acessam o inventário */}
+          {podeVerEquipamentos && (
+            <div>
+              <button
+                onClick={() => setMenuEquipAberto(!menuEquipAberto)}
+                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isEquipActive ? 'text-blue-400' : ''}`}
+              >
+                <div className="flex items-center gap-3">🛠️ Equipamentos</div>
+                <span className={`text-[10px] transition-transform duration-300 ${menuEquipAberto || isEquipActive ? 'rotate-180' : ''}`}>▼</span>
+              </button>
 
-            <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'}`}>
-              <Link to="/equipamentos" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
-                Listar Ativos
-              </Link>
-              <Link to="/preventivas" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/preventivas') ? 'bg-green-500' : 'bg-slate-600'}`}></span>
-                Preventivas / PMOC
-              </Link>
-              <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
-                Novo Cadastro
-              </Link>
+              <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'}`}>
+                <Link to="/equipamentos" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
+                  Listar Ativos
+                </Link>
+                <Link to="/preventivas" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isActive('/preventivas') ? 'bg-green-500' : 'bg-slate-600'}`}></span>
+                  Preventivas / PMOC
+                </Link>
+                {/* Cadastro restrito para Admin e Coordenador */}
+                {['admin', 'coordenador'].includes(nivelUsuario) && (
+                  <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
+                    Novo Cadastro
+                  </Link>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
+          {/* CHAMADOS: Visível e liberado para TODOS os níveis abrir e interagir */}
           <Link to="/chamados" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/chamados') ? 'bg-amber-500 text-white shadow-lg shadow-amber-900/50' : 'hover:bg-slate-800'}`}>
             🎫 Chamados / OS
           </Link>
 
-          <Link to="/fornecedores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/fornecedores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-            🚚 Fornecedores
-          </Link>
-
-          <Link to="/estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-            📦 Gestão de Estoque
-          </Link>
-
-          <Link to="/setores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/setores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-            🏢 Cadastro de Setores
-          </Link>
-
-          <Link to="/filtros" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/filtros') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-            🚰 Controle de Filtros
-          </Link>
-
-          <div>
-            <button
-              onClick={() => setMenuRelatAberto(!menuRelatAberto)}
-              className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isRelatActive ? 'text-blue-400' : ''}`}
-            >
-              <div className="flex items-center gap-3">📊 Relatórios</div>
-              <span className={`text-[10px] transition-transform duration-300 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`}>▼</span>
-            </button>
-            {/* Ajustada a propriedade max-h para comportar o terceiro link sem esconder o elemento */}
-            <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-52 opacity-100' : 'max-h-0 opacity-0'}`}>
-              <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
-                Inventário Geral
-              </Link>
-              
-              <Link to="/relatorios/custos-setor" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
-                Custos por Setor
+          {/* LOGÍSTICA / INFRAESTRUTURA: Ocultos para Técnico e Solicitante */}
+          {podeGerenciarInfraestoque && (
+            <>
+              <Link to="/fornecedores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/fornecedores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+                🚚 Fornecedores
               </Link>
 
-              {/* ADICIONADO: Link para o Relatório Financeiro e de Troca de Filtros */}
-              <Link to="/relatorio-filtros" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorio-filtros') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorio-filtros') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
-                Histórico de Filtros
+              <Link to="/estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+                📦 Gestão de Estoque
               </Link>
+
+              <Link to="/setores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/setores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+                🏢 Cadastro de Setores
+              </Link>
+            </>
+          )}
+
+          {/* FILTROS DE ÁGUA: Menu visível exclusivamente para o ADMIN */}
+          {podeVerFiltrosAgua && (
+            <Link to="/filtros" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/filtros') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              🚰 Controle de Filtros
+            </Link>
+          )}
+
+          {/* RELATÓRIOS GERAIS: Apenas Admin e Coordenador visualizam o grupo */}
+          {podeVerRelatorios && (
+            <div>
+              <button
+                onClick={() => setMenuRelatAberto(!menuRelatAberto)}
+                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isRelatActive ? 'text-blue-400' : ''}`}
+              >
+                <div className="flex items-center gap-3">📊 Relatórios</div>
+                <span className={`text-[10px] transition-transform duration-300 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+              <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-52 opacity-100' : 'max-h-0 opacity-0'}`}>
+                <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
+                  Inventário Geral
+                </Link>
+                
+                <Link to="/relatorios/custos-setor" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
+                  Custos por Setor
+                </Link>
+
+                {/* Relatório de filtros restrito dinamicamente para o Admin */}
+                {nivelUsuario === 'admin' && (
+                  <Link to="/relatorio-filtros" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorio-filtros') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorio-filtros') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
+                    Histórico de Filtros
+                  </Link>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
-          {user?.nivel === 'admin' && (
+          {/* GERENCIAMENTO DE OPERADORES: Menu exclusivo do ADMIN */}
+          {podeGerenciarUsuarios && (
             <Link to="/usuarios" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/usuarios') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800'}`}>
               👥 Usuários
             </Link>

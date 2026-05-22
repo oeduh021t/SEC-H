@@ -7,11 +7,12 @@ services:
     tty: true
     volumes:
       - ./backend:/app
+      - /app/node_modules # Evita travamento de permissão na instalação de pacotes
+      - ./uploads:/app/uploads # BLINDAGEM: Isola e joga as fotos para uma pasta central externa exclusiva
     ports:
       - "3000:3000"
     env_file:
       - ./backend/.env
-    # O ideal aqui seria rodar "npm start" (com um script de produção)
     command: sh -c "npm install && npx nodemon index.js"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -24,6 +25,7 @@ services:
     tty: true
     volumes:
       - ./frontend:/app
+      - /app/node_modules # Otimiza o Vite/React contra lentidão de disco
     ports:
       - "5173:5173"
     command: sh -c "npm install && npm run dev -- --host"

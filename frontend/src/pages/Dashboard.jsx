@@ -9,31 +9,51 @@ const Dashboard = ({ user }) => {
     const [stats, setStats] = useState(null);
     const API_URL = 'http://192.168.5.101:3000/api';
 
+    // Normaliza o nível de privilégio para checagem segura
+    const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
+
     useEffect(() => {
-        fetch(`${API_URL}/stats`)
-            .then(res => res.json())
+        // Se for um usuário solicitante comum, barra a chamada à API antes de estourar o erro 403
+        if (nivelUsuario === 'usuario') return;
+
+        fetch(`${API_URL}/stats`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-usuario-nivel': user?.nivel || '' // Injeção de segurança contra Erro 401
+            }
+        })
+            .then(res => {
+                if (!res.ok) throw new Error(`Erro na API: Código ${res.status}`);
+                return res.json();
+            })
             .then(data => setStats(data))
-            .catch(err => console.error("Erro ao carregar stats:", err));
-    }, []);
+            .catch(err => console.error("Erro ao carregar stats da Dashboard:", err));
+    }, [API_URL, user, nivelUsuario]);
+
+    // Bloqueio preventivo caso um Solicitante force a URL da dashboard pela barra de endereços
+    if (nivelUsuario === 'usuario') {
+        return <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">Acesso Negado: Seu perfil não possui acesso ao painel estatístico.</div>;
+    }
 
     if (!stats) return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Carregando Painel...</div>;
 
     // --- CONFIGURAÇÃO DOS DADOS ---
 
     const dataSetores = {
-        labels: stats.porSetor.map(s => s.nome),
+        labels: stats.porSetor?.map(s => s.nome) || [],
         datasets: [{
-            data: stats.porSetor.map(s => s.total),
+            data: stats.porSetor?.map(s => s.total) || [],
             backgroundColor: ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#f43f5e', '#84cc16'],
             borderWidth: 0,
         }]
     };
 
     const dataTecnicos = {
-        labels: stats.porTecnico.map(t => t.nome),
+        labels: stats.porTecnico?.map(t => t.nome) || [],
         datasets: [{
             label: 'Chamados',
-            data: stats.porTecnico.map(t => t.total),
+            data: stats.porTecnico?.map(t => t.total) || [],
             backgroundColor: 'rgba(59, 130, 246, 0.5)',
             borderRadius: 8,
         }]
@@ -78,11 +98,11 @@ const Dashboard = ({ user }) => {
 
             {/* INDICADORES (CARDS) */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <StatCard title="Total Ativos" value={stats.totalEquipamentos[0]?.total || 0} color="border-blue-500" link="/equipamentos" />
-                <StatCard title="Preventivas" value={stats.preventivasAtrasadas[0]?.total || 0} color="border-green-500" link="/preventivas" />
-                <StatCard title="Abertos" value={stats.chamadosAbertos[0]?.total || 0} color="border-red-500" link="/chamados" />
-                <StatCard title="Em Atendimento" value={stats.chamadosAndamento[0]?.total || 0} color="border-amber-500" link="/chamados" />
-                <StatCard title="Concluídos" value={stats.chamadosConcluidos[0]?.total || 0} color="border-emerald-500" link="/chamados" />
+                <StatCard title="Total Ativos" value={stats.totalEquipamentos?.[0]?.total || 0} color="border-blue-500" link="/equipamentos" />
+                <StatCard title="Preventivas" value={stats.preventivasAtrasadas?.[0]?.total || 0} color="border-green-500" link="/preventivas" />
+                <StatCard title="Abertos" value={stats.chamadosAbertos?.[0]?.total || 0} color="border-red-500" link="/chamados" />
+                <StatCard title="Em Atendimento" value={stats.chamadosAndamento?.[0]?.total || 0} color="border-amber-500" link="/chamados" />
+                <StatCard title="Concluídos" value={stats.chamadosConcluidos?.[0]?.total || 0} color="border-emerald-500" link="/chamados" />
             </div>
 
             {/* SEÇÃO DE GRÁFICOS E RECENTES */}
@@ -108,7 +128,7 @@ const Dashboard = ({ user }) => {
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
                     <h3 className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 border-b text-center">Últimas Atualizações</h3>
                     <div className="flex-1 overflow-y-auto max-h-[320px] divide-y divide-slate-50">
-                        {stats.recentes.map(r => (
+                        {stats.recentes?.map(r => (
                             <div key={r.id} className="p-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
                                 <div className="min-w-0 flex-1 mr-2">
                                     <p className="text-xs font-bold text-slate-700 truncate">{r.titulo}</p>
