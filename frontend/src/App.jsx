@@ -17,6 +17,9 @@ import { TratarChamado } from "./pages/TratarChamado";
 import Fornecedores from './pages/Fornecedores'; // ADICIONADO
 import { ImprimirOS } from './pages/ImprimirOS'; // ADICIONADO
 import { GestaoEstoque } from './pages/GestaoEstoque'; // ADICIONADO CIRURGICAMENTE
+import { GestaoSetores } from './pages/GestaoSetores';
+import ControleFiltros from './pages/ControleFiltros';
+import RelatorioFiltros from './pages/RelatorioFiltros';
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA ---
 function PrivateRoute({ children, user }) {
@@ -87,10 +90,22 @@ function App() {
                 path="/estoque" 
                 element={<PrivateRoute user={user}><GestaoEstoque /></PrivateRoute>} 
               />
+               
+               {/* Módulo Setores (ADICIONADO CIRURGICAMENTE) */}
+              <Route 
+                path="/setores" 
+                element={<PrivateRoute user={user}><GestaoSetores /></PrivateRoute>} 
+              />
+
+              <Route path="/setores" element={<GestaoSetores />} /> {/* Cadastro de setores que já fizemos */}
+              <Route path="/filtros" element={<ControleFiltros />} /> {/* Módulo de Filtros Adicionado */}
 
               {/* Relatórios */}
               <Route path="/relatorios/inventario" element={<InventarioGeral />} />
               <Route path="/relatorios/custos-setor" element={<PrivateRoute user={user}><RelatorioCustosSetor /></PrivateRoute>} />  
+              
+              <Route path="/relatorio-filtros" element={<RelatorioFiltros />} />
+
 
               {/* Módulo Usuarios - PROTEÇÃO: Só Admin entra */}
               <Route

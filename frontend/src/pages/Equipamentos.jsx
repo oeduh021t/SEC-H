@@ -306,9 +306,8 @@ const Equipamentos = () => {
 
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setModalAberta(false)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
-                  <button type="submit" className={`px-8 py-3 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 ${editandoId ? 'bg-amber-500 shadow-amber-100' : 'bg-blue-600 shadow-blue-100'}`}>
-                    {editandoId ? 'Atualizar Dados' : 'Salvar no Inventário'}
-                  </button>
+                  <button type="submit" className={`px-8 py-3 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 ${editandoId ? 'bg-amber-500 shadow-amber-100' : 'bg-blue-600 shadow-blue-100'}`}>{editandoId ? 'Atualizar Dados' : 'Salvar no Inventário'}</button>
+                                    
                 </div>
               </div>
             </form>

@@ -7,15 +7,15 @@ export function GestaoEstoque() {
 
   const [nome, setNome] = useState("")
   const [descricao, setDescricao] = useState("")
+  const [referencia, setReferencia] = useState("") // ADICIONADO: Estado para Referência
   const [quantidade, setQuantidade] = useState(0)
   const [valorUnitario, setValorUnitario] = useState(0.00)
-  const [numNota, setNumNota] = useState("") // Estado mantido para controle da NF
+  const [numNota, setNumNota] = useState("")
   
   const API_URL = "http://192.168.5.101:3000/api"
 
   const carregarEstoque = async () => {
     try {
-      // CORREÇÃO: Puxando direto do endpoint correto da API sem usar variáveis inexistentes
       const res = await fetch(`${API_URL}/estoque`).then(res => res.json())
       setItens(res || [])
     } catch (err) {
@@ -31,13 +31,13 @@ export function GestaoEstoque() {
     e.preventDefault()
     if (!nome) return
 
-    // ALTERAÇÃO: Incluído o campo num_nota no payload enviado para o backend profissional
     const novoItem = {
       nome,
       descricao,
       quantidade: Number(quantidade),
       valor_unitario: Number(valorUnitario),
-      num_nota: numNota
+      num_nota: numNota,
+      referencia: referencia // ADICIONADO: Incluído no payload enviado à API
     }
 
     try {
@@ -51,9 +51,10 @@ export function GestaoEstoque() {
         alert("Item cadastrado com sucesso! 📦")
         setNome("")
         setDescricao("")
+        setReferencia("") // ADICIONADO: Limpeza do campo
         setQuantidade(0)
         setValorUnitario(0.00)
-        setNumNota("") // ALTERAÇÃO: Limpeza do campo após salvar com sucesso
+        setNumNota("")
         carregarEstoque()
       } else {
         alert("Erro ao cadastrar item.")
@@ -66,9 +67,14 @@ export function GestaoEstoque() {
   const totalPecasGeral = itens.reduce((acc, item) => acc + Number(item.quantidade), 0)
   const capitalInvestido = itens.reduce((acc, item) => acc + (Number(item.quantidade) * Number(item.valor_unitario || 0)), 0)
 
-  const itensFiltrados = itens.filter(item => 
-    item.nome.toLowerCase().includes(busca.toLowerCase())
-  )
+  // ALTERAÇÃO CRÍTICA: Agora o filtro busca por Nome OU por Referência estruturada
+  const itensFiltrados = itens.filter(item => {
+    const termoBusca = busca.toLowerCase();
+    const nomeBate = item.nome ? item.nome.toLowerCase().includes(termoBusca) : false;
+    const refBate = item.referencia ? item.referencia.toLowerCase().includes(termoBusca) : false;
+    
+    return nomeBate || refBate;
+  })
 
   if (loading) return <div className="p-8 text-center font-bold">Carregando almoxarifado...</div>
 
@@ -83,8 +89,8 @@ export function GestaoEstoque() {
         </div>
         <input 
           type="text" 
-          placeholder="🔍 Buscar peça..." 
-          className="p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 w-64 focus:border-blue-500 transition-colors"
+          placeholder="🔍 Buscar por nome ou referência..." 
+          className="p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 w-72 focus:border-blue-500 transition-colors"
           value={busca}
           onChange={e => setBusca(e.target.value)}
         />
@@ -111,9 +117,15 @@ export function GestaoEstoque() {
               <input required type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: Lâmpada LED 15W" value={nome} onChange={e => setNome(e.target.value)} />
             </div>
 
+            {/* ADICIONADO: Campo Referência no Formulário */}
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Referência / Part Number</label>
+              <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: REF-1052X" value={referencia} onChange={e => setReferencia(e.target.value)} />
+            </div>
+
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Descrição / Especificações</label>
-              <textarea rows={3} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none resize-none focus:bg-white focus:border-blue-500" placeholder="Detalhes técnicos adicionais..." value={descricao} onChange={e => setDescricao(e.target.value)} />
+              <textarea rows={2} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none resize-none focus:bg-white focus:border-blue-500" placeholder="Detalhes técnicos adicionais..." value={descricao} onChange={e => setDescricao(e.target.value)} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -122,12 +134,11 @@ export function GestaoEstoque() {
                 <input min="0" type="number" className="w-full p-3 border-2 border-slate-100 rounded-xl text-center font-bold bg-slate-50 outline-none focus:bg-white" value={quantidade} onChange={e => setQuantidade(e.target.value)} />
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Valor Unitário (R$)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Valor Unitário</label>
                 <input min="0" step="0.01" type="number" className="w-full p-3 border-2 border-slate-100 rounded-xl text-center font-mono font-bold bg-slate-50 outline-none focus:bg-white" value={valorUnitario} onChange={e => setValorUnitario(e.target.value)} />
               </div>
             </div>
 
-            {/* ALTERAÇÃO: Adicionado o campo visual para inserção do Número da Nota Fiscal */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Número da Nota Fiscal (Opcional)</label>
               <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: NF-e 000.123.456" value={numNota} onChange={e => setNumNota(e.target.value)} />
@@ -147,6 +158,7 @@ export function GestaoEstoque() {
               <thead>
                 <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   <th className="pb-3">Item / Especificação</th>
+                  <th className="pb-3">Referência</th> {/* ADICIONADO: Nova Coluna */}
                   <th className="pb-3 text-center">Quantidade</th>
                   <th className="pb-3 text-right">Preço Unit.</th>
                   <th className="pb-3 text-right">Subtotal</th>
@@ -159,6 +171,18 @@ export function GestaoEstoque() {
                       <div className="font-black text-slate-700">{item.nome}</div>
                       <div className="text-[10px] text-slate-400 font-medium line-clamp-1">{item.descricao || "Sem descrição informada"}</div>
                     </td>
+                    
+                    {/* ADICIONADO: Renderização do campo Referência com Badge estilizado */}
+                    <td className="py-3 font-medium">
+                      {item.referencia ? (
+                        <span className="bg-slate-100 text-slate-600 font-mono font-bold px-2 py-1 rounded text-[10px] border border-slate-200">
+                          {item.referencia}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 italic text-[10px]">Nenhuma</span>
+                      )}
+                    </td>
+
                     <td className="py-3 text-center font-bold text-slate-600 bg-slate-50/50 rounded-lg">{item.quantidade} un.</td>
                     <td className="py-3 text-right font-mono text-slate-500 font-medium">R$ {Number(item.valor_unitario || 0).toFixed(2)}</td>
                     <td className="py-3 text-right font-mono font-black text-slate-700">R$ {(Number(item.quantidade) * Number(item.valor_unitario || 0)).toFixed(2)}</td>
@@ -166,7 +190,7 @@ export function GestaoEstoque() {
                 ))}
                 {itensFiltrados.length === 0 && (
                   <tr>
-                    <td colSpan="4" className="text-center py-8 text-xs font-bold text-slate-400 italic">Nenhum insumo encontrado.</td>
+                    <td colSpan="5" className="text-center py-8 text-xs font-bold text-slate-400 italic">Nenhum insumo encontrado.</td>
                   </tr>
                 )}
               </tbody>

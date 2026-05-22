@@ -34,22 +34,38 @@ const upload = multer({
 });
 
 // -------------------------------------------------------------------------
-// CONFIGURAÇÃO DO BANCO DE DADOS
+// CONFIGURAÇÃO DO BANCO DE DADOS (MUTADO PARA POOL CONTRA INATIVIDADE ECONNRESET)
 // -------------------------------------------------------------------------
-const db = mysql.createConnection({
+const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
-    database: process.env.DB_NAME
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
 });
 
-db.connect(err => {
-    if (err) {
-        console.error('❌ Erro crítico ao conectar ao banco:', err.message);
-        return;
-    }
-    console.log('✅ Conectado ao MySQL com sucesso!');
-});
+// Criamos um objeto "db" com a mesma interface do antigo para você não precisar alterar nenhuma query no arquivo!
+const db = {
+    query: (sql, params, callback) => {
+        if (typeof params === 'function') {
+            callback = params;
+            params = [];
+        }
+        pool.query(sql, params, callback);
+    },
+    beginTransaction: (callback) => pool.getConnection((err, conn) => {
+        if (err) return callback(err);
+        conn.beginTransaction((err) => {
+            if (err) { conn.release(); return callback(err); }
+            conn.query = conn.query.bind(conn);
+            callback(null, conn);
+        });
+    })
+};
+
+console.log('✅ Pool de conexões do MySQL configurado contra ECONNRESET!');
 
 // -------------------------------------------------------------------------
 // DASHBOARD
@@ -108,7 +124,7 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: message = mensagem, parse_mode: 'Markdown' });
+        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         console.error("❌ Erro ao enviar Telegram:", err.message);
@@ -137,12 +153,10 @@ app.post('/api/equipamentos', (req, res) => {
     });
 });
 
-// PUT: Editar Equipamento com tratamento de dados e suporte a foto
 app.put('/api/equipamentos/:id', upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
     
-    // TRATAMENTO CRÍTICO: Evita o erro 500 convertendo strings vazias do FormData em NULL para o MySQL
     const v_nome = nome || 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
     const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio : 'S/P';
@@ -155,7 +169,6 @@ app.put('/api/equipamentos/:id', upload.single('foto_equipamento'), (req, res) =
 
     let query, values;
 
-    // Se o técnico enviou uma nova foto, atualiza o caminho. Caso contrário, não mexe no campo da foto.
     if (req.file) {
         const foto_equipamento = `/uploads/${req.file.filename}`;
         query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, foto_equipamento=? WHERE id=?`;
@@ -170,7 +183,7 @@ app.put('/api/equipamentos/:id', upload.single('foto_equipamento'), (req, res) =
             console.error("❌ Erro interno do MySQL no PUT de equipamentos:", err.message);
             return res.status(500).json({ error: err.message });
         }
-        res.json({ message: "Dados atualizados com sucesso!" });
+        res.json({ message: "Dados updated com sucesso!" });
     });
 });
 
@@ -290,41 +303,35 @@ app.put('/api/chamados/:id/atualizar', (req, res) => {
     const { status, tipo_atendimento, descricao_solucao, fornecedor_id, nf_referencia, custo_servico } = req.body;
     const tecnico_nome = req.body.tecnico_responsavel || "Técnico do Sistema";
 
-    db.beginTransaction((err) => {
+    db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const queryUpdate = `
             UPDATE chamados
-            SET status = ?,
-                tipo_atendimento = ?,
-                tecnico_responsavel = ?,
-                fornecedor_id = ?,
-                nf_referencia = ?,
-                custo_servico = ?,
+            SET status = ?, tipo_atendimento = ?, tecnico_responsavel = ?, fornecedor_id = ?, nf_referencia = ?, custo_servico = ?,
                 data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
             WHERE id = ?
         `;
         const valuesUpdate = [status, tipo_atendimento, tecnico_nome, fornecedor_id || null, nf_referencia || null, custo_servico || 0, status, id];
 
-        db.query(queryUpdate, valuesUpdate, (err) => {
-            if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+        conn.query(queryUpdate, valuesUpdate, (err) => {
+            if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
 
             if (descricao_solucao && descricao_solucao.trim() !== "") {
-                const queryHist = `
-                    INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
-                    VALUES (?, ?, ?, ?, NOW())
-                `;
-                db.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (err) => {
-                    if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+                const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
+                conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (err) => {
+                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
 
-                    db.commit((err) => {
-                        if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+                    conn.commit((err) => {
+                        if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                        conn.release();
                         res.json({ message: "Chamado e cronologia atualizados com sucesso!" });
                     });
                 });
             } else {
-                db.commit((err) => {
-                    if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+                conn.commit((err) => {
+                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                    conn.release();
                     res.json({ message: "Chamado updated!" });
                 });
             }
@@ -336,31 +343,32 @@ app.post('/api/chamados/:id/itens', (req, res) => {
     const { id } = req.params;
     const { item_id, quantidade = 0 } = req.body;
 
-    db.beginTransaction((err) => {
+    db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        db.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (err, results) => {
-            if (err || results.length === 0) return db.rollback(() => res.status(400).json({ error: "Item não localizado." }));
+        conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (err, results) => {
+            if (err || results.length === 0) return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item não localizado." }); });
 
             const item = results[0];
             if (item.quantidade < quantidade) {
-                return db.rollback(() => res.status(400).json({ error: "Estoque insuficiente!" }));
+                return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Estoque insuficiente!" }); });
             }
 
             const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
-            db.query(queryIns, [id, item_id, quantidade, item.valor_unitario], (err) => {
-                if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+            conn.query(queryIns, [id, item_id, quantidade, item.valor_unitario], (err) => {
+                if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
 
-                db.query("UPDATE itens_estoque SET quantidade = quantity = quantidade - ? WHERE id = ?", [quantidade, item_id], (err) => {
-                    if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+                conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [quantidade, item_id], (err) => {
+                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
 
                     const msgEstoque = `Peça utilizada: ${quantidade}x ${item.nome}`;
                     const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
 
-                    db.query(queryHist, [id, msgEstoque], (err) => {
-                        if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
-                        db.commit((err) => {
-                            if (err) return db.rollback(() => res.status(500).json({ error: err.message }));
+                    conn.query(queryHist, [id, msgEstoque], (err) => {
+                        if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                        conn.commit((err) => {
+                            if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                            conn.release();
                             res.json({ message: "Estoque deduzido e associado à OS!" });
                         });
                     });
@@ -375,7 +383,7 @@ app.patch('/api/chamados/:id/finalizar', upload.single('foto'), (req, res) => {
     const { status, tecnico_responsavel, descricao_solucao, tipo_atendimento } = req.body;
     const foto_conclusao = req.file ? `/uploads/${req.file.filename}` : null;
 
-    db.beginTransaction(err => {
+    db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
 
         const queryUpdate = `
@@ -385,19 +393,17 @@ app.patch('/api/chamados/:id/finalizar', upload.single('foto'), (req, res) => {
                 data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
             WHERE id = ?
         `;
-        db.query(queryUpdate, [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id], (err) => {
-            if (err) return db.rollback(() => res.status(500).json(err));
+        conn.query(queryUpdate, [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id], (err) => {
+            if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
 
-            const queryHist = `
-                INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
-                VALUES (?, ?, ?, ?, NOW())
-            `;
+            const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
             const msgHist = descricao_solucao || `Status alterado para ${status}`;
 
-            db.query(queryHist, [id, tecnico_responsavel, msgHist, status], (err) => {
-                if (err) return db.rollback(() => res.status(500).json(err));
-                db.commit(err => {
-                    if (err) return db.rollback(() => res.status(500).json(err));
+            conn.query(queryHist, [id, tecnico_responsavel, msgHist, status], (err) => {
+                if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+                conn.commit(err => {
+                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+                    conn.release();
                     res.json({ message: "Sucesso!" });
                 });
             });
@@ -432,7 +438,6 @@ app.patch('/api/chamados/:id/assinar', (req, res) => {
 
     db.query(query, [assinaturaBase64, id], (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
-
         return res.status(200).json({ message: "Assinatura arquivada com sucesso!" });
     });
 });
@@ -460,16 +465,17 @@ app.get('/api/preventivas', (req, res) => {
 
 app.post('/api/preventivas/baixa', (req, res) => {
     const { equipamento_id, relatorio_tecnico, tecnico_nome } = req.body;
-    db.beginTransaction(err => {
+    db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
-        db.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (err) => {
-            if (err) return db.rollback(() => res.status(500).json(err));
+        conn.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (err) => {
+            if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
             const historicoTexto = `[ID EQUIP: ${equipamento_id}] RELATÓRIO DE PREVENTIVA: ${relatorio_tecnico}`;
             const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (NULL, ?, ?, 'Preventiva Realizada', NOW())";
-            db.query(queryHist, [tecnico_nome || 'Técnico', historicoTexto], (err) => {
-                if (err) return db.rollback(() => res.status(500).json(err));
-                db.commit(err => {
-                    if (err) return db.rollback(() => res.status(500).json(err));
+            conn.query(queryHist, [tecnico_nome || 'Técnico', historicoTexto], (err) => {
+                if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+                conn.commit(err => {
+                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+                    conn.release();
                     res.json({ message: "Baixa de preventiva registrada!" });
                 });
             });
@@ -619,14 +625,12 @@ app.patch('/api/usuarios/alterar-senha', async (req, res) => {
 app.get('/api/relatorios/inventario-geral', (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
-    // Definição de escopo padrão (Últimos 30 dias se nenhuma data for enviada)
     const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
     const fim = data_fim ? data_fim + ' 23:59:59' : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
     let queryParams = [inicio, fim, inicio, fim];
     let filtroSetor = '';
 
-    // Filtro condicional por setor de localização do ativo
     if (setor_id && setor_id !== 'todos') {
         filtroSetor = 'WHERE e.setor_id = ?';
         queryParams.push(setor_id);
@@ -643,13 +647,11 @@ app.get('/api/relatorios/inventario-geral', (req, res) => {
             IFNULL(s.nome, 'Sem Setor') as setor_nome,
             IFNULL(t.nome, 'Sem Tipo') as tipo_nome,
             (
-                /* 1. Mão de obra do equipamento filtrada por data */
                 SELECT IFNULL(SUM(c.custo_servico), 0) 
                 FROM chamados c 
                 WHERE c.equipamento_id = e.id AND c.data_abertura BETWEEN ? AND ?
             ) +
             (
-                /* 2. Insumos/Peças do equipamento filtrados por data */
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
                 FROM chamados_itens ci
                 JOIN chamados ch ON ci.chamado_id = ch.id
@@ -671,6 +673,63 @@ app.get('/api/relatorios/inventario-geral', (req, res) => {
     });
 });
 
+//Relatórios filtros
+
+// GET: Relatório de Trocas e Custos de Filtros com Filtro de Data
+app.get('/api/filtros/relatorio', (req, res) => {
+    const { data_inicio, data_fim } = req.query;
+
+    // Se não informadas, assume os últimos 30 dias por padrão
+    const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const fim = data_fim || new Date().toISOString().split('T')[0];
+
+    const query = `
+        SELECT 
+            h.id,
+            h.data_troca,
+            h.tecnico_nome,
+            h.obs_intervencao,
+            f.nome AS filtro_nome,
+            s.nome AS setor_nome
+        FROM filtros_historico h
+        JOIN filtros_agua f ON h.filtro_id = f.id
+        LEFT JOIN setores s ON f.setor_id = s.id
+        WHERE h.data_troca BETWEEN ? AND ?
+        ORDER BY h.data_troca DESC
+    `;
+
+    db.query(query, [inicio, fim], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        let totalFiltrosTrocados = results.length;
+        let custoTotalPeriodo = 0;
+
+        // Processa as strings do log de intervenção para extrair os valores financeiros salvos
+        results.forEach(row => {
+            if (row.obs_intervencao && row.obs_intervencao.includes('Custo Médio: R$')) {
+                try {
+                    const partes = row.obs_intervencao.split('Custo Médio: R$');
+                    if (partes[1]) {
+                        const valorLimpo = partes[1].replace(']', '').trim();
+                        custoTotalPeriodo += parseFloat(valorLimpo) || 0;
+                    }
+                } catch (e) {
+                    console.error("Erro ao processar custo do log:", e);
+                }
+            }
+        });
+
+        res.json({
+            periodo: { inicio, fim },
+            indicadores: {
+                total_trocas: totalFiltrosTrocados,
+                custo_total: custoTotalPeriodo
+            },
+            detalhes: results
+        });
+    });
+});
+
 // -------------------------------------------------------------------------
 // AUXILIARES & CADASTROS ADICIONAIS
 // -------------------------------------------------------------------------
@@ -681,6 +740,27 @@ app.get('/api/setores', (req, res) => {
     db.query(query, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
+    });
+});
+
+// ROTA: Cadastrar Novo Setor na Estrutura Hierárquica
+app.post('/api/setores', (req, res) => {
+    const { nome, setor_pai_id } = req.body;
+    
+    if (!nome || nome.trim() === "") {
+        return res.status(400).json({ error: "O nome do setor é obrigatório." });
+    }
+
+    const v_setor_pai = setor_pai_id && setor_pai_id !== "" ? Number(setor_pai_id) : null;
+
+    const query = `INSERT INTO setores (nome, setor_pai_id) VALUES (?, ?)`;
+    
+    db.query(query, [nome.trim(), v_setor_pai], (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao cadastrar setor:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: "Setor cadastrado com sucesso!", id: result.insertId });
     });
 });
 
@@ -728,53 +808,64 @@ app.get('/api/relatorios/custos-setor', (req, res) => {
 
     db.query(sql, queryParams, (err, result) => {
         if (err) {
-            console.error("Erro ao gerar relatório por setor:", err);
+            console.error("❌ Erro ao gerar relatório por setor:", err);
             return res.status(500).json({ error: err.message });
         }
         res.json(result);
     });
 });
 
-
-// ALTERAÇÃO CIRÚRGICA: Adicionado 'valor_unitario' no SELECT para passar os valores ao React populate o select
 app.get('/api/estoque', (req, res) => {
-    db.query("SELECT id, nome, descricao, quantidade, valor_unitario FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
+    db.query("SELECT id, nome, referencia, descricao, quantidade, valor_unitario FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
 });
-// ADICIONADO AQUI: Rota para receber o cadastro do formulário do React
+
 app.post('/api/estoque', (req, res) => {
-    const { nome, descricao, quantidade, valor_unitario, num_nota } = req.body;
-    const qtd = Number(quantity = quantidade) || 0;
+    const { nome, descricao, quantidade, valor_unitario, num_nota, referencia } = req.body;
+    
+    const qtd = Number(quantidade) || 0;
     const valor = Number(valor_unitario) || 0.00;
+    const ref_limpa = referencia && referencia.trim() !== "" ? referencia : null;
 
-    db.beginTransaction((err) => {
-        if (err) return res.status(500).json({ error: err.message });
+    db.beginTransaction((err, conn) => {
+        if (err) {
+            console.error("Erro ao iniciar transação:", err);
+            return res.status(500).json({ error: err.message });
+        }
 
-        // 1. Insere ou atualiza o item na tabela principal de saldo
         const queryItem = `
-            INSERT INTO itens_estoque (nome, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao) 
-            VALUES (?, ?, ?, ?, NOW(), NOW())
+            INSERT INTO itens_estoque (nome, referencia, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao) 
+            VALUES (?, ?, ?, ?, ?, NOW(), NOW())
         `;
         
-        db.query(queryItem, [nome, descricao || null, qtd, valor], (errItem, resultItem) => {
-            if (errItem) return db.rollback(() => res.status(500).json({ error: errItem.message }));
+        conn.query(queryItem, [nome, ref_limpa, descricao || null, qtd, valor], (errItem, resultItem) => {
+            if (errItem) {
+                console.error("❌ Erro ao inserir na tabela principal:", errItem.message);
+                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errItem.message }); });
+            }
 
             const novoItemId = resultItem.insertId;
 
-            // 2. Grava o histórico de entrada com o número da nota fiscal
             const queryHistorico = `
-                INSERT INTO itens_estoque_entradas (item_id, quantity, valor_unitario, num_nota, data_entrada)
+                INSERT INTO itens_estoque_entradas (item_id, quantidade, valor_unitario, num_nota, data_entrada)
                 VALUES (?, ?, ?, ?, NOW())
             `;
 
-            db.query(queryHistorico, [novoItemId, qtd, valor, num_nota || null], (errHist) => {
-                if (errHist) return db.rollback(() => res.status(500).json({ error: errHist.message }));
+            conn.query(queryHistorico, [novoItemId, qtd, valor, num_nota || null], (errHist) => {
+                if (errHist) {
+                    console.error("❌ Erro ao gravar histórico de entrada:", errHist.message);
+                    return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+                }
 
-                db.commit((errCommit) => {
-                    if (errCommit) return db.rollback(() => res.status(500).json({ error: errCommit.message }));
-                    res.status(201).json({ message: "Item e nota fiscal registrados com sucesso!", id: novoItemId });
+                conn.commit((errCommit) => {
+                    if (errCommit) {
+                        console.error("Erro no commit da transação:", errCommit.message);
+                        return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    }
+                    conn.release();
+                    res.status(201).json({ message: "Item e histórico registrados com sucesso!", id: novoItemId });
                 });
             });
         });
@@ -816,6 +907,110 @@ app.delete('/api/fornecedores/:id', (req, res) => {
     db.query("DELETE FROM fornecedores WHERE id = ?", [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Fornecedor removido com sucesso!" });
+    });
+});
+
+// -------------------------------------------------------------------------
+// ROTAS DE CONTROLE DE FILTROS DE ÁGUA
+// -------------------------------------------------------------------------
+
+// GET: Listar todos os filtros com cálculo dinâmico de vencimento e tratamento contra strings vazias (COALESCE)
+app.get('/api/filtros', (req, res) => {
+    const query = `
+        SELECT f.id, f.nome, f.setor_id, f.modelo_refil, f.data_ultima_troca, f.periodicidade_meses, f.observacoes,
+               s.nome as setor_nome,
+               DATE_ADD(f.data_ultima_troca, INTERVAL COALESCE(f.periodicidade_meses, 3) MONTH) as data_vencimento,
+               DATEDIFF(DATE_ADD(f.data_ultima_troca, INTERVAL COALESCE(f.periodicidade_meses, 3) MONTH), CURDATE()) as dias_restantes
+        FROM filtros_agua f
+        LEFT JOIN setores s ON f.setor_id = s.id
+        ORDER BY data_vencimento ASC
+    `;
+    db.query(query, (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao listar filtros de água:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result || []);
+    });
+});
+
+// POST: Cadastrar um novo ponto de filtro
+app.post('/api/filtros', (req, res) => {
+    const { nome, setor_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes } = req.body;
+    
+    const v_setor = setor_id ? Number(setor_id) : null;
+    const v_periodo = periodicidade_meses ? Number(periodicidade_meses) : 3;
+    const v_data = data_ultima_troca || new Date().toISOString().split('T')[0];
+
+    const query = `INSERT INTO filtros_agua (nome, setor_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes) VALUES (?, ?, ?, ?, ?, ?)`;
+    db.query(query, [nome, v_setor, modelo_refil || null, v_data, v_periodo, observacoes || null], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.status(201).json({ message: "Filtro cadastrado!", id: result.insertId });
+    });
+});
+
+// POST: Dar baixa (Registrar troca do elemento filtrante com dedução de estoque e custo)
+app.post('/api/filtros/baixa', (req, res) => {
+    // Agora o backend recebe também o ID do item e a quantidade usada vindos do React
+    const { filtro_id, tecnico_nome, obs_intervencao, item_id, quantidade } = req.body;
+
+    const qtd_usada = Number(quantidade) || 0;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Atualiza a data da última troca no filtro principal para o dia de hoje
+        const queryUpdate = `UPDATE filtros_agua SET data_ultima_troca = CURDATE() WHERE id = ?`;
+        conn.query(queryUpdate, [filtro_id], (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+            // 2. Fluxo Inteligente: Se o técnico selecionou um refil do estoque, processa o custo e o saldo
+            if (item_id && qtd_usada > 0) {
+                conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
+                    if (errEstoque || results.length === 0) {
+                        return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item de refil não localizado no almoxarifado." }); });
+                    }
+
+                    const item = results[0];
+                    if (item.quantidade < qtd_usada) {
+                        return conn.rollback(() => { conn.release(); res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
+                    }
+
+                    // Calcula o impacto financeiro com base no valor real da nota do item
+                    const custo_total = item.valor_unitario * qtd_usada;
+                    const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${custo_total.toFixed(2)}]`;
+
+                    // 3. Insere a troca no histórico da Engenharia Clínica com o rastro do custo
+                    const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
+                    conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', log_intervencao], (errHist) => {
+                        if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                        // 4. Dá a baixa automática retirando as unidades do estoque principal
+                        conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
+                            if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
+
+                            conn.commit((errCommit) => {
+                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                conn.release();
+                                res.json({ message: "Refil trocado, estoque deduzido e custos processados com sucesso! anço💰" });
+                            });
+                        });
+                    });
+                });
+            } else {
+                // Caso a troca seja avulsa, sem usar insumos controlados do almoxarifado
+                const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
+                conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', obs_intervencao || 'Troca preventiva padrão (Sem refil do estoque)'], (errHist) => {
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                        conn.release();
+                        res.json({ message: "Troca registrada com sucesso (Sem movimentação de almoxarifado)!" });
+                    });
+                });
+            }
+        });
     });
 });
 

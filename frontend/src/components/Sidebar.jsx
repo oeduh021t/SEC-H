@@ -23,7 +23,9 @@ const Sidebar = ({ user, onLogout }) => {
 
   // Verifica se o grupo está ativo para manter aberto visualmente
   const isEquipActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas');
-  const isRelatActive = location.pathname.includes('relatorios');
+  
+  // ATUALIZADO: Inclui a rota do novo relatório de filtros para manter o dropdown aberto
+  const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
 
   const handleMudarSenha = async (e) => {
     e.preventDefault();
@@ -77,7 +79,7 @@ const Sidebar = ({ user, onLogout }) => {
         />
       )}
 
-      {/* SIDEBAR - CORRIGIDO: Removida a linha duplicada que quebrava o fechamento da div anterior */}
+      {/* SIDEBAR */}
       <div className={`bg-slate-900 h-screen text-slate-300 p-4 flex flex-col shrink-0 border-r border-slate-800 fixed left-0 top-0 z-50 transition-all duration-300 ease-in-out print:hidden ${sidebarAberta ? 'w-64 translate-x-0' : 'w-0 -translate-x-full'}`}>
 
         {/* LOGO */}
@@ -130,6 +132,14 @@ const Sidebar = ({ user, onLogout }) => {
             📦 Gestão de Estoque
           </Link>
 
+          <Link to="/setores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/setores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+            🏢 Cadastro de Setores
+          </Link>
+
+          <Link to="/filtros" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/filtros') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+            🚰 Controle de Filtros
+          </Link>
+
           <div>
             <button
               onClick={() => setMenuRelatAberto(!menuRelatAberto)}
@@ -138,7 +148,8 @@ const Sidebar = ({ user, onLogout }) => {
               <div className="flex items-center gap-3">📊 Relatórios</div>
               <span className={`text-[10px] transition-transform duration-300 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`}>▼</span>
             </button>
-            <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+            {/* Ajustada a propriedade max-h para comportar o terceiro link sem esconder o elemento */}
+            <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-52 opacity-100' : 'max-h-0 opacity-0'}`}>
               <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
                 Inventário Geral
@@ -147,6 +158,12 @@ const Sidebar = ({ user, onLogout }) => {
               <Link to="/relatorios/custos-setor" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
                 Custos por Setor
+              </Link>
+
+              {/* ADICIONADO: Link para o Relatório Financeiro e de Troca de Filtros */}
+              <Link to="/relatorio-filtros" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorio-filtros') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorio-filtros') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
+                Histórico de Filtros
               </Link>
             </div>
           </div>
