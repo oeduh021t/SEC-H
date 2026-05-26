@@ -187,6 +187,24 @@ const Sidebar = ({ user, onLogout }) => {
                   <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
                   Custos por Setor
                 </Link>
+                
+                <Link
+  to="/relatorios/chamados-setor"
+  className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${
+    isActive('/relatorios/chamados-setor')
+      ? 'text-white bg-slate-800'
+      : 'text-slate-500 hover:text-white'
+  }`}
+>
+  <span
+    className={`w-1.5 h-1.5 rounded-full ${
+      isActive('/relatorios/chamados-setor')
+        ? 'bg-yellow-500'
+        : 'bg-slate-600'
+    }`}
+  ></span>
+  Chamados por Setor
+</Link>
 
                 {/* Relatório de filtros restrito dinamicamente para o Admin */}
                 {nivelUsuario === 'admin' && (

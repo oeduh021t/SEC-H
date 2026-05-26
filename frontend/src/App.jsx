@@ -20,6 +20,7 @@ import { GestaoEstoque } from './pages/GestaoEstoque';
 import { GestaoSetores } from './pages/GestaoSetores';
 import ControleFiltros from './pages/ControleFiltros';
 import RelatorioFiltros from './pages/RelatorioFiltros';
+import { RelatorioChamadosSetor } from './pages/RelatorioChamadosSetor';
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
 function RotaProtegida({ children, user, niveisPermitidos }) {
@@ -133,6 +134,8 @@ function App() {
               {/* Inventário e Custos por Setor: Apenas ADMIN e COORDENADOR acessam */}
               <Route path="/relatorios/inventario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><InventarioGeral /></RotaProtegida>} />
               <Route path="/relatorios/custos-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioCustosSetor /></RotaProtegida>} />
+              <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>}
+/>
 
               {/* --- 7. GERENCIAMENTO DE USUÁRIOS --- */}
               {/* Criação e edição de operadores: Exclusivo ADMIN */}

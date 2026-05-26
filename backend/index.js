@@ -851,6 +851,52 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
     });
 });
 
+app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
+
+    const { data_inicio, data_fim, setor_id } = req.query
+
+    const inicio =
+        data_inicio ||
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split('T')[0] + ' 00:00:00'
+
+    const fim =
+        data_fim ||
+        new Date().toISOString().split('T')[0] + ' 23:59:59'
+
+    let queryParams = [inicio, fim]
+    let filtroSetor = ''
+
+    if (setor_id && setor_id !== 'todos') {
+        filtroSetor = 'AND s.id = ?'
+        queryParams.push(setor_id)
+    }
+
+    const sql = `
+        SELECT
+            s.id AS setor_id,
+            s.nome AS nome_setor,
+            COUNT(c.id) AS total_chamados
+        FROM setores s
+        LEFT JOIN chamados c
+            ON c.setor_id = s.id
+            AND c.data_abertura BETWEEN ? AND ?
+        WHERE 1=1 ${filtroSetor}
+        GROUP BY s.id, s.nome
+        ORDER BY total_chamados DESC
+    `
+
+    db.query(sql, queryParams, (err, result) => {
+        if (err) {
+            console.error("❌ Erro no relatório de chamados:", err)
+            return res.status(500).json({ error: err.message })
+        }
+
+        res.json(result || [])
+    })
+})
+
 // -------------------------------------------------------------------------
 // LOGÍSTICA / AUXILIARES
 // -------------------------------------------------------------------------
