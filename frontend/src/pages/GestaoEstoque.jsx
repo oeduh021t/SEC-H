@@ -7,7 +7,7 @@ export function GestaoEstoque() {
 
   const [nome, setNome] = useState("")
   const [descricao, setDescricao] = useState("")
-  const [referencia, setReferencia] = useState("") // ADICIONADO: Estado para Referência
+  const [referencia, setReferencia] = useState("") // Estado para Referência
   const [quantidade, setQuantidade] = useState(0)
   const [valorUnitario, setValorUnitario] = useState(0.00)
   const [numNota, setNumNota] = useState("")
@@ -15,8 +15,23 @@ export function GestaoEstoque() {
   const API_URL = "http://192.168.5.101:3000/api"
 
   const carregarEstoque = async () => {
+    setLoading(true)
     try {
-      const res = await fetch(`${API_URL}/estoque`).then(res => res.json())
+      // Captura o nível do usuário logado para passar pelo middleware permitirApenas
+      const userLogado = localStorage.getItem('user');
+      const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
+
+      const res = await fetch(`${API_URL}/estoque`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          // 🔥 CORREÇÃO: Passa as credenciais para autorizar a listagem do almoxarifado
+          "x-usuario-nivel": nivelUsuario
+        }
+      }).then(res => {
+        if (!res.ok) throw new Error(`Erro na API: Código ${res.status}`);
+        return res.json();
+      })
       setItens(res || [])
     } catch (err) {
       console.error("Erro ao carregar estoque:", err)
@@ -31,19 +46,27 @@ export function GestaoEstoque() {
     e.preventDefault()
     if (!nome) return
 
+    // Captura o nível do usuário logado para passar pelo middleware permitirApenas
+    const userLogado = localStorage.getItem('user');
+    const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
+
     const novoItem = {
       nome,
       descricao,
       quantidade: Number(quantidade),
       valor_unitario: Number(valorUnitario),
       num_nota: numNota,
-      referencia: referencia // ADICIONADO: Incluído no payload enviado à API
+      referencia: referencia // Incluído no payload enviado à API
     }
 
     try {
       const res = await fetch(`${API_URL}/estoque`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          // 🔥 CORREÇÃO: Passa as credenciais para autorizar a gravação do novo insumo
+          "x-usuario-nivel": nivelUsuario
+        },
         body: JSON.stringify(novoItem)
       })
 
@@ -51,13 +74,13 @@ export function GestaoEstoque() {
         alert("Item cadastrado com sucesso! 📦")
         setNome("")
         setDescricao("")
-        setReferencia("") // ADICIONADO: Limpeza do campo
+        setReferencia("") // Limpeza do campo
         setQuantidade(0)
         setValorUnitario(0.00)
         setNumNota("")
         carregarEstoque()
       } else {
-        alert("Erro ao cadastrar item.")
+        alert("Erro ao cadastrar item. Verifique se o seu perfil possui permissão.");
       }
     } catch (err) {
       console.error(err)
@@ -67,7 +90,7 @@ export function GestaoEstoque() {
   const totalPecasGeral = itens.reduce((acc, item) => acc + Number(item.quantidade), 0)
   const capitalInvestido = itens.reduce((acc, item) => acc + (Number(item.quantidade) * Number(item.valor_unitario || 0)), 0)
 
-  // ALTERAÇÃO CRÍTICA: Agora o filtro busca por Nome OU por Referência estruturada
+  // Filtro busca por Nome OU por Referência estruturada
   const itensFiltrados = itens.filter(item => {
     const termoBusca = busca.toLowerCase();
     const nomeBate = item.nome ? item.nome.toLowerCase().includes(termoBusca) : false;
@@ -76,7 +99,7 @@ export function GestaoEstoque() {
     return nomeBate || refBate;
   })
 
-  if (loading) return <div className="p-8 text-center font-bold">Carregando almoxarifado...</div>
+  if (loading) return <div className="p-8 text-center font-bold text-slate-400 animate-pulse">Carregando almoxarifado...</div>
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
@@ -117,7 +140,7 @@ export function GestaoEstoque() {
               <input required type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: Lâmpada LED 15W" value={nome} onChange={e => setNome(e.target.value)} />
             </div>
 
-            {/* ADICIONADO: Campo Referência no Formulário */}
+            {/* Campo Referência no Formulário */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Referência / Part Number</label>
               <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: REF-1052X" value={referencia} onChange={e => setReferencia(e.target.value)} />
@@ -158,7 +181,7 @@ export function GestaoEstoque() {
               <thead>
                 <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   <th className="pb-3">Item / Especificação</th>
-                  <th className="pb-3">Referência</th> {/* ADICIONADO: Nova Coluna */}
+                  <th className="pb-3">Referência</th>
                   <th className="pb-3 text-center">Quantidade</th>
                   <th className="pb-3 text-right">Preço Unit.</th>
                   <th className="pb-3 text-right">Subtotal</th>
@@ -172,7 +195,6 @@ export function GestaoEstoque() {
                       <div className="text-[10px] text-slate-400 font-medium line-clamp-1">{item.descricao || "Sem descrição informada"}</div>
                     </td>
                     
-                    {/* ADICIONADO: Renderização do campo Referência com Badge estilizado */}
                     <td className="py-3 font-medium">
                       {item.referencia ? (
                         <span className="bg-slate-100 text-slate-600 font-mono font-bold px-2 py-1 rounded text-[10px] border border-slate-200">

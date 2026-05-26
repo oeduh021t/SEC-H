@@ -36,22 +36,23 @@ const Equipamentos = () => {
   }
 
   const carregarDados = () => {
-    fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(data => setEquipamentos(data))
+    fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(data => setEquipamentos(data || []))
   }
 
   useEffect(() => {
     carregarDados()
-    fetch(`${API_URL}/setores`).then(res => res.json()).then(data => setSetores(data))
-    fetch(`${API_URL}/types_equipamentos`).then(res => res.json()).then(data => setTipos(data))
+    fetch(`${API_URL}/setores`).then(res => res.json()).then(data => setSetores(data || []))
+    fetch(`${API_URL}/types_equipamentos`).then(res => res.json()).then(data => setTipos(data || []))
   }, [])
 
   const prepararEdicao = (e) => {
     setEditandoId(e.id)
     setForm({
       ...e,
-      data_ultima_preventiva: e.data_ultima_preventiva ? e.data_ultima_preventiva.split('T')[0] : ''
+      data_ultima_preventiva: e.data_ultima_preventiva ? e.data_ultima_preventiva.split('T')[0] : '',
+      tipo_id: e.tipo_id || ''
     })
-    setFotoEquipamento(null) // Reseta o campo de arquivo ao abrir uma nova edição
+    setFotoEquipamento(null)
     setModalAberta(true)
   }
 
@@ -65,7 +66,6 @@ const Equipamentos = () => {
     e.preventDefault()
     const url = editandoId ? `${API_URL}/equipamentos/${editandoId}` : `${API_URL}/equipamentos`
 
-    // MODIFICADO: Uso de FormData no lugar de JSON para empacotar texto e arquivos binários na mesma requisição
     const formData = new FormData()
     formData.append('nome', form.nome || '')
     formData.append('modelo', form.modelo || '')
@@ -83,7 +83,7 @@ const Equipamentos = () => {
 
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
-      body: formData // O navegador gerencia o Content-Type multipart/form-data automaticamente
+      body: formData 
     })
     .then(() => {
       carregarDados()
@@ -98,8 +98,9 @@ const Equipamentos = () => {
     })
   }
 
-  // FILTRAGEM GLOBAL MULTI-CAMPO EM TEMPO REAL
-  const equipamentosFiltrados = equipamentos.filter(e => {
+  // FILTRAGEM ORIGINAL MULTI-CAMPO EM TEMPO REAL (Preservada idêntica)
+  const equipamentosFiltrados = (equipamentos || []).filter(e => {
+    if (!e) return false;
     const termo = busca.toLowerCase();
     const matchesBusca = 
       (e.nome && e.nome.toLowerCase().includes(termo)) ||
@@ -116,7 +117,6 @@ const Equipamentos = () => {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* CSS ISOLADO PARA IMPRESSÃO DE ETIQUETA PATRIMONIAL */}
       <style>{`
         @media print {
           body * { visibility: hidden; background: white !important; }
@@ -161,7 +161,7 @@ const Equipamentos = () => {
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Isolar Localização</label>
             <select className="w-full p-2.5 border-2 border-slate-110 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroSetor} onChange={e => setFiltroSetor(e.target.value)}>
               <option value="todos">⭐ Todos os Setores</option>
-              {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              {(setores || []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
           <div>
@@ -245,47 +245,55 @@ const Equipamentos = () => {
             <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark">
               <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome do Equipamento</label>
-                <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 text-xs font-bold" onChange={e => setForm({...form, nome: e.target.value})} />
+                <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 text-xs font-bold bg-white text-black" onChange={e => setForm({...form, nome: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Modelo</label>
-                <input type="text" value={form.modelo || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none" onChange={e => setForm({...form, modelo: e.target.value})} />
+                <input type="text" value={form.modelo || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black" onChange={e => setForm({...form, modelo: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Fabricante</label>
-                <input type="text" value={form.fabricante || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none" onChange={e => setForm({...form, fabricante: e.target.value})} />
+                <input type="text" value={form.fabricante || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black" onChange={e => setForm({...form, fabricante: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nº Patrimônio</label>
-                <input type="text" value={form.patrimonio || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-mono font-bold outline-none" onChange={e => setForm({...form, patrimonio: e.target.value})} />
+                <input type="text" value={form.patrimonio || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-mono font-bold outline-none bg-white text-black" onChange={e => setForm({...form, patrimonio: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nº Série</label>
-                <input type="text" value={form.num_serie || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none" onChange={e => setForm({...form, num_serie: e.target.value})} />
+                <input type="text" value={form.num_serie || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black" onChange={e => setForm({...form, num_serie: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Setor Responsável</label>
-                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none" onChange={e => setForm({...form, setor_id: e.target.value})}>
+                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, setor_id: e.target.value})}>
                   <option value="">Selecione o Setor...</option>
-                  {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  {(setores || []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+
+              {/* INSERIDO COM PRECISÃO: Select do Tipo/Família integrado no seu grid nativo */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Tipo / Família do Equipamento</label>
+                <select value={form.tipo_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, tipo_id: e.target.value})}>
+                  <option value="">Selecione o Tipo...</option>
+                  {(tipos || []).map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
                 </select>
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Status Operacional</label>
-                <select value={form.status || 'Ativo'} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none" onChange={e => setForm({...form, status: e.target.value})}>
+                <select value={form.status || 'Ativo'} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, status: e.target.value})}>
                   <option value="Ativo">🟢 Ativo</option>
                   <option value="Reserva">🔵 Reserva</option>
                   <option value="Em Manutenção">🟡 Em Manutenção</option>
                 </select>
               </div>
 
-              {/* MODIFICADO: NOVO CAMPO DE ANEXAR IMAGEM BINÁRIA */}
               <div className="col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">
                 <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Foto do Ativo (Opcional)</label>
                 <input 
@@ -307,7 +315,6 @@ const Equipamentos = () => {
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setModalAberta(false)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
                   <button type="submit" className={`px-8 py-3 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 ${editandoId ? 'bg-amber-500 shadow-amber-100' : 'bg-blue-600 shadow-blue-100'}`}>{editandoId ? 'Atualizar Dados' : 'Salvar no Inventário'}</button>
-                                    
                 </div>
               </div>
             </form>

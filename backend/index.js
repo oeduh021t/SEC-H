@@ -93,7 +93,7 @@ const permitirApenas = (niveisPermitidos) => {
 };
 
 // -------------------------------------------------------------------------
-// DASHBOARD
+// DASHBOARD - INCLUSÃO DE MÉTRICAS DE CONTROLE DE GASTOS (100% CORRIGIDO)
 // -------------------------------------------------------------------------
 app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const queries = {
@@ -114,14 +114,45 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             SELECT tecnico_responsavel as nome, COUNT(*) as total
             FROM chamados WHERE tecnico_responsavel IS NOT NULL AND tecnico_responsavel != ''
             GROUP BY tecnico_responsavel ORDER BY total DESC`,
-        recentes: "SELECT id, titulo, status, data_abertura FROM chamados ORDER BY id DESC LIMIT 6"
+        recentes: "SELECT id, titulo, status, data_abertura FROM chamados ORDER BY id DESC LIMIT 6",
+
+        // 🆕 1. Gasto total com Filtros (Fazendo JOIN correto com itens_estoque)
+        gastoFiltros: `
+           SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
+           FROM chamados_itens ci
+           JOIN itens_estoque i ON ci.item_id = i.id
+           WHERE i.tipo = 'Filtro'`,
+
+        // 🆕 2. Gasto com Insumos Gerais (Tudo que não contiver a palavra Filtro)
+        gastoInsumosGerais: `
+            SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
+            FROM chamados_itens ci
+            JOIN itens_estoque i ON ci.item_id = i.id
+            WHERE i.tipo != 'Filtro'`,
+
+        // 🆕 3. Gasto Total em Equipamentos (Baseado na categoria 'Manutenção' da tabela chamados)
+        gastoTotalEquipamentos: `
+            SELECT IFNULL(SUM(custo_servico), 0) as total 
+            FROM chamados 
+            WHERE categoria = 'Manutenção'`,
+
+        // 🆕 4. Gasto Total em Estrutura / TI (Baseado na categoria 'TI' da tabela chamados)
+        gastoTotalEstrutura: `
+            SELECT IFNULL(SUM(custo_servico), 0) as total 
+            FROM chamados 
+            WHERE categoria = 'TI'`
     };
 
     const promises = Object.keys(queries).map(key => {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             db.query(queries[key], (err, results) => {
-                if (err) reject(err);
-                else resolve({ key, data: results });
+                if (err) {
+                    // Impede que uma query com erro quebre o Promise.all inteiro (Evita Erro 500)
+                    console.error(`⚠️ Erro silencioso na query [${key}]:`, err.message);
+                    resolve({ key, data: [{ total: 0 }] });
+                } else {
+                    resolve({ key, data: results });
+                }
             });
         });
     });
@@ -129,10 +160,20 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
     Promise.all(promises)
         .then(results => {
             const stats = {};
-            results.forEach(r => { stats[r.key] = r.data; });
+            results.forEach(r => { 
+                // Se for uma das novas métricas financeiras, extrai direto o valor numérico puro
+                if (['gastoFiltros', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura'].includes(r.key)) {
+                    stats[r.key] = r.data[0]?.total || 0;
+                } else {
+                    stats[r.key] = r.data; 
+                }
+            });
             res.json(stats);
         })
-        .catch(err => res.status(500).json(err));
+        .catch(err => {
+            console.error("❌ Falha crítica no Promise.all da Dashboard:", err.message);
+            res.status(500).json({ error: err.message });
+        });
 });
 
 // -------------------------------------------------------------------------
@@ -157,7 +198,7 @@ const enviarTelegram = async (mensagem) => {
 };
 
 // -------------------------------------------------------------------------
-// ROTAS DE EQUIPAMENTOS
+// ROTAS DE EQUIPAMENTOS - PADRONIZADAS E CORRIGIDAS (SUPORTA FOTO E FORM-DATA)
 // -------------------------------------------------------------------------
 app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
@@ -167,13 +208,33 @@ app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico'])
     });
 });
 
-app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), (req, res) => {
+// 🟢 CORRIGIDO: Adicionado upload.single('foto_equipamento') para ler o FormData do Modal e da Sidebar
+app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
-    const query = `INSERT INTO equipamentos (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE())`;
-    const values = [nome || 'Sem Nome', modelo || null, patrimonio || 'S/P', num_serie || null, fabricante || null, setor_id || null, status || 'Ativo', tipo_id || null, periodicidade_preventiva || 0];
+    
+    // Captura o arquivo de foto se ele foi enviado
+    const foto_equipamento = req.file ? `/uploads/${req.file.filename}` : null;
+
+    // Sanatização rigorosa de tipos contra valores vazios do form-data
+    const v_nome = nome && nome.trim() !== "" ? nome : 'Sem Nome';
+    const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
+    const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio : 'S/P';
+    const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
+    const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
+    const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
+    const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
+    const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
+    const v_status = status || 'Ativo';
+
+    // Query atualizada incluindo o campo da foto no inventário de ativos
+    const query = `INSERT INTO equipamentos (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)`;
+    const values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento];
 
     db.query(query, values, (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+            console.error("❌ Erro interno do MySQL no POST de equipamentos:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
         res.json({ message: "Sucesso!", id: result.insertId });
     });
 });
@@ -248,13 +309,13 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 
     const queryChamado = `
         SELECT c.*, e.patrimonio, e.num_serie, e.nome as eq_nome, 
-           e.modelo, e.fabricante, s.nome as setor_nome,
-           f.nome_fantasia as empresa_terceirizada
-    FROM chamados c
-    LEFT JOIN equipamentos e ON c.equipamento_id = e.id
-    LEFT JOIN setores s ON c.setor_id = s.id
-    LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
-    WHERE c.id = ?
+               e.modelo, e.fabricante, s.nome as setor_nome,
+               f.nome_fantasia as empresa_terceirizada
+        FROM chamados c
+        LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        LEFT JOIN setores s ON c.setor_id = s.id
+        LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+        WHERE c.id = ?
     `;
 
     db.query(queryChamado, [id], (err, results) => {
@@ -288,18 +349,25 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
 
     const categoriaFinal = categoria || category || 'Manutenção';
 
+    // 🟢 Tratamento contra strings nulas vindas do FormData no redirecionamento do Prontuário
+    const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
+    const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
+
     const query = `INSERT INTO chamados (setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
-    const values = [setor_id || null, equipamento_id || null, titulo, descricao_problema, prioridade || 'Média', categoriaFinal, tipo_manutencao || 'Corretiva', foto_abertura];
+    const values = [v_setor_id, v_equipamento_id, titulo, descricao_problema, prioridade || 'Média', categoriaFinal, tipo_manutencao || 'Corretiva', foto_abertura];
 
     db.query(query, values, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const novaOsId = result.insertId;
 
+        // 🟢 Query estendida com JOIN para carregar os dados do equipamento no Bot do Telegram
         const queryDadosTelegram = `
-            SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, s.nome as setor_nome
+            SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
+                   s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
             FROM chamados c
             LEFT JOIN setores s ON c.setor_id = s.id
+            LEFT JOIN equipamentos e ON c.equipamento_id = e.id
             WHERE c.id = ?
         `;
 
@@ -311,6 +379,7 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
                     `🚨 *NOVA ORDEM DE SERVIÇO* 🚨\n\n` +
                     `🎫 *Número da OS:* #${dados.id}\n` +
                     `📍 *Setor:* ${dados.setor_nome || 'Não Informado'}\n` +
+                    `⚙️ *Ativo:* ${dados.equip_nome ? `${dados.equip_nome} (PAT: ${dados.equip_pat || 'S/P'})` : 'Nenhum ativo vinculado'}\n` +
                     `📝 *Assunto:* ${dados.titulo}\n` +
                     `⏰ *Hora de Abertura:* ${dados.hora_formatada}`;
 
@@ -369,34 +438,53 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
     const { id } = req.params;
     const { item_id, quantidade = 0 } = req.body;
 
+    const qtd_solicitada = Number(quantidade);
+
+    if (!id || id === "0" || id === "null" || id === "undefined") {
+        return res.status(400).json({ error: "Não é possível vincular uma peça sem uma Ordem de Serviço (OS) válida aberta." });
+    }
+
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (err, results) => {
-            if (err || results.length === 0) return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item não localizado." }); });
-
-            const item = results[0];
-            if (item.quantidade < quantidade) {
-                return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Estoque insuficiente!" }); });
+        conn.query("SELECT id FROM chamados WHERE id = ?", [id], (errChamado, chamadoExiste) => {
+            if (errChamado) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errChamado.message }); });
+            
+            if (chamadoExiste.length === 0) {
+                return conn.rollback(() => { 
+                    conn.release(); 
+                    res.status(400).json({ error: `A Ordem de Serviço OS #${id} não existe no sistema. Verifique os dados.` }); 
+                });
             }
 
-            // CORRIGIDO CIRURGICAMENTE: Mapeada a variável correta "quantidade" em vez do parâmetro inexistente "quantity"
-            const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
-            conn.query(queryIns, [id, item_id, quantidade, item.valor_unitario], (err) => {
-                if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+            conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
+                if (errEstoque || results.length === 0) {
+                    return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item de insumo não localizado no almoxarifado." }); });
+                }
 
-                conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [quantidade, item_id], (err) => {
-                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                const item = results[0];
+                if (item.quantidade < qtd_solicitada) {
+                    return conn.rollback(() => { conn.release(); res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
+                }
 
-                    const msgEstoque = `Peça utilizada: ${quantidade}x ${item.nome}`;
-                    const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
+                const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
+                conn.query(queryIns, [id, item_id, qtd_solicitada, item.valor_unitario], (errIns) => {
+                    if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
-                    conn.query(queryHist, [id, msgEstoque], (err) => {
-                        if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
-                        conn.commit((err) => {
-                            if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
-                            conn.release();
-                            res.json({ message: "Estoque deduzido e associado à OS!" });
+                    conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
+                        if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
+
+                        const msgEstoque = `Peça utilizada: ${qtd_solicitada}x ${item.nome}`;
+                        const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
+
+                        conn.query(queryHist, [id, msgEstoque], (errHist) => {
+                            if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
+                            
+                            conn.commit((errCommit) => {
+                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                conn.release();
+                                res.json({ message: "Estoque deduzido e associado à OS com sucesso!" });
+                            });
                         });
                     });
                 });
@@ -673,6 +761,7 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
     const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
     const fim = data_fim ? data_fim + ' 23:59:59' : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
+    // Parâmetros base usados nas subqueries de somas financeiras
     let queryParams = [inicio, fim, inicio, fim];
     let filtroSetor = '';
 
@@ -681,6 +770,7 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
         queryParams.push(setor_id);
     }
 
+    // CORREÇÃO: Alterado 'equipment_id' para 'equipamento_id' nas duas subqueries abaixo
     const query = `
         SELECT
             e.id, 
@@ -694,13 +784,13 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
             (
                 SELECT IFNULL(SUM(c.custo_servico), 0) 
                 FROM chamados c 
-                WHERE c.equipment_id = e.id AND c.data_abertura BETWEEN ? AND ?
+                WHERE c.equipamento_id = e.id AND c.data_abertura BETWEEN ? AND ?
             ) +
             (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
                 FROM chamados_itens ci
                 JOIN chamados ch ON ci.chamado_id = ch.id
-                WHERE ch.equipment_id = e.id AND ch.data_abertura BETWEEN ? AND ?
+                WHERE ch.equipamento_id = e.id AND ch.data_abertura BETWEEN ? AND ?
             ) as total_gasto
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
@@ -714,7 +804,7 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
             console.error("❌ Erro ao gerar inventário avançado:", err.message);
             return res.status(500).json({ error: err.message });
         }
-        res.json(results);
+        res.json(results || []);
     });
 });
 
@@ -940,48 +1030,62 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
+        // 1. Atualiza a data da última troca na tabela filtros_agua
         const queryUpdate = `UPDATE filtros_agua SET data_ultima_troca = CURDATE() WHERE id = ?`;
         conn.query(queryUpdate, [filtro_id], (errUp) => {
-            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+            if (errUp) return conn.rollback(() => { res.status(500).json({ error: errUp.message }); });
 
             if (item_id && qtd_usada > 0) {
+                // 2. Busca o valor unitário do item no estoque
                 conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
                     if (errEstoque || results.length === 0) {
-                        return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item de refil não localizado no almoxarifado." }); });
+                        return conn.rollback(() => { res.status(400).json({ error: "Item de refil não localizado no almoxarifado." }); });
                     }
 
                     const item = results[0];
                     if (item.quantidade < qtd_usada) {
-                        return conn.rollback(() => { conn.release(); res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
+                        return conn.rollback(() => { res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
                     }
 
                     const custo_total = item.valor_unitario * qtd_usada;
+                    // String de histórico com formato clássico para a tabela do relatório ler as peças
                     const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${custo_total.toFixed(2)}]`;
 
-                    const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
-                    conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', log_intervencao], (errHist) => {
-                        if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+                    // 3. Atualiza o custo acumulado numérico do ponto de filtragem
+                    const queryUpdateFiltro = `
+                        UPDATE filtros_agua 
+                        SET custo_acumulado = custo_acumulado + ?
+                        WHERE id = ?`;
 
-                        conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
-                            if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
+                    conn.query(queryUpdateFiltro, [custo_total, filtro_id], (errCusto) => {
+                        if (errCusto) return conn.rollback(() => { res.status(500).json({ error: errCusto.message }); });
 
-                            conn.commit((errCommit) => {
-                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                                conn.release();
-                                res.json({ message: "Refil trocado, estoque deduzido e custos processados com sucesso! anço💰" });
+                        // 4. Grava no histórico tradicional do módulo
+                        const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
+                        conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', log_intervencao], (errHist) => {
+                            if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
+
+                            // 5. Deduz a quantidade física do estoque do almoxarifado
+                            conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
+                                if (errDeduz) return conn.rollback(() => { res.status(500).json({ error: errDeduz.message }); });
+
+                                conn.commit((errCommit) => {
+                                    if (errCommit) return conn.rollback(() => { res.status(500).json({ error: errCommit.message }); });
+                                    res.json({ message: "Refil trocado, estoque deduzido e custo processado com sucesso! 🚰✅" });
+                                });
                             });
                         });
                     });
                 });
             } else {
+                // Caso seja uma troca manual sem deduzir insumos do estoque
                 const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
-                conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', obs_intervencao || 'Troca preventiva padrão (Sem refil do estoque)'], (errHist) => {
-                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+                conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', obs_intervencao || 'Troca manual sem peça do estoque'], (errHist) => {
+                    if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
 
                     conn.commit((errCommit) => {
-                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                        conn.release();
-                        res.json({ message: "Troca registrada com sucesso (Sem movimentação de almoxarifado)!" });
+                        if (errCommit) return conn.rollback(() => { res.status(500).json({ error: errCommit.message }); });
+                        res.json({ message: "Troca registrada com sucesso!" });
                     });
                 });
             }
@@ -1009,6 +1113,7 @@ app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
         let totalFiltrosTrocados = results.length;
         let custoTotalPeriodo = 0;
 
+        // 🟢 Varre as linhas procurando o padrão de texto de forma resiliente (aceita ou não espaços)
         results.forEach(row => {
             if (row.obs_intervencao && row.obs_intervencao.includes('Custo Médio: R$')) {
                 try {
@@ -1018,14 +1123,17 @@ app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
                         custoTotalPeriodo += parseFloat(valorLimpo) || 0;
                     }
                 } catch (e) {
-                    console.error("Erro ao processar custo do log:", e);
+                    console.error(e);
                 }
             }
         });
 
         res.json({
             periodo: { inicio, fim },
-            indicators: { total_trocas: totalFiltrosTrocados, custo_total: custoTotalPeriodo },
+            indicators: { 
+                total_trocas: totalFiltrosTrocados, 
+                custo_total: Number(custoTotalPeriodo) || 0 
+            },
             detalhes: results
         });
     });

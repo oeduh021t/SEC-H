@@ -32,7 +32,7 @@ const Fornecedores = () => {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+        'x-usuario-nivel': obterNivelUsuario()
       }
     })
       .then(res => {
@@ -55,7 +55,7 @@ const Fornecedores = () => {
       razao_social: f.razao_social || '',
       cnpj: f.cnpj || '',
       contato: f.contato || '',
-      telefone: f.telefone || '',
+      telefone: f.telefone || f.telephone || '', // Compatibilidade caso o banco envie telephone
       email: f.email || '',
       especialidade: f.especialidade || '',
       status: f.status || 'Ativo'
@@ -70,7 +70,7 @@ const Fornecedores = () => {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+          'x-usuario-nivel': obterNivelUsuario()
         }
       })
         .then(res => {
@@ -90,7 +90,7 @@ const Fornecedores = () => {
       method: editandoId ? 'PUT' : 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+        'x-usuario-nivel': obterNivelUsuario()
       },
       body: JSON.stringify(form)
     })
@@ -118,7 +118,7 @@ const Fornecedores = () => {
           <input
             type="text"
             placeholder="Buscar fornecedor..."
-            className="px-4 py-2 border-2 border-slate-100 rounded-xl w-72 outline-none focus:border-blue-500 transition-all text-sm font-medium bg-white"
+            className="px-4 py-2 border-2 border-slate-100 rounded-xl w-72 outline-none focus:border-blue-500 transition-all text-sm font-medium bg-white text-black"
             onChange={e => setBusca(e.target.value)}
           />
           <button
@@ -169,7 +169,6 @@ const Fornecedores = () => {
                 </td>
                 <td className="p-5">
                   <div className="flex justify-center gap-2">
-                    {/* BOTÃO EDITAR */}
                     <button
                       onClick={() => prepararEdicao(f)}
                       className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm border border-amber-100"
@@ -177,8 +176,6 @@ const Fornecedores = () => {
                     >
                       <span className="text-sm">✏️</span>
                     </button>
-
-                    {/* BOTÃO EXCLUIR */}
                     <button
                       onClick={() => excluirFornecedor(f.id)}
                       className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100"
@@ -213,42 +210,42 @@ const Fornecedores = () => {
             <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark">
               <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome Fantasia *</label>
-                <input type="text" required value={form.nome_fantasia} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 transition-all font-bold text-sm" onChange={e => setForm({...form, nome_fantasia: e.target.value})} />
+                <input type="text" required value={form.nome_fantasia} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 transition-all font-bold text-sm bg-white text-black" onChange={e => setForm({...form, nome_fantasia: e.target.value})} />
               </div>
 
               <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Razão Social</label>
-                <input type="text" value={form.razao_social} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-medium" onChange={e => setForm({...form, razao_social: e.target.value})} />
+                <input type="text" value={form.razao_social} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-medium bg-white text-black" onChange={e => setForm({...form, razao_social: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">CNPJ</label>
-                <input type="text" value={form.cnpj} placeholder="00.000.000/0001-00" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-sm" onChange={e => setForm({...form, cnpj: e.target.value})} />
+                <input type="text" value={form.cnpj} placeholder="00.000.000/0001-00" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-sm bg-white text-black" onChange={e => setForm({...form, cnpj: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Especialidade / Ramo</label>
-                <input type="text" value={form.especialidade} placeholder="Ex: Engenharia Clínica, Refrigeração" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm" onChange={e => setForm({...form, especialidade: e.target.value})} />
+                <input type="text" value={form.especialidade} placeholder="Ex: Engenharia Clínica, Refrigeração" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm bg-white text-black" onChange={e => setForm({...form, especialidade: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome do Contato (Representante)</label>
-                <input type="text" value={form.contato} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm" onChange={e => setForm({...form, contato: e.target.value})} />
+                <input type="text" value={form.contato} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm bg-white text-black" onChange={e => setForm({...form, contato: e.target.value})} />
               </div>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Telefone Comercial</label>
-                <input type="text" value={form.telefone} placeholder="(00) 00000-0000" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-medium" onChange={e => setForm({...form, telefone: e.target.value})} />
+                <input type="text" value={form.telefone} placeholder="(00) 00000-0000" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-medium bg-white text-black" onChange={e => setForm({...form, telefone: e.target.value})} />
               </div>
 
               <div className="col-span-2 grid grid-cols-3 gap-4">
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">E-mail de Suporte / Comercial</label>
-                  <input type="email" value={form.email} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-mono" onChange={e => setForm({...form, email: e.target.value})} />
+                  <input type="email" value={form.email} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-mono bg-white text-black" onChange={e => setForm({...form, email: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Status Cadastral</label>
-                  <select value={form.status} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-sm" onChange={e => setForm({...form, status: e.target.value})}>
+                  <select value={form.status} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-sm text-black" onChange={e => setForm({...form, status: e.target.value})}>
                     <option value="Ativo">🟢 Ativo</option>
                     <option value="Inativo">🔴 Inativo</option>
                   </select>

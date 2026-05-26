@@ -5,37 +5,59 @@ const NovoEquipamento = () => {
   const navigate = useNavigate();
   const [setores, setSetores] = useState([]);
   const [tipos, setTipos] = useState([]);
+  const [fotoEquipamento, setFotoEquipamento] = useState(null);
   const API_URL = 'http://192.168.5.101:3000/api';
 
   const [form, setForm] = useState({
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', status: 'Ativo'
+    setor_id: '', tipo_id: '', status: 'Ativo', periodicidade_preventiva: 0
   });
 
   useEffect(() => {
-    // Busca setores
     fetch(`${API_URL}/setores`)
       .then(res => res.json())
-      .then(data => setSetores(data))
+      .then(data => setSetores(data || []))
       .catch(err => console.error("Erro ao carregar setores:", err));
 
-    // Busca tipos (Certifique-se que essa rota existe no seu index.js)
-    fetch(`${API_URL}/tipos_equipamentos`)
+    fetch(`${API_URL}/types_equipamentos`)
       .then(res => res.json())
-      .then(data => setTipos(data))
+      .then(data => setTipos(data || []))
       .catch(err => console.error("Erro ao carregar tipos:", err));
   }, []);
 
   const salvar = (e) => {
     e.preventDefault();
+
+    // Captura o nível do usuário logado para passar pelo middleware permitirApenas
+    const userLogado = localStorage.getItem('user');
+    const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
+
+    // Converte para FormData para suportar a foto e bater com o esperado no backend
+    const formData = new FormData();
+    formData.append('nome', form.nome || '');
+    formData.append('modelo', form.modelo || '');
+    formData.append('patrimonio', form.patrimonio || '');
+    formData.append('num_serie', form.num_serie || '');
+    formData.append('fabricante', form.fabricante || '');
+    formData.append('setor_id', form.setor_id || '');
+    formData.append('status', form.status || 'Ativo');
+    formData.append('tipo_id', form.tipo_id || '');
+    formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0);
+
+    if (fotoEquipamento) {
+      formData.append('foto_equipamento', fotoEquipamento);
+    }
+
     fetch(`${API_URL}/equipamentos`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form)
+      headers: {
+        'x-usuario-nivel': nivelUsuario
+      },
+      body: formData
     })
     .then(res => {
       if (res.ok) navigate('/equipamentos');
-      else alert("Erro ao salvar equipamento");
+      else alert("Erro ao salvar equipamento. Verifique seus privilégios.");
     })
     .catch(err => console.error("Erro na requisição:", err));
   };
@@ -45,7 +67,7 @@ const NovoEquipamento = () => {
       <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100">
         <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
           <div>
-            <h2 className="text-xl font-black uppercase tracking-widest leading-none">🆕 Novo Cadastro</h2>
+            <h2 className="text-xl font-black uppercase tracking-widest leading-none">🆕 Novo Cadastro Padronizado</h2>
             <p className="text-blue-200 text-[10px] font-black mt-2 uppercase tracking-tighter">Engenharia Clínica / Inventário de Ativos</p>
           </div>
           <button onClick={() => navigate('/equipamentos')} className="text-white/50 hover:text-white transition-colors">✕</button>
@@ -59,7 +81,7 @@ const NovoEquipamento = () => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Patrimônio</label>
-            <input type="text" required value={form.patrimonio} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-mono font-bold" placeholder="001234" onChange={e => setForm({...form, patrimonio: e.target.value})} />
+            <input type="text" value={form.patrimonio} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-mono font-bold" placeholder="001234" onChange={e => setForm({...form, patrimonio: e.target.value})} />
           </div>
 
           <div>
@@ -69,29 +91,52 @@ const NovoEquipamento = () => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Marca / Fabricante</label>
-            <input type="text" value={form.fabricante} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, fabricante: e.target.value})} />
+            <input type="text" value={form.fabricante} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none" placeholder="Ex: GE, Philips" onChange={e => setForm({...form, fabricante: e.target.value})} />
           </div>
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Modelo</label>
-            <input type="text" value={form.modelo} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none" onChange={e => setForm({...form, modelo: e.target.value})} />
+            <input type="text" value={form.modelo} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none" placeholder="Ex: Dash 4000" onChange={e => setForm({...form, modelo: e.target.value})} />
           </div>
 
           <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Setor</label>
-            <select required value={form.setor_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm" onChange={e => setForm({...form, setor_id: e.target.value})}>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Setor Responsável</label>
+            <select required value={form.setor_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, setor_id: e.target.value})}>
               <option value="">Selecione...</option>
               {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
 
           <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Tipo / Família do Equipamento</label>
+            <select required value={form.tipo_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, tipo_id: e.target.value})}>
+              <option value="">Selecione...</option>
+              {tipos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </div>
+
+          <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Status Inicial</label>
-            <select value={form.status} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm" onChange={e => setForm({...form, status: e.target.value})}>
+            <select value={form.status} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, status: e.target.value})}>
               <option value="Ativo">🟢 Ativo</option>
               <option value="Reserva">🔵 Reserva</option>
               <option value="Em Manutenção">🟡 Em Manutenção</option>
             </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Periodicidade Preventiva (Dias)</label>
+            <input type="number" min="0" value={form.periodicidade_preventiva} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs" placeholder="Ex: 180" onChange={e => setForm({...form, periodicidade_preventiva: e.target.value})} />
+          </div>
+
+          <div className="md:col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Foto do Ativo (Opcional)</label>
+            <input 
+              type="file" 
+              accept="image/*" 
+              className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-white hover:file:bg-slate-900 file:cursor-pointer"
+              onChange={(e) => setFotoEquipamento(e.target.files[0])} 
+            />
           </div>
 
           <div className="md:col-span-2 pt-6 flex gap-4">

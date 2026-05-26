@@ -9,18 +9,16 @@ const Dashboard = ({ user }) => {
     const [stats, setStats] = useState(null);
     const API_URL = 'http://192.168.5.101:3000/api';
 
-    // Normaliza o nível de privilégio para checagem segura
     const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
 
     useEffect(() => {
-        // Se for um usuário solicitante comum, barra a chamada à API antes de estourar o erro 403
         if (nivelUsuario === 'usuario') return;
 
         fetch(`${API_URL}/stats`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
-                'x-usuario-nivel': user?.nivel || '' // Injeção de segurança contra Erro 401
+                'x-usuario-nivel': user?.nivel || ''
             }
         })
             .then(res => {
@@ -31,7 +29,6 @@ const Dashboard = ({ user }) => {
             .catch(err => console.error("Erro ao carregar stats da Dashboard:", err));
     }, [API_URL, user, nivelUsuario]);
 
-    // Bloqueio preventivo caso um Solicitante force a URL da dashboard pela barra de endereços
     if (nivelUsuario === 'usuario') {
         return <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">Acesso Negado: Seu perfil não possui acesso ao painel estatístico.</div>;
     }
@@ -39,7 +36,6 @@ const Dashboard = ({ user }) => {
     if (!stats) return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Carregando Painel...</div>;
 
     // --- CONFIGURAÇÃO DOS DADOS ---
-
     const dataSetores = {
         labels: stats.porSetor?.map(s => s.nome) || [],
         datasets: [{
@@ -58,8 +54,6 @@ const Dashboard = ({ user }) => {
             borderRadius: 8,
         }]
     };
-
-    // --- OPÇÕES DOS GRÁFICOS ---
 
     const optionsSetores = {
         maintainAspectRatio: false,
@@ -86,6 +80,10 @@ const Dashboard = ({ user }) => {
         }
     };
 
+    const formatarMoeda = (valor) => {
+        return new Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
             {/* HEADER */}
@@ -96,7 +94,7 @@ const Dashboard = ({ user }) => {
                 </div>
             </div>
 
-            {/* INDICADORES (CARDS) */}
+            {/* INDICADORES OPERACIONAIS */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <StatCard title="Total Ativos" value={stats.totalEquipamentos?.[0]?.total || 0} color="border-blue-500" link="/equipamentos" />
                 <StatCard title="Preventivas" value={stats.preventivasAtrasadas?.[0]?.total || 0} color="border-green-500" link="/preventivas" />
@@ -105,10 +103,18 @@ const Dashboard = ({ user }) => {
                 <StatCard title="Concluídos" value={stats.chamadosConcluidos?.[0]?.total || 0} color="border-emerald-500" link="/chamados" />
             </div>
 
+            {/* LINHA DE CONTROLE DE GASTOS FINANCEIROS */}
+            <div className="space-y-2">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Balanço Financeiro (Mês Atual)</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <FinanceCard title="Gastos com Insumos Gerais" value={formatarMoeda(stats.gastoInsumosGerais)} color="border-indigo-500" />
+                    <FinanceCard title="Total em Equipamentos" value={formatarMoeda(stats.gastoTotalEquipamentos)} color="border-emerald-500" />
+                    <FinanceCard title="Total em Estrutura" value={formatarMoeda(stats.gastoTotalEstrutura)} color="border-purple-500" />
+                </div>
+            </div>
+
             {/* SEÇÃO DE GRÁFICOS E RECENTES */}
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-
-                {/* Gráfico de Setores (2 colunas) */}
                 <div className="xl:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Incidentes por Setor</h3>
                     <div className="flex-1 min-h-[300px]">
@@ -116,7 +122,6 @@ const Dashboard = ({ user }) => {
                     </div>
                 </div>
 
-                {/* Desempenho da Equipe (1 coluna) */}
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
                     <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Desempenho da Equipe</h3>
                     <div className="flex-1 min-h-[300px]">
@@ -124,7 +129,6 @@ const Dashboard = ({ user }) => {
                     </div>
                 </div>
 
-                {/* Últimas Atualizações (1 coluna) */}
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
                     <h3 className="p-4 text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 border-b text-center">Últimas Atualizações</h3>
                     <div className="flex-1 overflow-y-auto max-h-[320px] divide-y divide-slate-50">
@@ -147,7 +151,6 @@ const Dashboard = ({ user }) => {
                         ))}
                     </div>
                 </div>
-
             </div>
         </div>
     );
@@ -158,6 +161,13 @@ const StatCard = ({ title, value, color, link }) => (
         <h6 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</h6>
         <p className="text-2xl font-black text-slate-800 tracking-tighter">{value}</p>
     </Link>
+);
+
+const FinanceCard = ({ title, value, color }) => (
+    <div className={`bg-white p-6 rounded-2xl shadow-sm border-l-4 ${color} transition-all`}>
+        <h6 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</h6>
+        <p className="text-xl font-black text-slate-900 tracking-tight font-mono">{value}</p>
+    </div>
 );
 
 export default Dashboard;
