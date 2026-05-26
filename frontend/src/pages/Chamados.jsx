@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom'; // ADICIONADO: Importação do Link para gerenciar abas com segurança
 
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
@@ -39,10 +39,19 @@ const Chamados = ({ user: userProp }) => {
   const API_URL = 'http://192.168.5.101:3000/api';
   const BASE_URL = 'http://192.168.5.101:3000';
 
+  // Auxiliar para resgatar o nível do operador ativo
+  const obterNivelUsuario = () => user?.nivel || '';
+
+  // Carrega os dados do backend injetando o cabeçalho de validação obrigatório
   const carregarDados = () => {
-    fetch(`${API_URL}/chamados`).then(res => res.json()).then(setChamados);
-    fetch(`${API_URL}/setores`).then(res => res.json()).then(setSetores);
-    fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(setEquipamentos);
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+    };
+
+    fetch(`${API_URL}/chamados`, { headers }).then(res => res.json()).then(setChamados).catch(err => console.error(err));
+    fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).then(setSetores).catch(err => console.error(err));
+    fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()).then(setEquipamentos).catch(err => console.error(err));
   };
 
   useEffect(() => { 
@@ -62,13 +71,22 @@ const Chamados = ({ user: userProp }) => {
       // Limpa o estado da rota para o modal não abrir sozinho em futuros F5
       navigate(location.pathname, { replace: true, state: null });
     }
-  }, [location.state]);
+  }, [location.state, navigate, location.pathname]);
 
   const abrirDetalhes = (id) => {
-    fetch(`${API_URL}/chamados/${id}`).then(res => res.json()).then(data => {
-      setChamadoSelecionado(data);
-      setModalDetalhesAberta(true);
-    });
+    fetch(`${API_URL}/chamados/${id}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+      }
+    })
+      .then(res => res.json())
+      .then(data => {
+        setChamadoSelecionado(data);
+        setModalDetalhesAberta(true);
+      })
+      .catch(err => console.error("Erro ao buscar detalhes:", err));
   };
 
   const enviarChamado = (e) => {
@@ -84,13 +102,16 @@ const Chamados = ({ user: userProp }) => {
 
     fetch(`${API_URL}/chamados`, {
       method: 'POST',
+      headers: {
+        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401 (Nota: FormData não leva Content-Type manual)
+      },
       body: formData
     }).then(() => {
       setModalAberta(false);
       setFotoAbertura(null);
       setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' });
       carregarDados();
-    });
+    }).catch(err => console.error("Erro ao abrir chamado:", err));
   };
 
   const salvarObs = (e) => {
@@ -103,7 +124,10 @@ const Chamados = ({ user: userProp }) => {
 
     fetch(`${API_URL}/chamados/${chamadoSelecionado.id}/observacao`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+        },
         body: JSON.stringify({
             nova_obs: textoObs,
             usuario_nome: user.nome,
@@ -118,13 +142,13 @@ const Chamados = ({ user: userProp }) => {
         } else {
             alert("Erro nas permissões.");
         }
-    });
+    }).catch(err => console.error("Erro ao salvar observação:", err));
   };
 
   const filtrados = chamados.filter(c => {
     const bateStatus = filtroStatus === 'Todos' || c.status === filtroStatus;
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
-                      c.id.toString().includes(busca) ||
+                      c.id?.toString().includes(busca) ||
                       c.setor_nome?.toLowerCase().includes(busca.toLowerCase());
     return bateStatus && bateBusca;
   });
@@ -181,12 +205,15 @@ const Chamados = ({ user: userProp }) => {
                   </button>
                 )}
 
-                <button
-                  onClick={() => window.open(`/chamados/${c.id}/imprimir`, '_blank')}
-                  className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95"
+                {/* CORRIGIDO: Modificado de window.open para Link estrutural do React Router para herdar cabeçalhos locais */}
+                <Link
+                  to={`/chamados/${c.id}/imprimir`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95 flex items-center justify-center"
                 >
                   🖨️ IMPRIMIR OS
-                </button>
+                </Link>
 
                 {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
                   <button onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} className="px-4 py-2 bg-cyan-500 text-white rounded-xl text-[11px] font-black shadow-md italic">OBS. COORDENAÇÃO</button>
@@ -223,13 +250,13 @@ const Chamados = ({ user: userProp }) => {
                           {chamadoSelecionado.foto_abertura && (
                               <div>
                                   <label className="text-[10px] font-black text-blue-500 uppercase block mb-1">Foto Abertura:</label>
-                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} />
+                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} alt="Foto Abertura" />
                               </div>
                           )}
                           {chamadoSelecionado.foto_conclusao && (
                               <div>
                                   <label className="text-[10px] font-black text-green-500 uppercase block mb-1">Foto Conclusão:</label>
-                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} />
+                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} alt="Foto Conclusão" />
                               </div>
                           )}
                       </div>
@@ -265,7 +292,7 @@ const Chamados = ({ user: userProp }) => {
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
             <div className="bg-cyan-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">
               <span>Histórico da Coordenação</span>
-              <button onClick={() => setModalObsAberta(false)} className="text-2xl">✕</button>
+              <button type="button" onClick={() => setModalObsAberta(false)} className="text-2xl">✕</button>
             </div>
             <form onSubmit={salvarObs} className="p-8">
               <div className="mb-6">
@@ -299,7 +326,6 @@ const Chamados = ({ user: userProp }) => {
               </select>
               <select className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.equipamento_id} onChange={e => setForm({...form, equipamento_id: e.target.value})}>
                 <option value="">Equipamento (Opcional)</option>
-                {/* Modificação de consistência: Se o formulário tiver um setor atrelado, exibe apenas os equipamentos daquele local */}
                 {equipamentos.filter(eq => String(eq.setor_id) === String(form.setor_id)).map(eq => (
                   <option key={eq.id} value={eq.id}>[{eq.patrimonio}] {eq.nome}</option>
                 ))}

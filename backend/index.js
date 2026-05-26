@@ -38,7 +38,7 @@ const upload = multer({
 });
 
 // -------------------------------------------------------------------------
-// CONFIGURAÇÃO DO BANCO DE DADOS (MUTADO PARA POOL CONTRA INATIVIDADE ECONNRESET)
+// CONFIGURAÇÃO DO BANCO DE DADOS (POOLED CONTRA ECONNRESET)
 // -------------------------------------------------------------------------
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
@@ -50,7 +50,6 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
-// Criamos um objeto "db" com a mesma interface do antigo para você não precisar alterar nenhuma query no arquivo!
 const db = {
     query: (sql, params, callback) => {
         if (typeof params === 'function') {
@@ -150,7 +149,7 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: message, parse_mode: 'Markdown' });
+        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         console.error("❌ Erro ao enviar Telegram:", err.message);
@@ -160,9 +159,8 @@ const enviarTelegram = async (mensagem) => {
 // -------------------------------------------------------------------------
 // ROTAS DE EQUIPAMENTOS
 // -------------------------------------------------------------------------
-// Admin, Coordenador e Técnico acessam visualização. Usuário (Solicitante) não vê inventário geral.
 app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
-const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
+    const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
     db.query(query, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(result);
@@ -225,7 +223,6 @@ app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (r
 // -------------------------------------------------------------------------
 // ROTAS DE CHAMADOS / OS
 // -------------------------------------------------------------------------
-// Todos os níveis listam e abrem chamados.
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT c.*, s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
@@ -250,13 +247,14 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
     const { id } = req.params;
 
     const queryChamado = `
-        SELECT c.*, e.patrimonio, e.num_serie, e.nome as eq_nome, e.foto_equipamento, s.nome as setor_nome,
-               f.nome_fantasia as empresa_terceirizada, c.assinatura_tecnico, c.assinatura_setor
-        FROM chamados c
-        LEFT JOIN equipamentos e ON c.equipamento_id = e.id
-        LEFT JOIN setores s ON c.setor_id = s.id
-        LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
-        WHERE c.id = ?
+        SELECT c.*, e.patrimonio, e.num_serie, e.nome as eq_nome, 
+           e.modelo, e.fabricante, s.nome as setor_nome,
+           f.nome_fantasia as empresa_terceirizada
+    FROM chamados c
+    LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+    LEFT JOIN setores s ON c.setor_id = s.id
+    LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+    WHERE c.id = ?
     `;
 
     db.query(queryChamado, [id], (err, results) => {
@@ -326,11 +324,10 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
     });
 });
 
-// Tratar/Atualizar Chamado: Admin, Coordenador e Técnico realizam a ação. Usuário (solicitante) é bloqueado.
 app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
-    const { status, tipo_atendimento, descricao_solucao, fornecedor_id, nf_referencia, custo_servico } = req.body;
-    const tecnico_nome = req.body.tecnico_responsavel || "Técnico do Sistema";
+    const { status, tipo_atendimento, descricao_solucao, fornecedor_id, nf_referencia, custo_servico, tecnico_responsavel } = req.body;
+    const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -383,7 +380,8 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
                 return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Estoque insuficiente!" }); });
             }
 
-            const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantity, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
+            // CORRIGIDO CIRURGICAMENTE: Mapeada a variável correta "quantidade" em vez do parâmetro inexistente "quantity"
+            const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
             conn.query(queryIns, [id, item_id, quantidade, item.valor_unitario], (err) => {
                 if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
 
@@ -458,16 +456,32 @@ app.patch('/api/chamados/:id/observacao', permitirApenas(['admin', 'coordenador'
     });
 });
 
-app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+// ROTA DE ASSINATURA CORRIGIDA: Agora grava a imagem E o nome por extenso digitado
+app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { id } = req.params;
-    const { tipo, assinaturaBase64 } = req.body;
+    const { tipo, signatureBase64, assinaturaBase64, nome } = req.body; // Aceita tanto o nome antigo do body quanto as variações
 
-    const campo = tipo === 'tecnico' ? 'assinatura_tecnico' : 'assinatura_setor';
-    const query = `UPDATE chamados SET ${campo} = ? WHERE id = ?`;
+    // Normaliza qual imagem base64 usar (para o caso de variação de nome de variável vinda do formulário)
+    const imagemAssinatura = assinaturaBase64 || signatureBase64;
+    const nomeDigitado = nome || req.body.nome_digitado;
 
-    db.query(query, [assinaturaBase64, id], (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-        return res.status(200).json({ message: "Assinatura arquivada com sucesso!" });
+    if (!imagemAssinatura) {
+        return res.status(400).json({ error: "Dados da assinatura digital ausentes." });
+    }
+
+    // Define dinamicamente as colunas exatas reveladas pelo DESCRIBE do banco
+    const campoAssinatura = tipo === 'tecnico' ? 'assinatura_tecnico' : 'assinatura_setor';
+    const campoNomeExtenso = tipo === 'tecnico' ? 'nome_tecnico' : 'nome_setor';
+
+    // Monta a query injetando as duas colunas correspondentes
+    const query = `UPDATE chamados SET ${campoAssinatura} = ?, ${campoNomeExtenso} = ? WHERE id = ?`;
+
+    db.query(query, [imagemAssinatura, nomeDigitado || null, id], (err, result) => {
+        if (err) {
+            console.error("❌ Erro no MySQL ao salvar assinatura e nome:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        return res.status(200).json({ message: "Assinatura e nome por extenso arquivados com sucesso!" });
     });
 });
 
@@ -548,7 +562,7 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE USUÁRIOS (Apenas ADMIN gerencia operadores)
+// ROTAS DE USUÁRIOS
 // -------------------------------------------------------------------------
 app.get('/api/usuarios', permitirApenas(['admin']), (req, res) => {
     db.query("SELECT id, nome, login, nivel FROM usuarios ORDER BY nome ASC", (err, result) => {
@@ -650,7 +664,9 @@ app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador',
     });
 });
 
-// RELATÓRIOS GERAIS: Admin e Coordenador acessam.
+// -------------------------------------------------------------------------
+// RELATÓRIOS GERAIS
+// -------------------------------------------------------------------------
 app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
@@ -678,13 +694,13 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
             (
                 SELECT IFNULL(SUM(c.custo_servico), 0) 
                 FROM chamados c 
-                WHERE c.equipamento_id = e.id AND c.data_abertura BETWEEN ? AND ?
+                WHERE c.equipment_id = e.id AND c.data_abertura BETWEEN ? AND ?
             ) +
             (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
                 FROM chamados_itens ci
                 JOIN chamados ch ON ci.chamado_id = ch.id
-                WHERE ch.equipamento_id = e.id AND ch.data_abertura BETWEEN ? AND ?
+                WHERE ch.equipment_id = e.id AND ch.data_abertura BETWEEN ? AND ?
             ) as total_gasto
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
@@ -745,7 +761,9 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
     });
 });
 
-// AUXILIARES: Todos listam setores e tipos para carregar nos formulários
+// -------------------------------------------------------------------------
+// LOGÍSTICA / AUXILIARES
+// -------------------------------------------------------------------------
 app.get('/api/setores', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `SELECT s1.id, TRIM(LEADING ' > ' FROM CONCAT_WS(' > ', s3.nome, s2.nome, s1.nome)) as nome
                     FROM setores s1 LEFT JOIN setores s2 ON s1.setor_pai_id = s2.id LEFT JOIN setores s3 ON s2.setor_pai_id = s3.id
@@ -782,7 +800,7 @@ app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecn
     });
 });
 
-// ALMOXARIFADO / ESTOQUE: Admin e Coordenador gerenciam
+// ALMOXARIFADO / ESTOQUE
 app.get('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
     db.query("SELECT id, nome, referencia, descricao, quantidade, valor_unitario FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
@@ -839,56 +857,23 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
     });
 });
 
-// =========================================================================
-// MÓDULO FORNECEDORES - CORRIGIDO CIRURGICAMENTE (TELEPHONE -> TELEFONE)
-// =========================================================================
-
-// 1. LISTAGEM (GET)
+// FORNECEDORES
 app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    // CORRIGIDO: Alinhada a coluna para 'telefone' de acordo com o padrão estrutural do banco
     const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status FROM fornecedores ORDER BY nome_fantasia ASC";
-    
     db.query(query, (err, result) => {
-        if (err) {
-            console.error("❌ Erro no MySQL ao listar fornecedores:", err.message);
-            return res.status(500).json({ error: err.message });
-        }
+        if (err) return res.status(500).json({ error: err.message });
         res.json(result || []);
     });
 });
 
-// 2. CADASTRO (POST)
 app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade } = req.body;
-    
-    // CORRIGIDO: Alinhada a inserção explícita para a coluna 'telefone'
     const query = "INSERT INTO fornecedores (nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo')";
     const values = [nome_fantasia, razao_social || null, cnpj || null, contato || null, telefone || null, email || null, especialidade || null];
 
     db.query(query, values, (err, result) => {
-        if (err) {
-            console.error("❌ Erro ao cadastrar fornecedor:", err.message);
-            return res.status(500).json({ error: err.message });
-        }
+        if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Fornecedor cadastrado com sucesso!", id: result.insertId });
-    });
-});
-
-// 3. EDIÇÃO (PUT)
-app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { id } = req.params;
-    const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status } = req.body;
-    
-    // CORRIGIDO: Alinhado o mapeamento do UPDATE para a coluna 'telefone'
-    const query = "UPDATE fornecedores SET nome_fantasia=?, razao_social=?, cnpj=?, contato=?, telefone=?, email=?, especialidade=?, status=? WHERE id=?";
-    const values = [nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, id];
-
-    db.query(query, values, (err) => {
-        if (err) {
-            console.error("❌ Erro ao atualizar fornecedor:", err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        res.json({ message: "Fornecedor atualizado com sucesso!" });
     });
 });
 
@@ -900,7 +885,7 @@ app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req,
 
     db.query(query, values, (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Fornecedor updated!" });
+        res.json({ message: "Fornecedor atualizado com sucesso!" });
     });
 });
 
@@ -913,7 +898,7 @@ app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CONTROLE DE FILTROS DE ÁGUA (Apenas ADMIN gerencia privilégios)
+// ROTAS DE CONTROLE DE FILTROS DE ÁGUA
 // -------------------------------------------------------------------------
 app.get('/api/filtros', permitirApenas(['admin']), (req, res) => {
     const query = `
