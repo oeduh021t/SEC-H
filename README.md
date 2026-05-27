@@ -33,18 +33,23 @@ Infraestrutura como Código: Ambiente pronto para produção via Docker, garanti
 📦 Como Rodar o Projeto
 Clone este repositório:
 
-git clone https://github.com/oeduh021t/[NOME-DO-REPO]
+git clone https://github.com/oeduh021t/SEC-H
 
 2. Instale as dependências:
 
 npm install
+
 Suba o banco de dados e a infraestrutura com Docker:
+
 
 docker-compose up -d
 
 4. Inicie o servidor de desenvolvimento:
-   
+
+ 
 npm run dev
+
+
 📈 Roadmap de Melhorias
 Como um projeto em evolução constante, os próximos passos incluem:
 
