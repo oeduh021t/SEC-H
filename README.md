@@ -36,14 +36,14 @@ Clone este repositório:
 git clone https://github.com/oeduh021t/[NOME-DO-REPO]
 
 2. Instale as dependências:
-   ```bash
+
 npm install
 Suba o banco de dados e a infraestrutura com Docker:
 
 docker-compose up -d
 
 4. Inicie o servidor de desenvolvimento:
-   ```bash
+   
 npm run dev
 📈 Roadmap de Melhorias
 Como um projeto em evolução constante, os próximos passos incluem:
