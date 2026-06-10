@@ -21,6 +21,7 @@ import { GestaoSetores } from './pages/GestaoSetores';
 import ControleFiltros from './pages/ControleFiltros';
 import RelatorioFiltros from './pages/RelatorioFiltros';
 import { RelatorioChamadosSetor } from './pages/RelatorioChamadosSetor';
+import Documentos from './pages/Documentos'; // 📄 Ajustado para o nome padrão do seu componente de página
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
 function RotaProtegida({ children, user, niveisPermitidos }) {
@@ -119,6 +120,16 @@ function App() {
                 element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><TratarChamado /></RotaProtegida>}
               />
 
+              {/* --- 🆕 NOVO MÓDULO: REPOSITÓRIO DE DOCUMENTOS AUDITÁVEIS --- */}
+              <Route 
+                path="/documentos" 
+                element={
+                  <RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}>
+                    <Documentos />
+                  </RotaProtegida>
+                } 
+              />
+
               {/* --- 4. LOGÍSTICA / INFRAESTRUTURA --- */}
               {/* Fornecedores, Estoque e Setores: Apenas ADMIN e COORDENADOR acessam */}
               <Route path="/fornecedores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><Fornecedores /></RotaProtegida>} />
@@ -134,8 +145,7 @@ function App() {
               {/* Inventário e Custos por Setor: Apenas ADMIN e COORDENADOR acessam */}
               <Route path="/relatorios/inventario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><InventarioGeral /></RotaProtegida>} />
               <Route path="/relatorios/custos-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioCustosSetor /></RotaProtegida>} />
-              <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>}
-/>
+              <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>} />
 
               {/* --- 7. GERENCIAMENTO DE USUÁRIOS --- */}
               {/* Criação e edição de operadores: Exclusivo ADMIN */}

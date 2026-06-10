@@ -27,6 +27,7 @@ const Sidebar = ({ user, onLogout }) => {
   // Mapeamento dinâmico de visibilidade de módulos com base no cargo
   const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerEquipamentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
+  const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario); // 🆕 Permissão adicionada
   const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeVerFiltrosAgua = nivelUsuario === 'admin';
   const podeVerRelatorios = ['admin', 'coordenador'].includes(nivelUsuario);
@@ -143,6 +144,13 @@ const Sidebar = ({ user, onLogout }) => {
             🎫 Chamados / OS
           </Link>
 
+          {/* DOCUMENTOS: Repositório Geral Auditável para equipes técnicas */}
+          {podeVerDocumentos && (
+            <Link to="/documentos" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/documentos') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              📁 Documentos
+            </Link>
+          )}
+
           {/* LOGÍSTICA / INFRAESTRUTURA: Ocultos para Técnico e Solicitante */}
           {podeGerenciarInfraestoque && (
             <>
@@ -189,22 +197,22 @@ const Sidebar = ({ user, onLogout }) => {
                 </Link>
                 
                 <Link
-  to="/relatorios/chamados-setor"
-  className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${
-    isActive('/relatorios/chamados-setor')
-      ? 'text-white bg-slate-800'
-      : 'text-slate-500 hover:text-white'
-  }`}
->
-  <span
-    className={`w-1.5 h-1.5 rounded-full ${
-      isActive('/relatorios/chamados-setor')
-        ? 'bg-yellow-500'
-        : 'bg-slate-600'
-    }`}
-  ></span>
-  Chamados por Setor
-</Link>
+                  to="/relatorios/chamados-setor"
+                  className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${
+                    isActive('/relatorios/chamados-setor')
+                      ? 'text-white bg-slate-800'
+                      : 'text-slate-500 hover:text-white'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      isActive('/relatorios/chamados-setor')
+                        ? 'bg-yellow-500'
+                        : 'bg-slate-600'
+                    }`}
+                  ></span>
+                  Chamados por Setor
+                </Link>
 
                 {/* Relatório de filtros restrito dinamicamente para o Admin */}
                 {nivelUsuario === 'admin' && (
@@ -276,4 +284,4 @@ const Sidebar = ({ user, onLogout }) => {
   );
 };
 
-export default Sidebar;
+export default Sidebar; 

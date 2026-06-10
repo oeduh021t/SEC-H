@@ -39,6 +39,10 @@ const Chamados = ({ user: userProp }) => {
   const API_URL = 'http://192.168.5.101:3000/api';
   const BASE_URL = 'http://192.168.5.101:3000';
 
+// Estados para o módulo de Documentos/Auditoria
+  const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
+  const [listaDocumentos, setListaDocumentos] = useState([]);
+
   // Auxiliar para resgatar o nível do operador ativo
   const obterNivelUsuario = () => user?.nivel || '';
 
@@ -73,18 +77,23 @@ const Chamados = ({ user: userProp }) => {
     }
   }, [location.state, navigate, location.pathname]);
 
-  const abrirDetalhes = (id) => {
-    fetch(`${API_URL}/chamados/${id}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
-      }
-    })
+const abrirDetalhes = (id) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-usuario-nivel': obterNivelUsuario()
+    };
+
+    fetch(`${API_URL}/chamados/${id}`, { method: 'GET', headers })
       .then(res => res.json())
       .then(data => {
         setChamadoSelecionado(data);
         setModalDetalhesAberta(true);
+        
+        // 🆕 BUSCA ADICIONADA: Carrega os documentos vinculados ao chamado para auditoria
+        fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
+          .then(res => res.json())
+          .then(setListaDocumentos)
+          .catch(err => console.error("Erro ao buscar documentos:", err));
       })
       .catch(err => console.error("Erro ao buscar detalhes:", err));
   };
@@ -112,6 +121,39 @@ const Chamados = ({ user: userProp }) => {
       setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' });
       carregarDados();
     }).catch(err => console.error("Erro ao abrir chamado:", err));
+  };
+
+const handleUploadDocumento = (e) => {
+    e.preventDefault();
+    if (!documentoSelecionado) return alert("Selecione um arquivo PDF ou Imagem!");
+
+    const formData = new FormData();
+    formData.append('arquivo', documentoSelecionado);
+    formData.append('chamado_id', chamadoSelecionado.id);
+    formData.append('usuario_id', user?.id || 1); // Garante o ID do usuário ativo na auditoria
+    formData.append('setor_id', chamadoSelecionado.setor_id || '');
+    formData.append('equipamento_id', chamadoSelecionado.equipamento_id || '');
+
+    fetch(`${API_URL}/documentos`, {
+      method: 'POST',
+      headers: {
+        'x-usuario-nivel': obterNivelUsuario()
+      },
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error);
+      } else {
+        alert("Documento anexado com sucesso para fins de auditoria! ✅");
+        setDocumentoSelecionado(null);
+        // Atualiza a listagem de anexos na tela e o histórico geral do chamado
+        abrirDetalhes(chamadoSelecionado.id);
+        carregarDados();
+      }
+    })
+    .catch(err => console.error("Erro no upload do documento:", err));
   };
 
   const salvarObs = (e) => {
@@ -259,6 +301,57 @@ const Chamados = ({ user: userProp }) => {
                                   <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} alt="Foto Conclusão" />
                               </div>
                           )}
+
+                          {/* 🆕 BLOCO DE DOCUMENTOS E AUDITORIA ADICIONADO */}
+                  <div className="bg-white rounded-2xl shadow-sm p-5 border border-slate-100 space-y-4">
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>📎</span> Arquivos e Laudos (Auditoria)
+                    </h4>
+                    
+                    {/* Formulário de Upload */}
+                    <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                      <label className="block text-[9px] font-black text-slate-400 uppercase">Anexar Novo Documento (PDF/Imagem)</label>
+                      <input 
+                        type="file" 
+                        accept="image/*,application/pdf" 
+                        className="text-xs w-full block file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
+                        onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
+                      />
+                      <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all">
+                        Firmar Anexo no Histórico
+                      </button>
+                    </form>
+
+                    {/* Lista de Documentos Firmados */}
+                    <div className="space-y-2 max-h-48 overflow-y-auto pt-2">
+                      <label className="block text-[9px] font-black text-slate-400 uppercase border-b pb-1">Documentos Arquivados:</label>
+                      {listaDocumentos.map((doc) => (
+                        <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-1 text-[11px]">
+                          <div className="flex justify-between items-start gap-1">
+                            <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={doc.nome_original}>
+                              {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
+                            </span>
+                            <a 
+                              href={`${BASE_URL}${doc.url_arquivo}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-blue-600 font-black hover:underline shrink-0 text-[10px]"
+                            >
+                              ABRIR
+                            </a>
+                          </div>
+                          <div className="text-[9px] text-slate-400 leading-tight">
+                            Enviado em: <strong>{new Date(doc.data_upload).toLocaleString('pt-BR')}</strong> <br />
+                            Por: <strong>{doc.usuario_nome}</strong>
+                          </div>
+                        </div>
+                      ))}
+                      {listaDocumentos.length === 0 && (
+                        <p className="text-[11px] text-slate-400 italic text-center py-2">Nenhum laudo ou documento anexado.</p>
+                      )}
+                    </div>
+                  </div>
+                  
                       </div>
                   </div>
                 </div>

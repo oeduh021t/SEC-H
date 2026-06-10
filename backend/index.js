@@ -32,6 +32,25 @@ const storage = multer.diskStorage({
     }
 });
 
+const filtroDocumentos = (req, file, cb) => {
+    const extensoesPermitidas = /jpeg|jpg|png|pdf/;
+    const extname = extensoesPermitidas.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = extensoesPermitidas.test(file.mimetype);
+
+    if (mimetype && extname) {
+        return cb(null, true);
+    } else {
+        cb(new Error('Erro: O sistema aceita apenas arquivos em formato PDF ou Imagem (JPEG, JPG, PNG)!'));
+    }
+};
+
+// Instância do multer específica para documentos
+const uploadDocumento = multer({
+    storage: storage, // Reaproveita o seu diskStorage que gera nomes únicos
+    fileFilter: filtroDocumentos,
+    limits: { fileSize: 15 * 1024 * 1024 } // Limite de 15MB para PDFs maiores
+});
+
 const upload = multer({
     storage: storage,
     limits: { fileSize: 10 * 1024 * 1024 }
@@ -1182,6 +1201,97 @@ app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
             },
             detalhes: results
         });
+    });
+});
+
+// -------------------------------------------------------------------------
+// MÓDULO DE DOCUMENTOS (AUDITÁVEL)
+// -------------------------------------------------------------------------
+
+// 1. ROTA DE UPLOAD: Salva o documento e faz as amarrações obrigatórias/opcionais
+app.post('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('arquivo'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: "Nenhum arquivo foi enviado." });
+    }
+
+    const { chamado_id, setor_id, equipamento_id, usuario_id } = req.body;
+
+    // Validação obrigatória da auditoria
+    if (!chamado_id || chamado_id === "null" || chamado_id === "undefined") {
+        return res.status(400).json({ error: "Vínculo com o Chamado é obrigatório para auditoria." });
+    }
+    if (!usuario_id || usuario_id === "null" || usuario_id === "undefined") {
+        return res.status(400).json({ error: "Identificação do Usuário é obrigatória para auditoria." });
+    }
+
+    const nome_original = req.file.originalname;
+    const nome_armazenamento = req.file.filename;
+    const url_arquivo = `/uploads/${req.file.filename}`;
+    const tipo_mimetype = req.file.mimetype;
+
+    // Sanatização dos IDs opcionais
+    const v_chamado_id = Number(chamado_id);
+    const v_usuario_id = Number(usuario_id);
+    const v_setor_id = setor_id && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
+    const v_equipamento_id = equipamento_id && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
+
+    const query = `
+        INSERT INTO documentos (nome_original, nome_armazenamento, url_arquivo, tipo_mimetype, chamado_id, setor_id, equipamento_id, usuario_id) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [nome_original, nome_armazenamento, url_arquivo, tipo_mimetype, v_chamado_id, v_setor_id, v_equipamento_id, v_usuario_id];
+
+    db.query(query, values, (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao salvar documento no banco:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+
+        // Registrar no histórico cronológico do chamado que um anexo foi adicionado (Auditoria)
+        const msgHist = `📎 Novo anexo adicionado: ${nome_original}`;
+        const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
+        
+        db.query(queryHist, [v_chamado_id, msgHist], (errHist) => {
+            if (errHist) console.error("⚠️ Falha ao gerar log de histórico do anexo:", errHist.message);
+            
+            res.status(201).json({ message: "Documento anexado com sucesso!", id: result.insertId });
+        });
+    });
+});
+
+// 2. ROTA DE CONSULTA: Retorna o histórico de documentos filtrados por Equipamento, Setor ou Chamado
+app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const { chamado_id, setor_id, equipamento_id } = req.query;
+
+    let query = `
+        SELECT d.id, d.nome_original, d.url_arquivo, d.tipo_mimetype, d.data_upload, d.chamado_id,
+               u.nome as usuario_nome, s.nome as setor_nome, e.nome as equipamento_nome
+        FROM documentos d
+        JOIN usuarios u ON d.usuario_id = u.id
+        LEFT JOIN setores s ON d.setor_id = s.id
+        LEFT JOIN equipamentos e ON d.equipamento_id = e.id
+        WHERE 1=1
+    `;
+    const params = [];
+
+    if (chamado_id) {
+        query += ` AND d.chamado_id = ?`;
+        params.push(Number(chamado_id));
+    }
+    if (setor_id) {
+        query += ` AND d.setor_id = ?`;
+        params.push(Number(setor_id));
+    }
+    if (equipamento_id) {
+        query += ` AND d.equipamento_id = ?`;
+        params.push(Number(equipamento_id));
+    }
+
+    query += ` ORDER BY d.data_upload DESC`;
+
+    db.query(query, params, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results || []);
     });
 });
 

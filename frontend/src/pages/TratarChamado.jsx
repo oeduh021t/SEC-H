@@ -16,6 +16,10 @@ export function TratarChamado() {
   const [status, setStatus] = useState("Em Atendimento")
   const [descricaoSolucao, setDescricaoSolucao] = useState("")
 
+  // Estados para gerenciamento de Laudos/Documentos (Auditoria)
+  const [documentoSelecionado, setDocumentoSelecionado] = useState(null)
+  const [listaDocumentos, setListaDocumentos] = useState([])
+
   // Estado para Peças Usadas
   const [pecaSelecionada, setPecaSelecionada] = useState("")
   const [qtdPeca, setQtdPeca] = useState(1)
@@ -32,16 +36,27 @@ export function TratarChamado() {
 
   const carregarTodosOsDados = async () => {
     try {
-      const [resChamado, resEstoque, resFornecedores] = await Promise.all([
-        fetch(`${API_URL}/chamados/${id}`).then(res => res.json()),
-        fetch(`${API_URL}/estoque`).then(res => res.json()),
-        fetch(`${API_URL}/fornecedores`).then(res => res.json())
+      // Resgata o operador logado para pegar o nível para a leitura de segurança
+      const usuarioSalvo = localStorage.getItem('user');
+      const nivel = usuarioSalvo ? JSON.parse(usuarioSalvo).nivel : '';
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-usuario-nivel': nivel
+      };
+
+      const [resChamado, resEstoque, resFornecedores, resDocumentos] = await Promise.all([
+        fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.json()),
+        fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()), // 🔑 CORRIGIDO: Removida a variável que causava erro
+        fetch(`${API_URL}/fornecedores`, { headers }).then(res => res.json()),
+        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.json()) // 🔑 Adicionado cabeçalho de leitura seguro
       ])
 
       console.log("Dados da API do chamado:", resChamado);
       setChamado(resChamado)
       setItensEstoque(resEstoque || [])
       setFornecedores(resFornecedores || [])
+      setListaDocumentos(resDocumentos || []) 
 
       // Pré-preenche os estados com o que já existe no chamado
       setTipoAtendimento(resChamado.tipo_atendimento || "Interno")
@@ -61,7 +76,7 @@ export function TratarChamado() {
 
   const injetarTextoRapido = (texto) => {
     if (chamado?.status === "Concluído") return
-    setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`)
+    setDescricaoSolucao(prev => prev === "" ? text : `${prev} ${texto}`)
   }
 
   const handleAdicionarPeca = (e) => {
@@ -84,6 +99,42 @@ export function TratarChamado() {
     })
   }
 
+  const handleUploadDocumento = (e) => {
+    e.preventDefault()
+    if (!documentoSelecionado) return alert("Por favor, selecione um arquivo!")
+
+    // Resgata o usuário logado para carregar na auditoria
+    const usuarioSalvo = localStorage.getItem('user')
+    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null
+
+    const formData = new FormData()
+    formData.append('arquivo', documentoSelecionado)
+    formData.append('chamado_id', id)
+    formData.append('usuario_id', usuarioLogado?.id || 1)
+    formData.append('setor_id', chamado?.setor_id || '')
+    formData.append('equipamento_id', chamado?.equipamento_id || '')
+
+    fetch(`${API_URL}/documentos`, {
+      method: "POST",
+      headers: {
+        // 🔑 CORRIGIDO: Injetando cabeçalho obrigatório de segurança exigido pelo backend
+        'x-usuario-nivel': usuarioLogado?.nivel || ''
+      },
+      body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error)
+      } else {
+        alert("Documento anexado e registrado no histórico para fins de auditoria! 📎✅")
+        setDocumentoSelecionado(null)
+        carregarTodosOsDados() // Atualiza os painéis na mesma hora
+      }
+    })
+    .catch(err => console.error("Erro ao anexar documento:", err))
+  }
+
   const handleSalvarAtendimento = (e) => {
     e.preventDefault()
 
@@ -104,7 +155,7 @@ export function TratarChamado() {
       body: JSON.stringify(dadosParaSalvar)
     }).then((res) => {
       if (res.ok) {
-        alert("Relatório técnico atualizado com sucesso! 🎉")
+        alert("Relatório técnico updated com sucesso! 🎉")
         navigate("/chamados")
       } else {
         alert("Erro ao salvar o atendimento no servidor.")
@@ -155,6 +206,52 @@ export function TratarChamado() {
 
         {/* COLUNA ESQUERDA (CRONOLOGIA E ESTOQUE DE PEÇAS) */}
         <div className="lg:col-span-5 space-y-6">
+
+          {/* 🆕 PAINEL DE ANEXOS E CERTIFICADOS AUDITÁVEIS */}
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Anexos e Laudos Técnicos</h3>
+            
+            <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+              <label className="block text-[10px] font-black text-slate-400 uppercase">Vincular arquivo (PDF ou Imagem)</label>
+              <input 
+                disabled={isConcluido}
+                type="file" 
+                accept="image/*,application/pdf"
+                className="text-xs w-full block file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 disabled:opacity-50"
+                onChange={e => setDocumentoSelecionado(e.target.files[0])}
+              />
+              <button 
+                disabled={isConcluido || !documentoSelecionado} 
+                type="submit" 
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase transition-all disabled:opacity-50"
+              >
+                Salvar Anexo na Ordem de Serviço
+              </button>
+            </form>
+
+            <div className="space-y-2 pt-2">
+              <label className="block text-[9px] font-black text-slate-400 uppercase border-b pb-1">Arquivos Fixados nesta OS:</label>
+              {listaDocumentos.map((doc) => (
+                <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
+                  <div className="truncate max-w-[220px]">
+                    <span className="font-bold text-slate-700 block truncate">{doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}</span>
+                    <span className="text-[9px] text-slate-400 block">Por: {doc.usuario_nome}</span>
+                  </div>
+                  <a 
+                    href={`http://192.168.5.101:3000${doc.url_arquivo}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-blue-600 font-black hover:underline text-[10px] uppercase bg-white px-2 py-1 rounded shadow-sm border border-slate-100"
+                  >
+                    Abrir
+                  </a>
+                </div>
+              ))}
+              {listaDocumentos.length === 0 && (
+                <p className="text-xs text-slate-400 italic text-center py-2">Nenhum laudo anexado a esta OS.</p>
+              )}
+            </div>
+          </div>
 
           {/* PAINEL DE CRONOLOGIA / HISTÓRICO */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-[350px]">
