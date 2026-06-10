@@ -30,19 +30,32 @@ const Equipamentos = () => {
 
   const API_URL = 'http://192.168.5.101:3000/api';
 
+  // 🔑 AUXILIAR: Captura o nível do operador logado para validar no middleware do backend
+  const obterNivelUsuario = () => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser).nivel : '';
+  };
+
   const gerarLinkQRCodeLocal = (id) => {
     const urlDestino = `${window.location.origin}/prontuario/${id}`
     return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(urlDestino)}`
   }
 
   const carregarDados = () => {
-    fetch(`${API_URL}/equipamentos`).then(res => res.json()).then(data => setEquipamentos(data || []))
+    fetch(`${API_URL}/equipamentos`, {
+      headers: { "x-usuario-nivel": obterNivelUsuario() }
+    })
+    .then(res => res.json())
+    .then(data => setEquipamentos(data || []))
   }
 
   useEffect(() => {
     carregarDados()
-    fetch(`${API_URL}/setores`).then(res => res.json()).then(data => setSetores(data || []))
-    fetch(`${API_URL}/types_equipamentos`).then(res => res.json()).then(data => setTipos(data || []))
+    
+    const headersComNivel = { "x-usuario-nivel": obterNivelUsuario() };
+    
+    fetch(`${API_URL}/setores`, { headers: headersComNivel }).then(res => res.json()).then(data => setSetores(data || []))
+    fetch(`${API_URL}/types_equipamentos`, { headers: headersComNivel }).then(res => res.json()).then(data => setTipos(data || []))
   }, [])
 
   const prepararEdicao = (e) => {
@@ -58,7 +71,10 @@ const Equipamentos = () => {
 
   const excluir = (id) => {
     if (window.confirm("🚨 Tem certeza que deseja excluir este equipamento? Esta ação é permanente.")) {
-      fetch(`${API_URL}/equipamentos/${id}`, { method: 'DELETE' }).then(() => carregarDados())
+      fetch(`${API_URL}/equipamentos/${id}`, { 
+        method: 'DELETE',
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
+      }).then(() => carregarDados())
     }
   }
 
@@ -83,6 +99,10 @@ const Equipamentos = () => {
 
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
+      headers: {
+        // 🔥 IMPORTANTE: Para objetos FormData com envio de arquivos binários, o navegador define o Boundary automaticamente. Passamos apenas o nível.
+        'x-usuario-nivel': obterNivelUsuario()
+      },
       body: formData 
     })
     .then(() => {
@@ -96,6 +116,7 @@ const Equipamentos = () => {
         setForm({ ...estadoInicial, setor_id: form.setor_id, tipo_id: form.tipo_id })
       }
     })
+    .catch(err => console.error("Erro ao salvar equipamento:", err))
   }
 
   // FILTRAGEM ORIGINAL MULTI-CAMPO EM TEMPO REAL (Preservada idêntica)

@@ -16,12 +16,23 @@ const Preventivas = () => {
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
+    // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador para passar pelo middleware
+    const obterNivelUsuario = () => {
+        const savedUser = localStorage.getItem('user');
+        return savedUser ? JSON.parse(savedUser).nivel : '';
+    };
+
     const carregarDados = async () => {
         setLoading(true);
         try {
+            const headersComNivel = {
+                'Content-Type': 'application/json',
+                'x-usuario-nivel': obterNivelUsuario() // 🔑 Injetado cabeçalho obrigatório
+            };
+
             const [resPreventivas, resSetores] = await Promise.all([
-                fetch(`${API_URL}/preventivas`).then(res => res.json()),
-                fetch(`${API_URL}/setores`).then(res => res.json())
+                fetch(`${API_URL}/preventivas`, { headers: headersComNivel }).then(res => res.json()),
+                fetch(`${API_URL}/setores`, { headers: headersComNivel }).then(res => res.json())
             ]);
             setDados(resPreventivas || []);
             setSetores(resSetores || []);
@@ -43,7 +54,10 @@ const Preventivas = () => {
 
         fetch(`${API_URL}/preventivas/baixa`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-usuario-nivel': obterNivelUsuario() // 🔑 Injetado cabeçalho obrigatório
+            },
             body: JSON.stringify({
                 equipamento_id: selecionado.id,
                 relatorio_tecnico: relatorio,
@@ -56,7 +70,7 @@ const Preventivas = () => {
                 setRelatorio('');
                 carregarDados();
             } else {
-                alert("Erro ao registrar a baixa da preventiva.");
+                alert("Erro ao registrar a baixa da preventiva. Verifique as credenciais de acesso.");
             }
         });
     };
@@ -88,7 +102,7 @@ const Preventivas = () => {
 
     if (loading) return (
         <div className="p-10 text-center animate-pulse text-slate-500 font-black tracking-widest uppercase text-xs">
-            ⌛ Mapeando cronograma e rotinas de PMOC...
+            制造 Mapeando cronograma e rotinas de PMOC...
         </div>
     );
 

@@ -11,9 +11,17 @@ export function RelatorioCustosSetor() {
 
   const API_URL = "http://192.168.5.101:3000/api"
 
+  // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
+  const obterNivelUsuario = () => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser).nivel : '';
+  };
+
   const carregarSetores = async () => {
     try {
-      const res = await fetch(`${API_URL}/setores`).then(res => res.json())
+      const res = await fetch(`${API_URL}/setores`, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+      }).then(res => res.json())
       setSetores(res || [])
     } catch (err) {
       console.error("Erro ao carregar setores:", err)
@@ -24,7 +32,9 @@ export function RelatorioCustosSetor() {
     setLoading(true)
     try {
       const url = `${API_URL}/relatorios/custos-setor?data_inicio=${dataInicio} 00:00:00&data_fim=${dataFim} 23:59:59&setor_id=${setorSelecionado}`
-      const res = await fetch(url).then(res => res.json())
+      const res = await fetch(url, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+      }).then(res => res.json())
       setDados(res || [])
     } catch (err) {
       console.error("Erro ao carregar relatório:", err)
@@ -91,15 +101,15 @@ export function RelatorioCustosSetor() {
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 hide-print">
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data Inicial</label>
-          <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
+          <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
         </div>
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data Final</label>
-          <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+          <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataFim} onChange={e => setDataFim(e.target.value)} />
         </div>
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Filtrar Setor</label>
-          <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" value={setorSelecionado} onChange={e => setSetorSelecionado(e.target.value)}>
+          <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" value={setorSelecionado} onChange={e => setSetorSelecionado(e.target.value)}>
             <option value="todos">⭐ Todos os Setores</option>
             {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
           </select>

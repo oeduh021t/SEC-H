@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 const ControleFiltros = () => {
     const [filtros, setFiltros] = useState([]);
     const [setores, setSetores] = useState([]);
-    const [itensEstoque, setItensEstoque] = useState([]); // ADICIONADO: Lista de insumos
+    const [itensEstoque, setItensEstoque] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [busca, setBusca] = useState('');
 
@@ -19,17 +19,29 @@ const ControleFiltros = () => {
     const [modalBaixa, setModalBaixa] = useState(false);
     const [filtroSelecionado, setFiltroSelecionado] = useState(null);
     const [obsIntervencao, setObsIntervencao] = useState('');
-    const [itemIdSelecionado, setItemIdSelecionado] = useState(''); // ADICIONADO: ID do refil usado
-    const [qtdUsada, setQtdUsada] = useState(1); // ADICIONADO: Qtd gasta
+    const [itemIdSelecionado, setItemIdSelecionado] = useState(''); 
+    const [qtdUsada, setQtdUsada] = useState(1); 
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
+    // 🔑 AUXILIAR: Captura dinamicamente o nível do operador para autenticar nas rotas protegidas
+    const obterNivelUsuario = () => {
+        const savedUser = localStorage.getItem('user');
+        return savedUser ? JSON.parse(savedUser).nivel : '';
+    };
+
     const carregarDados = async () => {
         try {
+            // Configuração global de headers para passar pelo middleware permitirApenas do backend
+            const headers = {
+                'Content-Type': 'application/json',
+                'x-usuario-nivel': obterNivelUsuario()
+            };
+
             const [resFiltros, resSetores, resEstoque] = await Promise.all([
-                fetch(`${API_URL}/filtros`).then(res => res.json()),
-                fetch(`${API_URL}/setores`).then(res => res.json()),
-                fetch(`${API_URL}/estoque`).then(res => res.json()) // Carrega itens do almoxarifado
+                fetch(`${API_URL}/filtros`, { headers }).then(res => res.json()),
+                fetch(`${API_URL}/setores`, { headers }).then(res => res.json()),
+                fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()) 
             ]);
             setFiltros(resFiltros || []);
             setSetores(resSetores || []);
@@ -59,7 +71,10 @@ const ControleFiltros = () => {
         try {
             const res = await fetch(`${API_URL}/filtros`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-usuario-nivel': obterNivelUsuario() // 🔑 Header de segurança injetado
+                },
                 body: JSON.stringify(novoFiltro)
             });
 
@@ -83,12 +98,15 @@ const ControleFiltros = () => {
         try {
             const res = await fetch(`${API_URL}/filtros/baixa`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-usuario-nivel': obterNivelUsuario() // 🔑 Header de segurança injetado
+                },
                 body: JSON.stringify({
                     filtro_id: filtroSelecionado.id,
                     tecnico_nome: tecnicoNome,
                     obs_intervencao: obsIntervencao,
-                    item_id: itemIdSelecionado || null, // Integração com estoque
+                    item_id: itemIdSelecionado ? Number(itemIdSelecionado) : null, 
                     quantidade: Number(qtdUsada)
                 })
             });
@@ -125,6 +143,9 @@ const ControleFiltros = () => {
         else acc.emDia++;
         return acc;
     }, { vencidos: 0, atencao: 0, emDia: 0 });
+
+    // Funil para isolar apenas insumos cadastrados como 'Filtro' no estoque
+    const refisFiltrados = itensEstoque.filter(item => item.tipo?.toLowerCase() === 'filtro');
 
     if (loading) return <div className="p-10 text-center font-bold text-slate-400">Processando cronograma de saturação dos refis...</div>;
 
@@ -275,7 +296,7 @@ const ControleFiltros = () => {
             {/* MODAL DE SUBSTITUIÇÃO INTEGRADO AO ESTOQUE */}
             {modalBaixa && filtroSelecionado && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <form onSubmit={handleRegistrarTroca} className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 text-dark">
+                    <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 text-dark">
                         <div className="bg-green-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
                             <span>🔄 Registro de Baixa e Movimentação de Refil</span>
                             <button type="button" onClick={() => setModalBaixa(false)} className="font-bold hover:text-red-200">✕</button>
@@ -286,7 +307,7 @@ const ControleFiltros = () => {
                                 <p className="text-sm font-black text-slate-700 uppercase mt-0.5">{filtroSelecionado.nome}</p>
                             </div>
 
-                            {/* NOVO CAMPO: Seletor de Refil do Almoxarifado */}
+                            {/* SELETOR DE REFIL DO ALMOXARIFADO FILTRADO */}
                             <div>
                                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Refil do Estoque (Deduzir Saldo)</label>
                                 <select 
@@ -295,7 +316,7 @@ const ControleFiltros = () => {
                                     onChange={e => setItemIdSelecionado(e.target.value)}
                                 >
                                     <option value="">⚠️ Apenas registrar a data (Sem gastar item do estoque)</option>
-                                    {itensEstoque.map(item => (
+                                    {refisFiltrados.map(item => (
                                         <option key={item.id} value={item.id}>
                                             📦 {item.nome} {item.referencia ? `[REF: ${item.referencia}]` : ''} — Saldo: {item.quantidade} un. (R$ {Number(item.valor_unitario).toFixed(2)})
                                         </option>
@@ -328,10 +349,11 @@ const ControleFiltros = () => {
                             
                             <div className="flex gap-3 pt-2">
                                 <button type="button" onClick={() => setModalBaixa(false)} className="flex-1 bg-slate-100 text-slate-400 py-3.5 rounded-xl font-black text-xs uppercase hover:bg-slate-200">Cancelar</button>
+                                {/* 🔑 CORRIGIDO: Alterado para acionar a submissão nativa do formulário e respeitar o onSubmit */}
                                 <button type="submit" className="flex-[2] bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg shadow-green-100 hover:bg-green-700 active:scale-95 transition-all">🔄 Confirmar Baixa de Insumo</button>
                             </div>
                         </div>
-                    </form>
+                    </div>
                 </div>
             )}
         </div>

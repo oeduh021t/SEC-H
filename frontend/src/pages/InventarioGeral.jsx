@@ -12,10 +12,18 @@ const InventarioGeral = () => {
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
+    // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
+    const obterNivelUsuario = () => {
+        const savedUser = localStorage.getItem('user');
+        return savedUser ? JSON.parse(savedUser).nivel : '';
+    };
+
     // Busca a lista de setores cadastrados para alimentar o filtro select
     const carregarSetores = async () => {
         try {
-            const res = await fetch(`${API_URL}/setores`).then(res => res.json());
+            const res = await fetch(`${API_URL}/setores`, {
+                headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+            }).then(res => res.json());
             setSetores(res || []);
         } catch (err) {
             console.error("Erro ao carregar setores no inventário:", err);
@@ -27,7 +35,9 @@ const InventarioGeral = () => {
         setLoading(true);
         try {
             const url = `${API_URL}/relatorios/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}`;
-            const res = await fetch(url).then(res => res.json());
+            const res = await fetch(url, {
+                headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+            }).then(res => res.json());
             setEquipamentos(res || []);
         } catch (err) {
             console.error("Erro ao carregar inventário patrimonial:", err);
@@ -89,7 +99,7 @@ const InventarioGeral = () => {
                     </div>
                     <button 
                         onClick={() => window.print()} 
-                        className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all shadow-md active:scale-95"
+                        className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all shadow-md active:scale-[0.98]"
                     >
                         🖨️ Gerar PDF / Imprimir
                     </button>
@@ -98,15 +108,15 @@ const InventarioGeral = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Inicial</label>
-                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
+                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Final</label>
-                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataFim} onChange={e => setDataFim(e.target.value)} />
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Centro de Custo / Setor</label>
-                        <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" value={setorSelecionado} onChange={e => setSetorSelecionado(e.target.value)}>
+                        <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" value={setorSelecionado} onChange={e => setSetorSelecionado(e.target.value)}>
                             <option value="todos">⭐ Todos os Setores</option>
                             {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                         </select>
@@ -120,7 +130,7 @@ const InventarioGeral = () => {
                 {/* HEADER RELATÓRIO */}
                 <header className="flex justify-between items-start border-b-4 border-slate-900 pb-6 mb-8 print:mb-4">
                     <div>
-                        <h1 className="text-2xl font-black uppercase tracking-tighter leading-none mb-1">
+                        <h1 className="text-2xl font-black uppercase tracking-tighter leading-none mb-1 text-slate-800">
                             Inventário Patrimonial Geral
                         </h1>
                         <p className="text-blue-600 font-bold uppercase text-xs tracking-widest">

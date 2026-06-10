@@ -13,13 +13,24 @@ const NovoEquipamento = () => {
     setor_id: '', tipo_id: '', status: 'Ativo', periodicidade_preventiva: 0
   });
 
+  // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
+  const obterNivelUsuario = () => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser).nivel : '';
+  };
+
   useEffect(() => {
-    fetch(`${API_URL}/setores`)
+    const headersComNivel = {
+      'Content-Type': 'application/json',
+      'x-usuario-nivel': obterNivelUsuario() // 🔑 Injetado cabeçalho de privilégios nas buscas iniciais
+    };
+
+    fetch(`${API_URL}/setores`, { headers: headersComNivel })
       .then(res => res.json())
       .then(data => setSetores(data || []))
       .catch(err => console.error("Erro ao carregar setores:", err));
 
-    fetch(`${API_URL}/types_equipamentos`)
+    fetch(`${API_URL}/types_equipamentos`, { headers: headersComNivel })
       .then(res => res.json())
       .then(data => setTipos(data || []))
       .catch(err => console.error("Erro ao carregar tipos:", err));
@@ -27,10 +38,6 @@ const NovoEquipamento = () => {
 
   const salvar = (e) => {
     e.preventDefault();
-
-    // Captura o nível do usuário logado para passar pelo middleware permitirApenas
-    const userLogado = localStorage.getItem('user');
-    const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
 
     // Converte para FormData para suportar a foto e bater com o esperado no backend
     const formData = new FormData();
@@ -42,7 +49,7 @@ const NovoEquipamento = () => {
     formData.append('setor_id', form.setor_id || '');
     formData.append('status', form.status || 'Ativo');
     formData.append('tipo_id', form.tipo_id || '');
-    formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0);
+    formData.append('periodicidade_preventiva', form.periodicidade_preventiva ? Number(form.periodicidade_preventiva) : 0);
 
     if (fotoEquipamento) {
       formData.append('foto_equipamento', fotoEquipamento);
@@ -51,7 +58,8 @@ const NovoEquipamento = () => {
     fetch(`${API_URL}/equipamentos`, {
       method: 'POST',
       headers: {
-        'x-usuario-nivel': nivelUsuario
+        // 🔥 IMPORTANTE: Para objetos FormData, passamos apenas o nível de privilégio.
+        'x-usuario-nivel': obterNivelUsuario()
       },
       body: formData
     })
@@ -76,27 +84,27 @@ const NovoEquipamento = () => {
         <form onSubmit={salvar} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 text-slate-700">
           <div className="md:col-span-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nome do Equipamento</label>
-            <input type="text" required value={form.nome} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-400 transition-all font-bold" placeholder="Ex: Monitor Multiparamétrico" onChange={e => setForm({...form, nome: e.target.value})} />
+            <input type="text" required value={form.nome} className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-400 transition-all font-bold text-black" placeholder="Ex: Monitor Multiparamétrico" onChange={e => setForm({...form, nome: e.target.value})} />
           </div>
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Patrimônio</label>
-            <input type="text" value={form.patrimonio} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-mono font-bold" placeholder="001234" onChange={e => setForm({...form, patrimonio: e.target.value})} />
+            <input type="text" value={form.patrimonio} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-mono font-bold text-black" placeholder="001234" onChange={e => setForm({...form, patrimonio: e.target.value})} />
           </div>
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Nº de Série</label>
-            <input type="text" value={form.num_serie} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400" placeholder="SN998877" onChange={e => setForm({...form, num_serie: e.target.value})} />
+            <input type="text" value={form.num_serie} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 text-black" placeholder="SN998877" onChange={e => setForm({...form, num_serie: e.target.value})} />
           </div>
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Marca / Fabricante</label>
-            <input type="text" value={form.fabricante} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none" placeholder="Ex: GE, Philips" onChange={e => setForm({...form, fabricante: e.target.value})} />
+            <input type="text" value={form.fabricante} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none text-black" placeholder="Ex: GE, Philips" onChange={e => setForm({...form, fabricante: e.target.value})} />
           </div>
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Modelo</label>
-            <input type="text" value={form.modelo} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none" placeholder="Ex: Dash 4000" onChange={e => setForm({...form, modelo: e.target.value})} />
+            <input type="text" value={form.modelo} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none text-black" placeholder="Ex: Dash 4000" onChange={e => setForm({...form, modelo: e.target.value})} />
           </div>
 
           <div>
@@ -126,7 +134,7 @@ const NovoEquipamento = () => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Periodicidade Preventiva (Dias)</label>
-            <input type="number" min="0" value={form.periodicidade_preventiva} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs" placeholder="Ex: 180" onChange={e => setForm({...form, periodicidade_preventiva: e.target.value})} />
+            <input type="number" min="0" value={form.periodicidade_preventiva} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs text-black" placeholder="Ex: 180" onChange={e => setForm({...form, periodicidade_preventiva: e.target.value})} />
           </div>
 
           <div className="md:col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">

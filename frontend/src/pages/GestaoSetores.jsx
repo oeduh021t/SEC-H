@@ -11,9 +11,21 @@ export function GestaoSetores() {
 
   const API_URL = "http://192.168.5.101:3000/api";
 
+  // 🔑 AUXILIAR: Resgata as credenciais operacionais do localStorage contra bloqueios do RBAC
+  const obterNivelUsuario = () => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser).nivel : '';
+  };
+
   const carregarSetores = async () => {
     try {
-      const res = await fetch(`${API_URL}/setores`).then((res) => res.json());
+      const res = await fetch(`${API_URL}/setores`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "x-usuario-nivel": obterNivelUsuario() // 🔑 Injetado cabeçalho obrigatório
+        }
+      }).then((res) => res.json());
       setSetores(res || []);
     } catch (err) {
       console.error("Erro ao carregar os setores:", err);
@@ -31,14 +43,17 @@ export function GestaoSetores() {
     if (!nome) return;
 
     const novoSetor = {
-      nome,
-      setor_pai_id: setorPaiId,
+      nome: nome.trim(),
+      setor_pai_id: setorPaiId && setorPaiId !== "" ? Number(setorPaiId) : null, // Garante envio correto de nulos ou inteiros ao banco
     };
 
     try {
       const res = await fetch(`${API_URL}/setores`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-usuario-nivel": obterNivelUsuario() // 🔑 Injetado cabeçalho obrigatório
+        },
         body: JSON.stringify(novoSetor),
       });
 
@@ -48,7 +63,7 @@ export function GestaoSetores() {
         setSetorPaiId("");
         carregarSetores();
       } else {
-        alert("Erro ao cadastrar o setor.");
+        alert("Erro ao cadastrar o setor. Verifique suas permissões.");
       }
     } catch (err) {
       console.error(err);

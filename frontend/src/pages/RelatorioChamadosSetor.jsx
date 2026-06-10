@@ -19,9 +19,17 @@ export function RelatorioChamadosSetor() {
 
   const API_URL = "http://192.168.5.101:3000/api"
 
+  // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
+  const obterNivelUsuario = () => {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser).nivel : '';
+  };
+
   const carregarSetores = async () => {
     try {
-      const res = await fetch(`${API_URL}/setores`).then(res => res.json())
+      const res = await fetch(`${API_URL}/setores`, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+      }).then(res => res.json())
       setSetores(res || [])
     } catch (err) {
       console.error("Erro ao carregar setores:", err)
@@ -38,7 +46,9 @@ export function RelatorioChamadosSetor() {
         `&data_fim=${dataFim} 23:59:59` +
         `&setor_id=${setorSelecionado}`
 
-      const res = await fetch(url).then(res => res.json())
+      const res = await fetch(url, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+      }).then(res => res.json())
 
       setDados(res || [])
     } catch (err) {
@@ -110,7 +120,7 @@ export function RelatorioChamadosSetor() {
       <div className="flex justify-end mb-6 hide-print">
         <button
           onClick={() => window.print()}
-          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest"
+          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-transform shadow-md"
         >
           🖨️ IMPRIMIR RELATÓRIO
         </button>
@@ -126,7 +136,7 @@ export function RelatorioChamadosSetor() {
 
           <input
             type="date"
-            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50"
+            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black"
             value={dataInicio}
             onChange={e => setDataInicio(e.target.value)}
           />
@@ -139,7 +149,7 @@ export function RelatorioChamadosSetor() {
 
           <input
             type="date"
-            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50"
+            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black"
             value={dataFim}
             onChange={e => setDataFim(e.target.value)}
           />
@@ -151,7 +161,7 @@ export function RelatorioChamadosSetor() {
           </label>
 
           <select
-            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50"
+            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700"
             value={setorSelecionado}
             onChange={e => setSetorSelecionado(e.target.value)}
           >
@@ -169,7 +179,7 @@ export function RelatorioChamadosSetor() {
       <div className="relatorio-container space-y-6">
 
         {/* CABEÇALHO */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:border-none print:p-0">
           <h1 className="text-xl font-black text-slate-800">
             SEC-H - RELATÓRIO DE CHAMADOS POR SETOR
           </h1>
@@ -202,12 +212,12 @@ export function RelatorioChamadosSetor() {
             </p>
           </div>
 
-          <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-4 rounded-2xl shadow-sm">
-            <span className="text-[10px] font-black text-slate-400 uppercase">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-4 rounded-2xl shadow-sm print:text-slate-800 print:bg-none print:border print:border-slate-100">
+            <span className="text-[10px] font-black text-slate-400 uppercase print:text-slate-400">
               Setor Mais Ativo
             </span>
 
-            <p className="text-lg font-black text-green-400 mt-1">
+            <p className="text-lg font-black text-green-400 mt-1 print:text-green-600">
               {setorMaisAtivo?.nome_setor || "-"}
             </p>
           </div>
@@ -215,7 +225,7 @@ export function RelatorioChamadosSetor() {
         </div>
 
         {/* TABELA */}
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 print:p-0 print:border-none">
 
           {loading ? (
             <div className="text-center py-8 font-bold text-xs text-slate-400">
@@ -227,7 +237,7 @@ export function RelatorioChamadosSetor() {
               <table className="w-full text-left border-collapse">
 
                 <thead>
-                  <tr className="border-b-2 border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <tr className="border-b-2 border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider print:text-slate-700">
                     <th className="pb-3">Setor</th>
                     <th className="pb-3 text-center">Qtd. Chamados</th>
                     <th className="pb-3 text-right">% do Total</th>
@@ -249,14 +259,14 @@ export function RelatorioChamadosSetor() {
                     return (
                       <tr
                         key={obj.setor_id}
-                        className="text-xs hover:bg-slate-50"
+                        className="text-xs hover:bg-slate-50/50 transition-colors"
                       >
                         <td className="py-3.5 font-black text-slate-700">
                           {obj.nome_setor}
                         </td>
 
                         <td className="py-3.5 text-center font-bold text-slate-600">
-                          {obj.total_chamados}
+                          {obj.total_chamados} OS
                         </td>
 
                         <td className="py-3.5 text-right font-black text-blue-600">
@@ -290,3 +300,5 @@ export function RelatorioChamadosSetor() {
     </div>
   )
 }
+
+export default RelatorioChamadosSetor;
