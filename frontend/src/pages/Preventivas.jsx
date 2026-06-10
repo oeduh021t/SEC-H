@@ -13,6 +13,9 @@ const Preventivas = () => {
     // Estados dos Filtros Dinâmicos (Busca Global + Select)
     const [busca, setBusca] = useState('');
     const [setorSelecionado, setSetorSelecionado] = useState('todos');
+    
+    // 🆕 NOVO ESTADO: Controla qual card de status está ativo no filtro ('todos', 'emDia', 'criticas', 'atrasadas')
+    const [filtroStatusCard, setFiltroStatusCard] = useState('todos');
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
@@ -27,7 +30,7 @@ const Preventivas = () => {
         try {
             const headersComNivel = {
                 'Content-Type': 'application/json',
-                'x-usuario-nivel': obterNivelUsuario() // 🔑 Injetado cabeçalho obrigatório
+                'x-usuario-nivel': obterNivelUsuario()
             };
 
             const [resPreventivas, resSetores] = await Promise.all([
@@ -48,7 +51,6 @@ const Preventivas = () => {
     const handleBaixa = (e) => {
         e.preventDefault();
         
-        // Recupera dinamicamente o operador do sistema logado no navegador
         const userLogado = localStorage.getItem('user');
         const tecnicoNome = userLogado ? JSON.parse(userLogado).nome : 'Técnico do Sistema';
 
@@ -56,7 +58,7 @@ const Preventivas = () => {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'x-usuario-nivel': obterNivelUsuario() // 🔑 Injetado cabeçalho obrigatório
+                'x-usuario-nivel': obterNivelUsuario() 
             },
             body: JSON.stringify({
                 equipamento_id: selecionado.id,
@@ -75,21 +77,31 @@ const Preventivas = () => {
         });
     };
 
-    // TURBINADO - FILTRAGEM GLOBAL EM TEMPO REAL (Varre múltiplos campos simultaneamente)
+    // 🔄 FILTRAGEM ATUALIZADA - Combina busca global, select de setor e cliques nos cards
     const dadosFiltrados = dados.filter(p => {
         const termo = busca.toLowerCase();
 
-        // Bate o texto digitado contra todos os principais campos textuais do ativo
+        // 1. Busca textual global
         const matchesBusca = 
             (p.nome && p.nome.toLowerCase().includes(termo)) || 
             (p.patrimonio && p.patrimonio.toLowerCase().includes(termo)) ||
             (p.setor_nome && p.setor_nome.toLowerCase().includes(termo)) ||
             (p.tipo_nome && p.tipo_nome.toLowerCase().includes(termo));
 
-        // Combina com o filtro do select lateral de setores
+        // 2. Filtro do select lateral de setores
         const matchesSetor = setorSelecionado === 'todos' || String(p.setor_id) === String(setorSelecionado);
 
-        return matchesBusca && matchesSetor;
+        // 3. 🆕 Filtro lógico baseado no card clicado (mesma regra do reduce de totais)
+        let matchesCard = true;
+        if (filtroStatusCard === 'atrasadas') {
+            matchesCard = p.dias_restantes < 0;
+        } else if (filtroStatusCard === 'criticas') {
+            matchesCard = p.dias_restantes >= 0 && p.dias_restantes <= 7;
+        } else if (filtroStatusCard === 'emDia') {
+            matchesCard = p.dias_restantes > 7;
+        }
+
+        return matchesBusca && matchesSetor && matchesCard;
     });
 
     // CÁLCULO DOS INDICADORES DO PAINEL SUPERIOR
@@ -100,9 +112,14 @@ const Preventivas = () => {
         return acc;
     }, { atrasadas: 0, criticas: 0, emDia: 0 });
 
+    // Função utilitária para alternar filtros ao clicar no card (clicar no mesmo limpa o filtro)
+    const alternarFiltroCard = (tipoCard) => {
+        setFiltroStatusCard(prev => prev === tipoCard ? 'todos' : tipoCard);
+    };
+
     if (loading) return (
         <div className="p-10 text-center animate-pulse text-slate-500 font-black tracking-widest uppercase text-xs">
-            制造 Mapeando cronograma e rotinas de PMOC...
+            ⌛ Mapeando cronograma e rotinas de PMOC...
         </div>
     );
 
@@ -110,37 +127,69 @@ const Preventivas = () => {
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
             
             {/* TÍTULO E CABEÇALHO */}
-            <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <h1 className="text-xl font-black text-slate-800 flex items-center gap-3">
-                    <span className="bg-green-500 p-2 rounded-xl text-white text-sm">📅</span>
-                    GESTÃO DE PREVENTIVAS / PMOC
-                </h1>
-                <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Controle integrado de calibração e manutenção preventiva de ativos</p>
+            <div className="mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                    <h1 className="text-xl font-black text-slate-800 flex items-center gap-3">
+                        <span className="bg-green-500 p-2 rounded-xl text-white text-sm">📅</span>
+                        GESTÃO DE PREVENTIVAS / PMOC
+                    </h1>
+                    <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Controle integrado de calibração e manutenção preventiva de ativos</p>
+                </div>
+                {filtroStatusCard !== 'todos' && (
+                    <button 
+                        onClick={() => setFiltroStatusCard('todos')}
+                        className="bg-slate-200 hover:bg-slate-300 text-slate-600 font-black px-4 py-2 rounded-xl text-[10px] uppercase tracking-wider transition-colors"
+                    >
+                        ❌ Limpar Filtro de Card
+                    </button>
+                )}
             </div>
 
-            {/* PAINEL DE INDICADORES CARDS */}
+            {/* PAINEL DE INDICADORES CARDS (Agora Clicáveis e Reativos) */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                
+                {/* CARD: EM DIA */}
+                <div 
+                    onClick={() => { alternarFiltroCard('emDia'); }}
+                    className={`p-4 rounded-2xl shadow-sm border bg-white flex items-center justify-between cursor-pointer select-none transition-all active:scale-[0.99] hover:shadow-md ${
+                        filtroStatusCard === 'emDia' ? 'border-green-500 ring-2 ring-green-500/20 bg-green-50/10' : 'border-slate-100'
+                    }`}
+                >
                     <div>
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cronograma em Dia</span>
                         <p className="text-xl font-black text-green-600 mt-0.5">{totais.emDia} Ativos</p>
                     </div>
                     <span className="w-2 h-2 rounded-full bg-green-500 animate-ping" />
                 </div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+
+                {/* CARD: ATENÇÃO */}
+                <div 
+                    onClick={() => { alternarFiltroCard('criticas'); }}
+                    className={`p-4 rounded-2xl shadow-sm border bg-white flex items-center justify-between cursor-pointer select-none transition-all active:scale-[0.99] hover:shadow-md ${
+                        filtroStatusCard === 'criticas' ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/10' : 'border-slate-100'
+                    }`}
+                >
                     <div>
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Atenção (Vence em 7 dias)</span>
                         <p className="text-xl font-black text-amber-500 mt-0.5">{totais.criticas} Ativos</p>
                     </div>
                     <span className="w-2 h-2 rounded-full bg-amber-500" />
                 </div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+
+                {/* CARD: ATRASADAS */}
+                <div 
+                    onClick={() => { alternarFiltroCard('atrasadas'); }}
+                    className={`p-4 rounded-2xl shadow-sm border bg-white flex items-center justify-between cursor-pointer select-none transition-all active:scale-[0.99] hover:shadow-md ${
+                        filtroStatusCard === 'atrasadas' ? 'border-red-500 ring-2 ring-red-500/20 bg-red-50/10' : 'border-slate-100'
+                    }`}
+                >
                     <div>
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Atrasadas / Pendentes</span>
                         <p className="text-xl font-black text-red-500 mt-0.5">{totais.atrasadas} Roteiros</p>
                     </div>
                     <span className="w-2 h-2 rounded-full bg-red-500" />
                 </div>
+
             </div>
 
             {/* BARRA DE FILTROS DINÂMICOS COM BUSCA GLOBAL */}
@@ -150,7 +199,7 @@ const Preventivas = () => {
                     <input 
                         type="text" 
                         placeholder="🔍 Digite Nome do Equipamento, Patrimônio ou Centro de Custo..." 
-                        className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" 
+                        className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" 
                         value={busca} 
                         onChange={e => setBusca(e.target.value)} 
                     />
@@ -158,7 +207,7 @@ const Preventivas = () => {
                 <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Isolar por Localização / Setor</label>
                     <select 
-                        className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500" 
+                        className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" 
                         value={setorSelecionado} 
                         onChange={e => setSetorSelecionado(e.target.value)}
                     >
@@ -181,7 +230,7 @@ const Preventivas = () => {
                                 <th className="p-5 text-center">Ações</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-50 text-xs">
+                        <tbody className="divide-y divide-slate-100 text-xs">
                             {dadosFiltrados.map(p => (
                                 <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                                     <td className="p-5">
@@ -217,7 +266,9 @@ const Preventivas = () => {
                             ))}
                             {dadosFiltrados.length === 0 && (
                                 <tr>
-                                    <td colSpan="5" className="p-10 text-center text-xs font-bold text-slate-400 italic">Nenhum roteiro de preventiva localizado para os parâmetros filtrados.</td>
+                                    <td colSpan="5" className="p-10 text-center text-xs font-bold text-slate-400 italic">
+                                        Nenhum roteiro localizado para os filtros ativos ({filtroStatusCard === 'todos' ? 'Geral' : `Filtrado por: ${filtroStatusCard}`}).
+                                    </td>
                                 </tr>
                             )}
                         </tbody>
@@ -246,14 +297,14 @@ const Preventivas = () => {
                                     required 
                                     value={relatorio}
                                     onChange={e => setRelatorio(e.target.value)}
-                                    className="w-full border-2 border-slate-100 bg-slate-50/50 focus:bg-white rounded-2xl p-4 h-32 focus:border-green-500 outline-none transition-all resize-none text-xs font-medium text-slate-700" 
-                                    placeholder="Descreva detalhadamente as ações preventivas efetuadas (ex: Realizada conferência de calibração, lubrificação de eixos, higienização interna e testes de segurança elétrica)..."
+                                    className="w-full border-2 border-slate-100 bg-slate-50/50 focus:bg-white rounded-2xl p-4 h-32 focus:border-green-500 outline-none transition-all resize-none text-xs font-medium text-slate-700 text-black" 
+                                    placeholder="Descreva detalhadamente as ações preventivas efetuadas..."
                                 ></textarea>
                             </div>
                             
                             <div className="bg-blue-50 p-3.5 rounded-xl flex items-center gap-3 border border-blue-100">
                                 <span className="text-lg">ℹ️</span>
-                                <p className="text-[10px] font-bold text-blue-600 leading-tight">Ao confirmar, o ciclo da preventiva reiniciará de acordo com a periodicidade programada e a intervenção será anexada ao prontuário do ativo.</p>
+                                <p className="text-[10px] font-bold text-blue-600 leading-tight">Ao confirmar, o ciclo da preventiva reiniciará de acordo com a periodicidade programada.</p>
                             </div>
                             
                             <div className="flex gap-3 pt-2">
