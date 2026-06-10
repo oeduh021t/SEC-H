@@ -520,14 +520,20 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
 
+        // 🟢 CORRIGIDO: Agora atualiza explicitamente o campo 'descricao_solucao' na tabela principal 'chamados' ao concluir
         const queryUpdate = `
             UPDATE chamados
-            SET status = ?, tecnico_responsavel = ?, descricao_solucao = ?, tipo_atendimento = ?,
+            SET status = ?, 
+                tecnico_responsavel = ?, 
+                descricao_solucao = ?, 
+                tipo_atendimento = ?,
                 foto_conclusao = COALESCE(?, foto_conclusao),
                 data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
             WHERE id = ?
         `;
-        conn.query(queryUpdate, [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id], (err) => {
+        const valuesUpdate = [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id];
+
+        conn.query(queryUpdate, valuesUpdate, (err) => {
             if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
 
             const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
@@ -535,6 +541,7 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
 
             conn.query(queryHist, [id, tecnico_responsavel, msgHist, status], (err) => {
                 if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+                
                 conn.commit(err => {
                     if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
                     conn.release();

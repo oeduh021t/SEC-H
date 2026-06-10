@@ -72,13 +72,40 @@ export function ImprimirOS() {
   const totalPecas = chamado.itens_vinculados?.reduce((acc, item) => acc + (item.quantidade * item.valor_unitario), 0) || 0;
   const totalGeral = totalPecas + (Number(chamado.custo_servico) || 0);
 
+  // 🔑 EXTRAÇÃO DA SOLUÇÃO TÉCNICA BASEADA NO HISTÓRICO DE CONCLUSÃO DA OS
+  const logConclusao = chamado.historico?.find(
+    (h) => h.status_momento?.toLowerCase() === "concluído" || h.status_momento?.toLowerCase() === "concluido"
+  );
+  const solucaoTecnica = logConclusao?.texto_historico?.trim() || chamado.descricao_solucao?.trim();
+
   return (
     <div className="p-2 md:p-8 max-w-[210mm] mx-auto text-black bg-white">
+      
+      {/* ISOLAMENTO DA IMPRESSÃO IGUAL AO DO RELATÓRIO (Evita páginas brancas de layouts externos) */}
       <style>{`
         @media print {
-          body { background: white; }
-          .hide-print { display: none !important; }
-          .os-container { border: 1px solid #000 !important; padding: 0 !important; }
+          body * {
+            visibility: hidden;
+            background: white !important;
+          }
+
+          .os-impressao-container,
+          .os-impressao-container * {
+            visibility: visible;
+          }
+
+          .os-impressao-container {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            border: 1px solid #000 !important;
+            padding: 0 !important;
+          }
+
+          .hide-print {
+            display: none !important;
+          }
         }
       `}</style>
 
@@ -88,7 +115,8 @@ export function ImprimirOS() {
         <button onClick={() => navigate(-1)} className="bg-slate-200 text-slate-700 px-6 py-2 rounded-lg font-bold">VOLTAR</button>
       </div>
 
-      <div className="os-container border border-slate-300 p-8">
+      {/* CONTAINER PRINCIPAL COM A CLASSE DE VISIBILIDADE ISOLADA */}
+      <div className="os-impressao-container border border-slate-300 p-8 bg-white">
         
         {/* CABEÇALHO CORPORATIVO */}
         <div className="flex justify-between items-start border-b-2 border-black pb-4 mb-6">
@@ -133,7 +161,9 @@ export function ImprimirOS() {
             </div>
             <div>
               <label className="text-[10px] font-black text-slate-400 block mb-1">SOLUÇÃO TÉCNICA APLICADA:</label>
-              <div className="text-sm font-bold min-h-[50px]">{chamado.descricao_solucao || "Aguardando conclusão."}</div>
+              <div className="text-sm font-bold min-h-[50px]">
+                {solucaoTecnica && solucaoTecnica !== "" ? solucaoTecnica : "Aguardando conclusão."}
+              </div>
             </div>
           </div>
         </div>
@@ -194,6 +224,7 @@ export function ImprimirOS() {
                   <div className="hide-print space-y-2 mb-2">
                     <input type="text" placeholder="Nome Completo" value={nomes[tipo]} onChange={e => setNomes({...nomes, [tipo]: e.target.value})} className="w-full border-2 border-slate-200 p-2 rounded text-xs font-bold text-center" />
                     <div className="border border-slate-300 rounded"><SignaturePad ref={tipo === "tecnico" ? padTecnico : padSetor} canvasProps={{ height: 100, className: "w-full" }} /></div>
+                    <div className="mt-4 pt-3 border-t border-slate-700/50 flex justify-around items-center"></div>
                     <button onClick={() => salvarAssinatura(tipo)} className="w-full bg-blue-600 text-white py-1 rounded text-[10px] font-black uppercase">Validar Assinatura</button>
                   </div>
                 )}
