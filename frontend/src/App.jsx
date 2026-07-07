@@ -15,6 +15,7 @@ import InventarioGeral from './pages/InventarioGeral';
 import { RelatorioCustosSetor } from './pages/RelatorioCustosSetor';
 import { TratarChamado } from "./pages/TratarChamado";
 import Fornecedores from './pages/Fornecedores'; 
+import NotasFiscais from './pages/NotasFiscais'; // 🧾 Lançamento de Notas Fiscais e Boletos
 import { ImprimirOS } from './pages/ImprimirOS'; 
 import { GestaoEstoque } from './pages/GestaoEstoque'; 
 import { GestaoSetores } from './pages/GestaoSetores';
@@ -71,7 +72,7 @@ function App() {
     };
   }, [user]);
 
-  // Função para sair do sistema
+  // Função para sair do system
   const handleLogout = () => {
     localStorage.removeItem('user');
     setUser(null);
@@ -84,6 +85,7 @@ function App() {
 
   return (
     <Router>
+      shadow-slate-900
       <div className="flex min-h-screen bg-gray-100">
         {/* Passamos o usuário e a função de logout para a Sidebar */}
         <Sidebar user={user} onLogout={handleLogout} />
@@ -133,6 +135,7 @@ function App() {
               {/* --- 4. LOGÍSTICA / INFRAESTRUTURA --- */}
               {/* Fornecedores, Estoque e Setores: Apenas ADMIN e COORDENADOR acessam */}
               <Route path="/fornecedores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><Fornecedores /></RotaProtegida>} />
+              <Route path="/notas-fiscais" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NotasFiscais /></RotaProtegida>} />
               <Route path="/estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoEstoque /></RotaProtegida>} />
               <Route path="/setores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoSetores /></RotaProtegida>} />
 

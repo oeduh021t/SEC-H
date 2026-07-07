@@ -40,7 +40,7 @@ const filtroDocumentos = (req, file, cb) => {
     if (mimetype && extname) {
         return cb(null, true);
     } else {
-        cb(new Error('Erro: O sistema aceita apenas arquivos em formato PDF ou Imagem (JPEG, JPG, PNG)!'));
+        cb(new Error('Erro: O sistema aceita apenas arquivos in formato PDF ou Imagem (JPEG, JPG, PNG)!'));
     }
 };
 
@@ -159,7 +159,23 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         gastoTotalEstrutura: `
             SELECT IFNULL(SUM(custo_servico), 0) as total 
             FROM chamados 
-            WHERE categoria = 'TI'`
+            WHERE categoria = 'TI'`,
+
+        // Boletos que vencem hoje e estão abertos
+        boletosVencendoHoje: `
+            SELECT COUNT(*) as total FROM boletos 
+            WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'`,
+
+        // Boletos que já passaram do vencimento e não foram pagos
+        boletosAtrasados: `
+            SELECT COUNT(*) as total FROM boletos 
+            WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'`,
+
+        // Fluxo de caixa de boletos previstos para os próximos 7 dias
+        boletosVencendoSemana: `
+            SELECT COUNT(*) as total FROM boletos 
+            WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) 
+            AND status_pagamento != 'Pago'`
     };
 
     const promises = Object.keys(queries).map(key => {
@@ -180,8 +196,8 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                // Se for uma das novas métricas financeiras, extrai direto o valor numérico puro
-                if (['gastoFiltros', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura'].includes(r.key)) {
+                // Se for uma das novas métricas financeiras ou de vencimento, extrai direto o valor numérico puro
+                if (['gastoFiltros', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana'].includes(r.key)) {
                     stats[r.key] = r.data[0]?.total || 0;
                 } else {
                     stats[r.key] = r.data; 
@@ -190,8 +206,9 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             res.json(stats);
         })
         .catch(err => {
-            console.error("❌ Falha crítica no Promise.all da Dashboard:", err.message);
-            res.status(500).json({ error: err.message });
+            const finalErr = err || { message: 'Erro desconhecido' };
+            console.error("❌ Falha crítica no Promise.all da Dashboard:", finalErr.message);
+            res.status(500).json({ error: finalErr.message });
         });
 });
 
@@ -212,7 +229,8 @@ const enviarTelegram = async (mensagem) => {
         await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
-        console.error("❌ Erro ao enviar Telegram:", err.message);
+        const finalErr = err || { message: 'Erro desconhecido' };
+        console.error("❌ Erro ao enviar Telegram:", finalFetchErr.message);
     }
 };
 
@@ -366,14 +384,14 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
     const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
     const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
 
-    const categoriaFinal = categoria || category || 'Manutenção';
+    const categoryFinal = categoria || category || 'Manutenção';
 
     // 🟢 Tratamento contra strings nulas vindas do FormData no redirecionamento do Prontuário
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
     const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
 
     const query = `INSERT INTO chamados (setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
-    const values = [v_setor_id, v_equipamento_id, titulo, descricao_problema, prioridade || 'Média', categoriaFinal, tipo_manutencao || 'Corretiva', foto_abertura];
+    const values = [v_setor_id, v_equipamento_id, titulo, descricao_problema, prioridade || 'Média', categoryFinal, tipo_manutencao || 'Corretiva', foto_abertura];
 
     db.query(query, values, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -383,7 +401,7 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
         // 🟢 Query estendida com JOIN para carregar os dados do equipamento no Bot do Telegram
         const queryDadosTelegram = `
             SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
-                   s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
+                    s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
             FROM chamados c
             LEFT JOIN setores s ON c.setor_id = s.id
             LEFT JOIN equipamentos e ON c.equipamento_id = e.id
@@ -555,8 +573,8 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
 app.patch('/api/chamados/:id/observacao', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const { nova_obs, usuario_nome, usuario_nivel } = req.body;
-    const niveisPermitidos = ['admin', 'coordenador'];
-    if (!niveisPermitidos.includes(usuario_nivel?.toLowerCase())) {
+    const níveisPermitidos = ['admin', 'coordenador'];
+    if (!níveisPermitidos.includes(usuario_nivel?.toLowerCase())) {
         return res.status(403).json({ error: "Acesso negado: Apenas gestores podem adicionar notas." });
     }
 
@@ -879,24 +897,24 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
 
 app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
 
-    const { data_inicio, data_fim, setor_id } = req.query
+    const { data_inicio, data_fim, setor_id } = req.query;
 
     const inicio =
         data_inicio ||
         new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
             .toISOString()
-            .split('T')[0] + ' 00:00:00'
+            .split('T')[0] + ' 00:00:00';
 
     const fim =
         data_fim ||
-        new Date().toISOString().split('T')[0] + ' 23:59:59'
+        new Date().toISOString().split('T')[0] + ' 23:59:59';
 
-    let queryParams = [inicio, fim]
-    let filtroSetor = ''
+    let queryParams = [inicio, fim];
+    let filtroSetor = '';
 
     if (setor_id && setor_id !== 'todos') {
-        filtroSetor = 'AND s.id = ?'
-        queryParams.push(setor_id)
+        filtroSetor = 'AND s.id = ?';
+        queryParams.push(setor_id);
     }
 
     const sql = `
@@ -911,17 +929,17 @@ app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador'
         WHERE 1=1 ${filtroSetor}
         GROUP BY s.id, s.nome
         ORDER BY total_chamados DESC
-    `
+    `;
 
     db.query(sql, queryParams, (err, result) => {
         if (err) {
-            console.error("❌ Erro no relatório de chamados:", err)
-            return res.status(500).json({ error: err.message })
+            console.error("❌ Erro no relatório de chamados:", err);
+            return res.status(500).json({ error: err.message });
         }
 
-        res.json(result || [])
-    })
-})
+        res.json(result || []);
+    });
+});
 
 // -------------------------------------------------------------------------
 // LOGÍSTICA / AUXILIARES
@@ -1016,6 +1034,104 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
                 });
             });
         });
+    });
+});
+
+// -------------------------------------------------------------------------
+// MÓDULO DE NOTAS FISCAIS E GESTÃO DE BOLETOS
+// -------------------------------------------------------------------------
+
+// 1. LISTAR TODAS AS NOTAS FISCAIS (Com dados do fornecedor associado)
+app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const query = `
+        SELECT nf.*, f.nome_fantasia as fornecedor_nome 
+        FROM notas_fiscais nf
+        JOIN fornecedores f ON nf.fornecedor_id = f.id
+        ORDER BY nf.data_emissao DESC
+    `;
+    db.query(query, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+// 2. CONSULTAR OS BOLETOS DE UMA NOTA FISCAL ESPECÍFICA
+app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const query = `SELECT * FROM boletos WHERE nota_fiscal_id = ? ORDER BY data_vencimento ASC`;
+    
+    db.query(query, [id], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+// 3. CADASTRAR NOTA FISCAL COM ARQUIVOS (XML / DANFE)
+app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
+    { name: 'xml', maxCount: 1 },
+    { name: 'danfe', maxCount: 1 }
+]), (req, res) => {
+    const { numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao } = req.body;
+
+    const url_xml = req.files['xml'] ? `/uploads/${req.files['xml'][0].filename}` : null;
+    const url_danfe = req.files['danfe'] ? `/uploads/${req.files['danfe'][0].filename}` : null;
+
+    const query = `
+        INSERT INTO notas_fiscais (numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, url_xml, url_danfe)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [numero_nf, serie || null, chave_acesso || null, Number(fornecedor_id), data_emissao, data_recebimento || null, Number(valor_total), descricao || null, url_xml, url_danfe];
+
+    db.query(query, values, (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao inserir nota fiscal:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: result.insertId });
+    });
+});
+
+// 4. CADASTRAR/ANEXAR UM BOLETO A UMA NOTA
+app.post('/api/boletos', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('boleto_pdf'), (req, res) => {
+    const { nota_fiscal_id, parcela, codigo_barras, linha_digitavel, valor_boleto, data_vencimento } = req.body;
+    const url_boleto_pdf = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const query = `
+        INSERT INTO boletos (nota_fiscal_id, parcela, codigo_barras, linha_digitavel, valor_boleto, data_vencimento, url_boleto_pdf)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [Number(nota_fiscal_id), parcela || '1/1', codigo_barras || null, linha_digitavel || null, Number(valor_boleto), data_vencimento, url_boleto_pdf];
+
+    db.query(query, values, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.status(201).json({ message: "Boleto anexado com sucesso!", id: result.insertId });
+    });
+});
+
+// 5. DAR BAIXA / REGISTRAR PAGAMENTO DO BOLETO (Com comprovante)
+app.patch('/api/boletos/:id/pagar', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('comprovante_pdf'), (req, res) => {
+    const { id } = req.params;
+    const { data_pagamento } = req.body;
+    const url_comprovante_pdf = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const query = `
+        UPDATE boletos 
+        SET status_pagamento = 'Pago', data_pagamento = ?, url_comprovante_pdf = COALESCE(?, url_comprovante_pdf)
+        WHERE id = ?
+    `;
+
+    db.query(query, [data_pagamento || new Date().toISOString().split('T')[0], url_comprovante_pdf, id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Baixa de boleto processada com sucesso! 💰✅" });
+    });
+});
+
+// 6. EXCLUIR NOTA FISCAL (Vai deletar os boletos automaticamente devido ao ON DELETE CASCADE)
+app.delete('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    db.query(`DELETE FROM notas_fiscais WHERE id = ?`, [id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Nota Fiscal e seus boletos associados foram deletados!" });
     });
 });
 
