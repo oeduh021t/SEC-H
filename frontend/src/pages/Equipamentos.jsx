@@ -17,6 +17,7 @@ const Equipamentos = () => {
 
   const [setores, setSetores] = useState([])
   const [tipos, setTipos] = useState([])
+  const [locaisEstoque, setLocaisEstoque] = useState([]) // 🆕 Estado para armazenar os locais de estoque dinâmicos
 
   // Filtros dinâmicos da barra superior
   const [filtroSetor, setFiltroSetor] = useState('todos')
@@ -24,7 +25,7 @@ const Equipamentos = () => {
 
   const estadoInicial = {
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', valor: '', data_ultima_preventiva: '', status: 'Ativo'
+    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', status: 'Ativo' // 🆕 local_estoque_id adicionado
   }
   const [form, setForm] = useState(estadoInicial)
 
@@ -56,6 +57,7 @@ const Equipamentos = () => {
     
     fetch(`${API_URL}/setores`, { headers: headersComNivel }).then(res => res.json()).then(data => setSetores(data || []))
     fetch(`${API_URL}/types_equipamentos`, { headers: headersComNivel }).then(res => res.json()).then(data => setTipos(data || []))
+    fetch(`${API_URL}/locais-estoque`, { headers: headersComNivel }).then(res => res.json()).then(data => setLocaisEstoque(data || [])) // 🆕 Carrega locais de estoque dinâmicos
   }, [])
 
   const prepararEdicao = (e) => {
@@ -63,7 +65,8 @@ const Equipamentos = () => {
     setForm({
       ...e,
       data_ultima_preventiva: e.data_ultima_preventiva ? e.data_ultima_preventiva.split('T')[0] : '',
-      tipo_id: e.tipo_id || ''
+      tipo_id: e.tipo_id || '',
+      local_estoque_id: e.local_estoque_id || '' // 🆕 Atribui local_estoque_id na edição
     })
     setFotoEquipamento(null)
     setModalAberta(true)
@@ -92,6 +95,7 @@ const Equipamentos = () => {
     formData.append('status', form.status || 'Ativo')
     formData.append('tipo_id', form.tipo_id || '')
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0)
+    formData.append('local_estoque_id', form.local_estoque_id || '') // 🆕 Append do local_estoque_id para sincronia com o backend
     
     if (fotoEquipamento) {
       formData.append('foto_equipamento', fotoEquipamento)
@@ -113,7 +117,7 @@ const Equipamentos = () => {
         setEditandoId(null)
         setForm(estadoInicial)
       } else {
-        setForm({ ...estadoInicial, setor_id: form.setor_id, tipo_id: form.tipo_id })
+        setForm({ ...estadoInicial, setor_id: form.setor_id, tipo_id: form.tipo_id, local_estoque_id: form.local_estoque_id })
       }
     })
     .catch(err => console.error("Erro ao salvar equipamento:", err))
@@ -211,7 +215,7 @@ const Equipamentos = () => {
           </thead>
           <tbody className="divide-y divide-slate-50 text-xs">
             {equipamentosFiltrados.map(e => (
-              <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group">
+              <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group group text-dark">
                 <td className="p-5">
                   <div className="font-black text-slate-700 uppercase tracking-tight">{e.nome}</div>
                   <div className="text-[10px] text-blue-600 font-bold uppercase tracking-wide mt-0.5">{e.setor_nome || 'Setor não definido'}</div>
@@ -291,18 +295,26 @@ const Equipamentos = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Setor Responsável</label>
-                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, setor_id: e.target.value})}>
+                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, sector_id: e.target.value, setor_id: e.target.value})}>
                   <option value="">Selecione o Setor...</option>
                   {(setores || []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </div>
 
-              {/* INSERIDO COM PRECISÃO: Select do Tipo/Família integrado no seu grid nativo */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Tipo / Família do Equipamento</label>
                 <select value={form.tipo_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, tipo_id: e.target.value})}>
                   <option value="">Selecione o Tipo...</option>
                   {(tipos || []).map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                </select>
+              </div>
+
+              {/* 🆕 INSERIDO COM PRECISÃO: Select dinâmico de Escopo / Local de Estoque integrado ao grid */}
+              <div className="col-span-2 md:col-span-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Escopo / Gestão de Estoque *</label>
+                <select required value={form.local_estoque_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, local_estoque_id: e.target.value})}>
+                  <option value="">Selecione o Escopo...</option>
+                  {(locaisEstoque || []).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
                 </select>
               </div>
 
@@ -367,7 +379,7 @@ const Equipamentos = () => {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 export default Equipamentos;

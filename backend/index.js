@@ -153,13 +153,13 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         gastoTotalEquipamentos: `
             SELECT IFNULL(SUM(custo_servico), 0) as total 
             FROM chamados 
-            WHERE categoria = 'Manutenção'`,
+            WHERE category = 'Manutenção' OR categoria = 'Manutenção'`,
 
         // 🆕 4. Gasto Total em Estrutura / TI (Baseado na categoria 'TI' da tabela chamados)
         gastoTotalEstrutura: `
             SELECT IFNULL(SUM(custo_servico), 0) as total 
             FROM chamados 
-            WHERE categoria = 'TI'`,
+            WHERE category = 'TI' OR categoria = 'TI'`,
 
         // Boletos que vencem hoje e estão abertos
         boletosVencendoHoje: `
@@ -230,7 +230,7 @@ const enviarTelegram = async (mensagem) => {
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         const finalErr = err || { message: 'Erro desconhecido' };
-        console.error("❌ Erro ao enviar Telegram:", finalFetchErr.message);
+        console.error("❌ Erro ao enviar Telegram:", finalErr.message);
     }
 };
 
@@ -247,7 +247,7 @@ app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico'])
 
 // 🟢 CORRIGIDO: Adicionado upload.single('foto_equipamento') para ler o FormData do Modal e da Sidebar
 app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
-    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
+    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, local_estoque_id } = req.body;
     
     // Captura o arquivo de foto se ele foi enviado
     const foto_equipamento = req.file ? `/uploads/${req.file.filename}` : null;
@@ -262,10 +262,11 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
     const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
     const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
     const v_status = status || 'Ativo';
+    const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
 
-    // Query atualizada incluindo o campo da foto no inventário de ativos
-    const query = `INSERT INTO equipamentos (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?)`;
-    const values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento];
+    // Query atualizada incluindo o campo da foto e o local_estoque_id no inventário de ativos
+    const query = `INSERT INTO equipamentos (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento, local_estoque_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?)`;
+    const values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento, v_local_estoque_id];
 
     db.query(query, values, (err, result) => {
         if (err) {
@@ -278,7 +279,7 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
 
 app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
-    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva } = req.body;
+    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, local_estoque_id } = req.body;
     
     const v_nome = nome || 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
@@ -289,16 +290,17 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
     const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
     const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
     const v_status = status || 'Ativo';
+    const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
 
     let query, values;
 
     if (req.file) {
         const foto_equipamento = `/uploads/${req.file.filename}`;
-        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, foto_equipamento=? WHERE id=?`;
-        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento, id];
+        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, foto_equipamento=?, local_estoque_id=? WHERE id=?`;
+        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento, v_local_estoque_id, id];
     } else {
-        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=? WHERE id=?`;
-        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, id];
+        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, local_estoque_id=? WHERE id=?`;
+        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, v_local_estoque_id, id];
     }
 
     db.query(query, values, (err) => {
@@ -471,11 +473,12 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
     });
 });
 
+// 🟢 CORRIGIDO: Correção do erro de sintaxe estrutural na linha 478 da desestruturação do req.body
 app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
-    const { item_id, quantidade = 0 } = req.body;
+    const { item_id, quantity, quantidade } = req.body;
 
-    const qtd_solicitada = Number(quantidade);
+    const qtd_solicitada = Number(quantidade || quantity || 0);
 
     if (!id || id === "0" || id === "null" || id === "undefined") {
         return res.status(400).json({ error: "Não é possível vincular uma peça sem uma Ordem de Serviço (OS) válida aberta." });
@@ -573,8 +576,8 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
 app.patch('/api/chamados/:id/observacao', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const { nova_obs, usuario_nome, usuario_nivel } = req.body;
-    const níveisPermitidos = ['admin', 'coordenador'];
-    if (!níveisPermitidos.includes(usuario_nivel?.toLowerCase())) {
+    const niveisPermitidos = ['admin', 'coordenador'];
+    if (!niveisPermitidos.includes(usuario_nivel?.toLowerCase())) {
         return res.status(403).json({ error: "Acesso negado: Apenas gestores podem adicionar notas." });
     }
 
@@ -799,6 +802,78 @@ app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador',
 // -------------------------------------------------------------------------
 // RELATÓRIOS GERAIS
 // -------------------------------------------------------------------------
+// OBTENER RELATÓRIO DETALHADO UNIFICADO COM FILTRO DE TIPO DE REGISTRO
+app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { local_estoque_id, data_inicio, data_fim, tipo_registro } = req.query;
+
+    let query = `
+        SELECT * FROM (
+            -- 1. Bloco de Insumos / Peças
+            SELECT 
+                i.id, 
+                i.nome, 
+                IFNULL(i.referencia, '---') AS referencia, 
+                i.quantidade, 
+                i.valor_unitario, 
+                IFNULL(i.data_cadastro, NOW()) AS data_cadastro,
+                'Insumo' AS tipo_registro, 
+                i.local_estoque_id, 
+                l.nome AS nome_estoque, 
+                IFNULL(i.descricao, 'Sem descrição informada') AS descricao
+            FROM itens_estoque i
+            JOIN locais_estoque l ON i.local_estoque_id = l.id
+            
+            UNION ALL
+            
+            -- 2. Bloco de Equipamentos (Ajustado para usar CURDATE() e fallbacks compatíveis)
+            SELECT 
+                e.id, 
+                CONCAT(e.nome, ' (S/N: ', IFNULL(e.num_serie, 'N/A'), ')') AS nome,
+                IFNULL(e.patrimonio, 'S/Patrimônio') AS referencia, 
+                1 AS quantidade, 
+                0.00 AS valor_unitario, 
+                IFNULL(e.data_ultima_preventiva, CURDATE()) AS data_cadastro, -- Fallback para evitar erro de coluna
+                'Equipamento' AS tipo_registro, 
+                e.local_estoque_id, 
+                l.nome AS nome_estoque, 
+                CONCAT('Modelo: ', IFNULL(e.modelo, 'Não informado'), ' | Fabricante: ', IFNULL(e.fabricante, 'Não informado')) AS descricao
+            FROM equipamentos e
+            JOIN locais_estoque l ON e.local_estoque_id = l.id
+        ) AS tabela_consolidada
+        WHERE 1=1
+    `;
+    const queryParams = [];
+
+    // Filtro por Local de Estoque
+    if (local_estoque_id && local_estoque_id !== 'todos') {
+        query += ` AND local_estoque_id = ?`;
+        queryParams.push(Number(local_estoque_id));
+    }
+
+    // Filtro por tipo (Equipamento ou Insumo)
+    if (tipo_registro && tipo_registro !== 'todos') {
+        query += ` AND tipo_registro = ?`;
+        queryParams.push(tipo_registro);
+    }
+
+    // Filtro por Período
+    if (data_inicio && data_fim) {
+        query += ` AND data_cadastro BETWEEN ? AND ?`;
+        queryParams.push(`${data_inicio} 00:00:00`, `${data_fim} 23:59:59`);
+    }
+
+    query += ` ORDER BY nome_estoque ASC, tipo_registro DESC, nome ASC`;
+
+    db.query(query, queryParams, (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao gerar relatório consolidado:", err);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result || []);
+    });
+});
+
+
 app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
@@ -982,18 +1057,19 @@ app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecn
 
 // ALMOXARIFADO / ESTOQUE
 app.get('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    db.query("SELECT id, nome, referencia, descricao, quantidade, valor_unitario FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
+    db.query("SELECT id, nome, referencia, descricao, quantidade, valor_unitario, local_estoque_id FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
 });
 
 app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { nome, descricao, quantidade, valor_unitario, num_nota, referencia } = req.body;
+    const { nome, descricao, quantidade, valor_unitario, num_nota, referencia, local_estoque_id } = req.body;
     
     const qtd = Number(quantidade) || 0;
     const valor = Number(valor_unitario) || 0.00;
     const ref_limpa = referencia && referencia.trim() !== "" ? referencia : null;
+    const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
 
     db.beginTransaction((err, conn) => {
         if (err) {
@@ -1002,11 +1078,11 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
         }
 
         const queryItem = `
-            INSERT INTO itens_estoque (nome, referencia, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao) 
-            VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+            INSERT INTO itens_estoque (nome, referencia, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao, local_estoque_id) 
+            VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?)
         `;
         
-        conn.query(queryItem, [nome, ref_limpa, descricao || null, qtd, valor], (errItem, resultItem) => {
+        conn.query(queryItem, [nome, ref_limpa, descricao || null, qtd, valor, v_local_estoque_id], (errItem, resultItem) => {
             if (errItem) {
                 console.error("❌ Erro ao inserir na tabela principal:", errItem.message);
                 return conn.rollback(() => { conn.release(); res.status(500).json({ error: errItem.message }); });
@@ -1135,6 +1211,32 @@ app.delete('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (
     });
 });
 
+// -------------------------------------------------------------------------
+// GESTÃO DINÂMICA DE LOCAIS DE ESTOQUE / ÁREAS (ESCOPOS DE ATUAÇÃO)
+// -------------------------------------------------------------------------
+
+// 1. LISTAR LOCAIS DE ESTOQUE
+app.get('/api/locais-estoque', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    db.query("SELECT * FROM locais_estoque WHERE status = 'Ativo' ORDER BY nome ASC", (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+// 2. CADASTRAR NOVO LOCAL DE ESTOQUE
+app.post('/api/locais-estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { nome, descricao } = req.body;
+    if (!nome || nome.trim() === "") {
+        return res.status(400).json({ error: "O nome do local de estoque é obrigatório." });
+    }
+
+    const query = "INSERT INTO locais_estoque (nome, descricao) VALUES (?, ?)";
+    db.query(query, [nome.trim(), descricao || null], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.status(201).json({ message: "Local de estoque criado com sucesso!", id: result.insertId });
+    });
+});
+
 // FORNECEDORES
 app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status FROM fornecedores ORDER BY nome_fantasia ASC";
@@ -1163,7 +1265,7 @@ app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req,
 
     db.query(query, values, (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Fornecedor atualizado com sucesso!" });
+        res.json({ message: "Fornecedor actualizado com sucesso!" });
     });
 });
 
@@ -1232,7 +1334,7 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
 
                     const item = results[0];
                     if (item.quantidade < qtd_usada) {
-                        return conn.rollback(() => { res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
+                        return conn.rollback(() => { res.status(400).json({ error: `Estoque insuficiente! Saldo arterial: ${item.quantidade} un.` }); });
                     }
 
                     const custo_total = item.valor_unitario * qtd_usada;
@@ -1255,7 +1357,7 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
 
                             // 5. Deduz a quantidade física do estoque do almoxarifado
                             conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
-                                if (errDeduz) return conn.rollback(() => { res.status(500).json({ error: errDeduz.message }); });
+                                if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
                                 conn.commit((errCommit) => {
                                     if (errCommit) return conn.rollback(() => { res.status(500).json({ error: errCommit.message }); });

@@ -11,30 +11,39 @@ export function GestaoEstoque() {
   const [quantidade, setQuantidade] = useState(0)
   const [valorUnitario, setValorUnitario] = useState(0.00)
   const [numNota, setNumNota] = useState("")
-  
+  const [localEstoqueId, setLocalEstoqueId] = useState("") // 🆕 Estado para armazenar o escopo selecionado
+  const [locaisEstoque, setLocaisEstoque] = useState([]) // 🆕 Estado para listar os locais cadastrados no sistema
+
   const API_URL = "http://192.168.5.101:3000/api"
+
+  // Auxiliar para obter as credenciais do operador logado
+  const obterNivelUsuario = () => {
+    const userLogado = localStorage.getItem('user');
+    return userLogado ? JSON.parse(userLogado).nivel : '';
+  };
 
   const carregarEstoque = async () => {
     setLoading(true)
     try {
-      // Captura o nível do usuário logado para passar pelo middleware permitirApenas
-      const userLogado = localStorage.getItem('user');
-      const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
+      const nivelUsuario = obterNivelUsuario();
+      const headersComNivel = {
+        "Content-Type": "application/json",
+        "x-usuario-nivel": nivelUsuario
+      };
 
-      const res = await fetch(`${API_URL}/estoque`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          // 🔥 CORREÇÃO: Passa as credenciais para autorizar a listagem do almoxarifado
-          "x-usuario-nivel": nivelUsuario
-        }
-      }).then(res => {
-        if (!res.ok) throw new Error(`Erro na API: Código ${res.status}`);
-        return res.json();
-      })
-      setItens(res || [])
+      // 🆕 Carrega locais de estoque dinâmicos em paralelo com os insumos
+      const [resEstoque, resLocais] = await Promise.all([
+        fetch(`${API_URL}/estoque`, { method: "GET", headers: headersComNivel }),
+        fetch(`${API_URL}/locais-estoque`, { method: "GET", headers: headersComNivel })
+      ]);
+
+      const dataEstoque = await resEstoque.json();
+      const dataLocais = await resLocais.json();
+
+      setItens(dataEstoque || []);
+      setLocaisEstoque(dataLocais || []);
     } catch (err) {
-      console.error("Erro ao carregar estoque:", err)
+      console.error("Erro ao carregar almoxarifado:", err)
     } finally {
       setLoading(false)
     }
@@ -46,9 +55,7 @@ export function GestaoEstoque() {
     e.preventDefault()
     if (!nome) return
 
-    // Captura o nível do usuário logado para passar pelo middleware permitirApenas
-    const userLogado = localStorage.getItem('user');
-    const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
+    const nivelUsuario = obterNivelUsuario();
 
     const novoItem = {
       nome,
@@ -56,7 +63,8 @@ export function GestaoEstoque() {
       quantidade: Number(quantidade),
       valor_unitario: Number(valorUnitario),
       num_nota: numNota,
-      referencia: referencia // Incluído no payload enviado à API
+      referencia: referencia,
+      local_estoque_id: localEstoqueId ? Number(localEstoqueId) : null // 🆕 Atribuição do escopo no payload enviado à API
     }
 
     try {
@@ -64,7 +72,6 @@ export function GestaoEstoque() {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          // 🔥 CORREÇÃO: Passa as credenciais para autorizar a gravação do novo insumo
           "x-usuario-nivel": nivelUsuario
         },
         body: JSON.stringify(novoItem)
@@ -78,6 +85,7 @@ export function GestaoEstoque() {
         setQuantidade(0)
         setValorUnitario(0.00)
         setNumNota("")
+        setLocalEstoqueId("") // 🆕 Reset do campo de local
         carregarEstoque()
       } else {
         alert("Erro ao cadastrar item. Verifique se o seu perfil possui permissão.");
@@ -137,34 +145,43 @@ export function GestaoEstoque() {
             
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nome do Item</label>
-              <input required type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: Lâmpada LED 15W" value={nome} onChange={e => setNome(e.target.value)} />
+              <input required type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500 text-black" placeholder="Ex: Lâmpada LED 15W" value={nome} onChange={e => setNome(e.target.value)} />
             </div>
 
             {/* Campo Referência no Formulário */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Referência / Part Number</label>
-              <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: REF-1052X" value={referencia} onChange={e => setReferencia(e.target.value)} />
+              <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500 text-black" placeholder="Ex: REF-1052X" value={referencia} onChange={e => setReferencia(e.target.value)} />
+            </div>
+
+            {/* 🆕 INSERIDO COM PRECISÃO: Campo para definir o Escopo Gerencial do Item */}
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Escopo / Gestão de Estoque *</label>
+              <select required className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500 text-slate-700" value={localEstoqueId} onChange={e => setLocalEstoqueId(e.target.value)}>
+                <option value="">Selecione o Escopo...</option>
+                {locaisEstoque.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
             </div>
 
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Descrição / Especificações</label>
-              <textarea rows={2} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none resize-none focus:bg-white focus:border-blue-500" placeholder="Detalhes técnicos adicionais..." value={descricao} onChange={e => setDescricao(e.target.value)} />
+              <textarea rows={2} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none resize-none focus:bg-white focus:border-blue-500 text-black" placeholder="Detalhes técnicos adicionais..." value={descricao} onChange={e => setDescricao(e.target.value)} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Qtd Inicial</label>
-                <input min="0" type="number" className="w-full p-3 border-2 border-slate-100 rounded-xl text-center font-bold bg-slate-50 outline-none focus:bg-white" value={quantidade} onChange={e => setQuantidade(e.target.value)} />
+                <input min="0" type="number" className="w-full p-3 border-2 border-slate-100 rounded-xl text-center font-bold bg-slate-50 outline-none focus:bg-white text-black" value={quantidade} onChange={e => setQuantidade(e.target.value)} />
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Valor Unitário</label>
-                <input min="0" step="0.01" type="number" className="w-full p-3 border-2 border-slate-100 rounded-xl text-center font-mono font-bold bg-slate-50 outline-none focus:bg-white" value={valorUnitario} onChange={e => setValorUnitario(e.target.value)} />
+                <input min="0" step="0.01" type="number" className="w-full p-3 border-2 border-slate-100 rounded-xl text-center font-mono font-bold bg-slate-50 outline-none focus:bg-white text-black" value={valorUnitario} onChange={e => setValorUnitario(e.target.value)} />
               </div>
             </div>
 
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Número da Nota Fiscal (Opcional)</label>
-              <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: NF-e 000.123.456" value={numNota} onChange={e => setNumNota(e.target.value)} />
+              <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500 text-black" placeholder="Ex: NF-e 000.123.456" value={numNota} onChange={e => setNumNota(e.target.value)} />
             </div>
 
             <button type="submit" className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-md transition-all active:scale-[0.98]">
@@ -189,7 +206,7 @@ export function GestaoEstoque() {
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {itensFiltrados.map((item) => (
-                  <tr key={item.id} className="text-xs hover:bg-slate-50/50 transition-colors">
+                  <tr key={item.id} className="text-xs hover:bg-slate-50/50 transition-colors text-dark">
                     <td className="py-3 pr-2">
                       <div className="font-black text-slate-700">{item.nome}</div>
                       <div className="text-[10px] text-slate-400 font-medium line-clamp-1">{item.descricao || "Sem descrição informada"}</div>

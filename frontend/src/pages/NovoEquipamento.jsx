@@ -5,12 +5,13 @@ const NovoEquipamento = () => {
   const navigate = useNavigate();
   const [setores, setSetores] = useState([]);
   const [tipos, setTipos] = useState([]);
+  const [locaisEstoque, setLocaisEstoque] = useState([]); // 🆕 Estado para carregar locais de estoque dinâmicos
   const [fotoEquipamento, setFotoEquipamento] = useState(null);
   const API_URL = 'http://192.168.5.101:3000/api';
 
   const [form, setForm] = useState({
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', status: 'Ativo', periodicidade_preventiva: 0
+    setor_id: '', tipo_id: '', local_estoque_id: '', status: 'Ativo', periodicidade_preventiva: 0 // 🆕 local_estoque_id adicionado
   });
 
   // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
@@ -34,6 +35,11 @@ const NovoEquipamento = () => {
       .then(res => res.json())
       .then(data => setTipos(data || []))
       .catch(err => console.error("Erro ao carregar tipos:", err));
+
+    fetch(`${API_URL}/locais-estoque`, { headers: headersComNivel }) // 🆕 Requisição para popular o select de escopos
+      .then(res => res.json())
+      .then(data => setLocaisEstoque(data || []))
+      .catch(err => console.error("Erro ao carregar locais de estoque:", err));
   }, []);
 
   const salvar = (e) => {
@@ -50,6 +56,7 @@ const NovoEquipamento = () => {
     formData.append('status', form.status || 'Ativo');
     formData.append('tipo_id', form.tipo_id || '');
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva ? Number(form.periodicidade_preventiva) : 0);
+    formData.append('local_estoque_id', form.local_estoque_id || ''); // 🆕 Append do local_estoque_id enviado via multipart/form-data
 
     if (fotoEquipamento) {
       formData.append('foto_equipamento', fotoEquipamento);
@@ -120,6 +127,15 @@ const NovoEquipamento = () => {
             <select required value={form.tipo_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, tipo_id: e.target.value})}>
               <option value="">Selecione...</option>
               {tipos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </div>
+
+          {/* 🆕 INSERIDO COM PRECISÃO: Select dinâmico de Escopo / Local de Estoque */}
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Escopo / Gestão de Estoque *</label>
+            <select required value={form.local_estoque_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, local_estoque_id: e.target.value})}>
+              <option value="">Selecione o Escopo...</option>
+              {locaisEstoque.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
             </select>
           </div>
 

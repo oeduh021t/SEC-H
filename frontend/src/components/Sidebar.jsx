@@ -166,6 +166,10 @@ const Sidebar = ({ user, onLogout }) => {
                 📦 Gestão de Estoque
               </Link>
 
+              <Link to="/locais-estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/locais-estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+               🏢 Locais de Estoque / Escopos
+              </Link>
+
               <Link to="/setores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/setores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
                 🏢 Cadastro de Setores
               </Link>
@@ -189,7 +193,7 @@ const Sidebar = ({ user, onLogout }) => {
                 <div className="flex items-center gap-3">📊 Relatórios</div>
                 <span className={`text-[10px] transition-transform duration-300 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`}>▼</span>
               </button>
-              <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-52 opacity-100' : 'max-h-0 opacity-0'}`}>
+              <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
                 <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
                   Inventário Geral
@@ -198,6 +202,11 @@ const Sidebar = ({ user, onLogout }) => {
                 <Link to="/relatorios/custos-setor" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
                   Custos por Setor
+                </Link>
+
+                <Link to="/relatorios/estoque-local" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/estoque-local') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorios/estoque-local') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
+                   Balanço de Estoque
                 </Link>
                 
                 <Link

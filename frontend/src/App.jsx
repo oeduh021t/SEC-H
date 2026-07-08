@@ -22,7 +22,10 @@ import { GestaoSetores } from './pages/GestaoSetores';
 import ControleFiltros from './pages/ControleFiltros';
 import RelatorioFiltros from './pages/RelatorioFiltros';
 import { RelatorioChamadosSetor } from './pages/RelatorioChamadosSetor';
-import Documentos from './pages/Documentos'; // 📄 Ajustado para o nome padrão do seu componente de página
+import Documentos from './pages/Documentos'; 
+import GestaoLocais from './pages/GestaoLocais';
+import { RelatorioEstoqueLocal } from './pages/RelatorioEstoqueLocal';
+
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
 function RotaProtegida({ children, user, niveisPermitidos }) {
@@ -149,10 +152,16 @@ function App() {
               <Route path="/relatorios/inventario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><InventarioGeral /></RotaProtegida>} />
               <Route path="/relatorios/custos-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioCustosSetor /></RotaProtegida>} />
               <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>} />
+              <Route path="/relatorios/estoque-local" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioEstoqueLocal /></RotaProtegida>} /> 
 
               {/* --- 7. GERENCIAMENTO DE USUÁRIOS --- */}
               {/* Criação e edição de operadores: Exclusivo ADMIN */}
               <Route path="/usuarios" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><Usuarios /></RotaProtegida>} />
+               
+              {/* // Adicione nas rotas de Logística / Infraestrutura (logo abaixo do Cadastro de Setores): */}
+              <Route path="/setores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoSetores /></RotaProtegida>} />
+              <Route path="/locais-estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoLocais /></RotaProtegida>} />
+
 
               {/* Fallback */}
               <Route path="*" element={<div className="p-10 text-center text-slate-400 font-bold">Página não encontrada...</div>} />
