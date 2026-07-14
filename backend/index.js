@@ -135,27 +135,34 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             GROUP BY tecnico_responsavel ORDER BY total DESC`,
         recentes: "SELECT id, titulo, status, data_abertura FROM chamados ORDER BY id DESC LIMIT 6",
 
-        // 🆕 1. Gasto total com Filtros (Fazendo JOIN correto com itens_estoque)
+        // 1. Gasto total com Filtros (Fazendo JOIN correto com itens_estoque)
         gastoFiltros: `
            SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
            FROM chamados_itens ci
            JOIN itens_estoque i ON ci.item_id = i.id
            WHERE i.tipo = 'Filtro'`,
 
-        // 🆕 2. Gasto com Insumos Gerais (Tudo que não contiver a palavra Filtro)
+        // 2. Gasto com Insumos Gerais (Tudo que não contiver a palavra Filtro)
         gastoInsumosGerais: `
             SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
             FROM chamados_itens ci
             JOIN itens_estoque i ON ci.item_id = i.id
             WHERE i.tipo != 'Filtro'`,
 
-        // 🆕 3. Gasto Total em Equipamentos (Baseado na categoria 'Manutenção' da tabela chamados)
+        // 🆕 3. Gasto Total em Equipamentos (Soma de peças utilizadas + custos de serviço de chamados vinculados a equipamentos)
         gastoTotalEquipamentos: `
-            SELECT IFNULL(SUM(custo_servico), 0) as total 
-            FROM chamados 
-            WHERE category = 'Manutenção' OR categoria = 'Manutenção'`,
+            SELECT (
+                SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
+                FROM chamados_itens ci
+                JOIN chamados c ON ci.chamado_id = c.id
+                WHERE c.equipamento_id IS NOT NULL
+            ) + (
+                SELECT IFNULL(SUM(custo_servico), 0)
+                FROM chamados
+                WHERE equipamento_id IS NOT NULL
+            ) as total`,
 
-        // 🆕 4. Gasto Total em Estrutura / TI (Baseado na categoria 'TI' da tabela chamados)
+        // 4. Gasto Total em Estrutura / TI (Baseado na categoria 'TI' da tabela chamados)
         gastoTotalEstrutura: `
             SELECT IFNULL(SUM(custo_servico), 0) as total 
             FROM chamados 
