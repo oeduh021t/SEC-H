@@ -196,6 +196,7 @@ const Equipamentos = () => {
               <option value="Ativo">🟢 Ativo</option>
               <option value="Reserva">🔵 Reserva</option>
               <option value="Em Manutenção">🟡 Em Manutenção</option>
+              <option value="Baixado/Quebrado">🔴 Baixado / Quebrado</option>
             </select>
           </div>
         </div>
@@ -227,7 +228,9 @@ const Equipamentos = () => {
                 <td className="p-5">
                   <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider ${
                     e.status === 'Ativo' ? 'bg-green-50 text-green-600 border border-green-100' :
-                    e.status === 'Reserva' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
+                    e.status === 'Reserva' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 
+                    e.status === 'Baixado/Quebrado' ? 'bg-red-50 text-red-600 border border-red-100' : 
+                    'bg-amber-50 text-amber-600 border border-amber-100'
                   }`}>
                     {e.status}
                   </span>
@@ -324,6 +327,7 @@ const Equipamentos = () => {
                   <option value="Ativo">🟢 Ativo</option>
                   <option value="Reserva">🔵 Reserva</option>
                   <option value="Em Manutenção">🟡 Em Manutenção</option>
+                  <option value="Baixado/Quebrado">🔴 Baixado/Quebrado</option>
                 </select>
               </div>
 
