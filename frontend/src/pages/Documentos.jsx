@@ -143,10 +143,14 @@ export default function Documentos() {
                       </div>
                     </div>
                   </td>
-                  <td className="p-4 space-y-0.5">
+                  <td className="p-4 space-y-1">
                     <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-black block w-max">🎫 OS: #{doc.chamado_id}</span>
                     {doc.setor_nome && <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] block w-max">📍 {doc.setor_nome}</span>}
-                    {doc.equipamento_name && <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] block w-max">🤖 {doc.equipamento_name}</span>}
+                    {doc.equipamento_nome && (
+                      <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold block w-max" title={doc.equipamento_nome}>
+                        🛠️ {doc.equipamento_patrimonio ? `[${doc.equipamento_patrimonio}] ` : ''}{doc.equipamento_nome}
+                      </span>
+                    )}
                   </td>
                   <td className="p-4 text-slate-500">
                     {new Date(doc.data_upload).toLocaleString('pt-BR')}

@@ -1489,8 +1489,8 @@ app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'u
     const { chamado_id, setor_id, equipamento_id } = req.query;
 
     let query = `
-        SELECT d.id, d.nome_original, d.url_arquivo, d.tipo_mimetype, d.data_upload, d.chamado_id,
-               u.nome as usuario_nome, s.nome as setor_nome, e.nome as equipamento_nome
+        SELECT d.id, d.nome_original, d.url_arquivo, d.tipo_mimetype, d.data_upload, d.chamado_id, d.equipamento_id, d.setor_id,
+               u.nome as usuario_nome, s.nome as setor_nome, e.nome as equipamento_nome, e.patrimonio as equipamento_patrimonio
         FROM documentos d
         JOIN usuarios u ON d.usuario_id = u.id
         LEFT JOIN setores s ON d.setor_id = s.id
