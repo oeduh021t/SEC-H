@@ -242,7 +242,7 @@ const enviarTelegram = async (mensagem) => {
 };
 
 // -------------------------------------------------------------------------
-// ROTAS DE EQUIPAMENTOS - PADRONIZADAS E CORRIGIDAS (SUPORTA FOTO E FORM-DATA)
+// ROTAS DE EQUIPAMENTOS - CORRIGIDAS PARA SALVAR PREVENTIVAS E COLUNAS DO BANCO
 // -------------------------------------------------------------------------
 app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
@@ -252,28 +252,37 @@ app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico'])
     });
 });
 
-// 🟢 CORRIGIDO: Adicionado upload.single('foto_equipamento') para ler o FormData do Modal e da Sidebar
+// 🟢 NOVO ATIVO: Captura a "data_ultima_preventiva" e grava no "tipo_equipamento_id"
 app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
-    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, local_estoque_id } = req.body;
+    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id } = req.body;
     
     // Captura o arquivo de foto se ele foi enviado
     const foto_equipamento = req.file ? `/uploads/${req.file.filename}` : null;
 
-    // Sanatização rigorosa de tipos contra valores vazios do form-data
+    // Sanitização de tipos contra valores vazios
     const v_nome = nome && nome.trim() !== "" ? nome : 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
     const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio : 'S/P';
     const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
     const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
+    
+    // Grava o ID recebido nas duas colunas para garantir sincronia do banco legado
     const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
+    
     const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
     const v_status = status || 'Ativo';
     const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
 
-    // Query atualizada incluindo o campo da foto e o local_estoque_id no inventário de ativos
-    const query = `INSERT INTO equipamentos (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento, local_estoque_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), ?, ?)`;
-    const values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento, v_local_estoque_id];
+    // Se o usuário não enviou uma data, define como null para não dar erro de data inválida
+    const v_data_preventiva = data_ultima_preventiva && data_ultima_preventiva.trim() !== "" ? data_ultima_preventiva : null;
+
+    // Query atualizada gravando tanto em tipo_id quanto em tipo_equipamento_id, além da data customizada
+    const query = `INSERT INTO equipamentos 
+        (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, tipo_equipamento_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento, local_estoque_id) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        
+    const values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, foto_equipamento, v_local_estoque_id];
 
     db.query(query, values, (err, result) => {
         if (err) {
@@ -284,9 +293,10 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
     });
 });
 
+// 🟡 EDITAR ATIVO: Adicionado suporte à atualização da "data_ultima_preventiva" e "tipo_equipamento_id"
 app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
-    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, local_estoque_id } = req.body;
+    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id } = req.body;
     
     const v_nome = nome || 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
@@ -294,20 +304,26 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
     const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
     const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
+    
+    // Alinha o tipo nas duas colunas
     const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
+    
     const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
     const v_status = status || 'Ativo';
     const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
+    
+    // Trata a data vinda da edição
+    const v_data_preventiva = data_ultima_preventiva && data_ultima_preventiva.trim() !== "" ? data_ultima_preventiva : null;
 
     let query, values;
 
     if (req.file) {
         const foto_equipamento = `/uploads/${req.file.filename}`;
-        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, foto_equipamento=?, local_estoque_id=? WHERE id=?`;
-        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, foto_equipamento, v_local_estoque_id, id];
+        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, tipo_equipamento_id=?, periodicidade_preventiva=?, data_ultima_preventiva=?, foto_equipamento=?, local_estoque_id=? WHERE id=?`;
+        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, foto_equipamento, v_local_estoque_id, id];
     } else {
-        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, periodicidade_preventiva=?, local_estoque_id=? WHERE id=?`;
-        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_periodicidade, v_local_estoque_id, id];
+        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, tipo_equipamento_id=?, periodicidade_preventiva=?, data_ultima_preventiva=?, local_estoque_id=? WHERE id=?`;
+        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, v_local_estoque_id, id];
     }
 
     db.query(query, values, (err) => {
@@ -315,7 +331,7 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
             console.error("❌ Erro interno do MySQL no PUT de equipamentos:", err.message);
             return res.status(500).json({ error: err.message });
         }
-        res.json({ message: "Dados updated com sucesso!" });
+        res.json({ message: "Dados atualizados com sucesso!" });
     });
 });
 
