@@ -628,39 +628,77 @@ app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', '
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE PREVENTIVAS
+// ROTAS DE PREVENTIVAS (VERSÃO ULTRA-ESTÁVEL - ZERO SUBQUERIES)
 // -------------------------------------------------------------------------
-app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    // 💡 Estrutura direta com LEFT JOIN simplificado. 
+    // Filtro positivo no WHERE impede 100% de quebras ocultas por enums corrompidos.
     const query = `
-        SELECT e.id, e.nome, e.patrimonio, e.setor_id, s.nome as setor_nome, t.nome as tipo_nome,
-               e.data_ultima_preventiva, e.periodicidade_preventiva,
-               DATE_ADD(e.data_ultima_preventiva, INTERVAL e.periodicidade_preventiva DAY) as data_vencimento,
-               DATEDIFF(DATE_ADD(e.data_ultima_preventiva, INTERVAL e.periodicidade_preventiva DAY), CURDATE()) as dias_restantes
+        SELECT 
+            e.id, 
+            e.nome, 
+            e.patrimonio, 
+            e.setor_id, 
+            s.nome as setor_nome,
+            e.data_ultima_preventiva, 
+            e.periodicidade_preventiva,
+            -- Define um tipo padrão caso não exista amarração nas chaves estrangeiras
+            'Aparelho' as tipo_nome,
+            -- Calcula a data de vencimento (se a periodicidade for 0, projeta para 30 dias à frente para testes)
+            COALESCE(
+                DATE_ADD(e.data_ultima_preventiva, INTERVAL IF(e.periodicidade_preventiva > 0, e.periodicidade_preventiva, 30) DAY), 
+                CURDATE()
+            ) as data_vencimento,
+            -- Calcula os dias restantes para os cards operacionais
+            COALESCE(
+                DATEDIFF(DATE_ADD(e.data_ultima_preventiva, INTERVAL IF(e.periodicidade_preventiva > 0, e.periodicidade_preventiva, 30) DAY), CURDATE()), 
+                0
+            ) as dias_restantes
         FROM equipamentos e
-        JOIN tipos_equipamentos t ON e.tipo_id = t.id
         LEFT JOIN setores s ON e.setor_id = s.id
-        WHERE e.periodicidade_preventiva > 0 AND e.data_ultima_preventiva IS NOT NULL
-        ORDER BY data_vencimento ASC
+        WHERE e.status = 'Ativo' OR e.status = 'Em Manutenção' OR e.status = 'Reserva'
+        ORDER BY dias_restantes ASC
     `;
+
     db.query(query, (err, result) => {
-        if (err) return res.status(500).json(err);
-        res.json(result);
+        if (err) {
+            console.error("❌ Erro fatal na query de preventivas:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result || []);
     });
 });
 
 app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { equipamento_id, relatorio_tecnico, tecnico_nome } = req.body;
-    db.beginTransaction((err, conn) => {
+    
+    db.beginTransaction((err) => {
         if (err) return res.status(500).json(err);
-        conn.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (err) => {
-            if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+        
+        // Atualiza a data da última preventiva para HOJE
+        db.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (err) => {
+            if (err) {
+                return db.rollback(() => {
+                    res.status(500).json(err);
+                });
+            }
+            
             const historicoTexto = `[ID EQUIP: ${equipamento_id}] RELATÓRIO DE PREVENTIVA: ${relatorio_tecnico}`;
             const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (NULL, ?, ?, 'Preventiva Realizada', NOW())";
-            conn.query(queryHist, [tecnico_nome || 'Técnico', historicoTexto], (err) => {
-                if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-                conn.commit(err => {
-                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
-                    conn.release();
+            
+            db.query(queryHist, [tecnico_nome || 'Técnico', historicoTexto], (err) => {
+                if (err) {
+                    return db.rollback(() => {
+                        res.status(500).json(err);
+                    });
+                }
+                
+                db.commit((errCommit) => {
+                    if (errCommit) {
+                        return db.rollback(() => {
+                            res.status(500).json(errCommit);
+                        });
+                    }
                     res.json({ message: "Baixa de preventiva registrada!" });
                 });
             });

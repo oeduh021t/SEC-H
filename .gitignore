@@ -3,3 +3,6 @@ node_modules/
 .DS_Store
 dist/
 enviar.sh
+
+# Ignorar todos os uploads do sistema
+uploads/

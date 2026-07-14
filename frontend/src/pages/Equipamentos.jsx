@@ -25,7 +25,7 @@ const Equipamentos = () => {
 
   const estadoInicial = {
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', status: 'Ativo' // 🆕 local_estoque_id adicionado
+    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', periodicidade_preventiva: 0, status: 'Ativo' // 🆕 local_estoque_id adicionado
   }
   const [form, setForm] = useState(estadoInicial)
 
@@ -65,6 +65,7 @@ const Equipamentos = () => {
     setForm({
       ...e,
       data_ultima_preventiva: e.data_ultima_preventiva ? e.data_ultima_preventiva.split('T')[0] : '',
+      periodicidade_preventiva: e.periodicidade_preventiva || 0,
       tipo_id: e.tipo_id || '',
       local_estoque_id: e.local_estoque_id || '' // 🆕 Atribui local_estoque_id na edição
     })
@@ -94,6 +95,7 @@ const Equipamentos = () => {
     formData.append('setor_id', form.setor_id || '')
     formData.append('status', form.status || 'Ativo')
     formData.append('tipo_id', form.tipo_id || '')
+    formData.append('data_ultima_preventiva', form.data_ultima_preventiva || '')
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0)
     formData.append('local_estoque_id', form.local_estoque_id || '') // 🆕 Append do local_estoque_id para sincronia com o backend
     
@@ -312,8 +314,8 @@ const Equipamentos = () => {
                 </select>
               </div>
 
-              {/* 🆕 INSERIDO COM PRECISÃO: Select dinâmico de Escopo / Local de Estoque integrado ao grid */}
-              <div className="col-span-2 md:col-span-1">
+              {/* Select dinâmico de Escopo / Local de Estoque */}
+              <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Escopo / Gestão de Estoque *</label>
                 <select required value={form.local_estoque_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, local_estoque_id: e.target.value})}>
                   <option value="">Selecione o Escopo...</option>
@@ -329,6 +331,17 @@ const Equipamentos = () => {
                   <option value="Em Manutenção">🟡 Em Manutenção</option>
                   <option value="Baixado/Quebrado">🔴 Baixado/Quebrado</option>
                 </select>
+              </div>
+
+              {/* 🛠️ CAMPOS RESTAURADOS DE CONTROLE DE PREVENTIVAS */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Periodicidade Preventiva (Dias)</label>
+                <input type="number" min="0" value={form.periodicidade_preventiva || 0} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black font-bold" onChange={e => setForm({...form, periodicidade_preventiva: parseInt(e.target.value) || 0})} />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data da Última Preventiva</label>
+                <input type="date" value={form.data_ultima_preventiva || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black font-bold" onChange={e => setForm({...form, data_ultima_preventiva: e.target.value})} />
               </div>
 
               <div className="col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">
