@@ -233,7 +233,7 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
+        await axios.post(url, { chat_id, text: message = mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         const finalErr = err || { message: 'Erro desconhecido' };
@@ -691,7 +691,7 @@ app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecn
     db.beginTransaction((err) => {
         if (err) return res.status(500).json(err);
         
-        // Atualiza a data da última preventiva para HOJE
+        // Atulaiza a data da última preventiva para HOJE
         db.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (err) => {
             if (err) {
                 return db.rollback(() => {
@@ -935,22 +935,35 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
 });
 
 
+// ⚙️ ROTA ATUALIZADA COM FILTRAGEM DINÂMICA DE STATUS (CORREÇÃO DE BUG)
 app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { data_inicio, data_fim, setor_id } = req.query;
+    // 🆕 Adicionado 'status' na desestruturação de query params
+    const { data_inicio, data_fim, setor_id, status } = req.query;
 
     const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
     const fim = data_fim ? data_fim + ' 23:59:59' : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
-    // Parâmetros base usados nas subqueries de somas financeiras
+    // Parâmetros estruturados para as subqueries financeiras (período inicial e final do cálculo de custos)
     let queryParams = [inicio, fim, inicio, fim];
-    let filtroSetor = '';
+    let filtrosAdicionais = [];
 
+    // Filtro Dinâmico de Setor
     if (setor_id && setor_id !== 'todos') {
-        filtroSetor = 'WHERE e.setor_id = ?';
+        filtrosAdicionais.push('e.setor_id = ?');
         queryParams.push(setor_id);
     }
 
-    // CORREÇÃO: Alterado 'equipment_id' para 'equipamento_id' nas duas subqueries abaixo
+    // 🆕 Filtro Dinâmico de Status mapeado diretamente com o Enum da tabela 'equipamentos'
+    if (status && status !== 'todos') {
+        filtrosAdicionais.push('e.status = ?');
+        queryParams.push(status);
+    }
+
+    // Monta a cláusula WHERE apenas se houver filtros aplicados além do período base
+    const clausulaWhere = filtrosAdicionais.length > 0 
+        ? `WHERE ${filtrosAdicionais.join(' AND ')}` 
+        : '';
+
     const query = `
         SELECT
             e.id, 
@@ -975,7 +988,7 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
         LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
-        ${filtroSetor}
+        ${clausulaWhere}
         ORDER BY total_gasto DESC, s.nome ASC, e.nome ASC
     `;
 
@@ -1435,7 +1448,7 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
                     if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
 
                     conn.commit((errCommit) => {
-                        if (errCommit) return conn.rollback(() => { res.status(500).json({ error: errCommit.message }); });
+                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                         res.json({ message: "Troca registrada com sucesso!" });
                     });
                 });
@@ -1580,6 +1593,8 @@ app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'u
         res.json(results || []);
     });
 });
+
+
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

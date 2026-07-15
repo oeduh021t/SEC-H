@@ -9,6 +9,7 @@ const InventarioGeral = () => {
     const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
     const [setorSelecionado, setSetorSelecionado] = useState("todos");
+    const [statusSelecionado, setStatusSelecionado] = useState("todos"); // 🆕 Filtro de status unificado com o banco
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
@@ -34,7 +35,9 @@ const InventarioGeral = () => {
     const carregarInventarioFiltrado = async () => {
         setLoading(true);
         try {
-            const url = `${API_URL}/relatorios/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}`;
+            // 🆕 URL de requisição atualizada contendo o status
+            const url = `${API_URL}/relatorios/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}&status=${statusSelecionado}`;
+            
             const res = await fetch(url, {
                 headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
             }).then(res => res.json());
@@ -48,8 +51,8 @@ const InventarioGeral = () => {
 
     useEffect(() => { carregarSetores(); }, []);
     
-    // CORREÇÃO CIRÚRGICA: Removido o erro de sintaxe na dependência do useEffect
-    useEffect(() => { carregarInventarioFiltrado(); }, [dataInicio, dataFim, setorSelecionado]);
+    // ⚙️ O useEffect agora reage imediatamente ao mudar o status selecionado
+    useEffect(() => { carregarInventarioFiltrado(); }, [dataInicio, dataFim, setorSelecionado, statusSelecionado]);
 
     const investimentoTotal = equipamentos.reduce((acc, curr) => {
         const valor = parseFloat(curr.total_gasto) || 0;
@@ -95,7 +98,7 @@ const InventarioGeral = () => {
                 <div className="flex justify-between items-center border-b border-slate-50 pb-3">
                     <div>
                         <h3 className="text-sm font-black uppercase text-slate-700 tracking-wider">Filtros de Auditoria</h3>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Refine os custos aplicados por intervalo de tempo ou localidade</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Refine os custos aplicados por intervalo de tempo, localidade ou status</p>
                     </div>
                     <button 
                         onClick={() => window.print()} 
@@ -105,7 +108,8 @@ const InventarioGeral = () => {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Grid adaptado para 4 colunas (md:grid-cols-4) para acomodar perfeitamente o novo campo */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Inicial</label>
                         <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
@@ -119,6 +123,21 @@ const InventarioGeral = () => {
                         <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" value={setorSelecionado} onChange={e => setSetorSelecionado(e.target.value)}>
                             <option value="todos">⭐ Todos os Setores</option>
                             {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                        </select>
+                    </div>
+                    {/* 🆕 NOVO SELECT: Alinhado 100% com o enum da tabela 'equipamentos' */}
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Status do Ativo</label>
+                        <select 
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" 
+                            value={statusSelecionado} 
+                            onChange={e => setStatusSelecionado(e.target.value)}
+                        >
+                            <option value="todos">⭐ Todos os Status</option>
+                            <option value="Ativo">🟢 Ativo</option>
+                            <option value="Em Manutenção">🟡 Em Manutenção</option>
+                            <option value="Reserva">🔵 Reserva</option>
+                            <option value="Baixado/Quebrado">🔴 Baixado/Quebrado</option>
                         </select>
                     </div>
                 </div>
@@ -137,7 +156,8 @@ const InventarioGeral = () => {
                             Hospital Domingos Lourenço
                         </p>
                         <p className="text-slate-400 text-[9px] font-bold mt-2 uppercase tracking-tighter">
-                            Escopo: {formatarDataBR(dataInicio)} até {formatarDataBR(dataFim)}
+                            Escopo: {formatarDataBR(dataInicio)} até {formatarDataBR(dataFim)} 
+                            {statusSelecionado !== 'todos' && ` | Status: ${statusSelecionado}`}
                         </p>
                     </div>
 
@@ -178,9 +198,16 @@ const InventarioGeral = () => {
                                         <td className="p-3 text-right font-black text-red-600 tabular-nums bg-slate-50/20 rounded-lg">
                                             R$ {(parseFloat(e.total_gasto) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </td>
+                                        {/* 🆕 COLUNA STATUS: Badge adaptada com cores dinâmicas e efeito pulsante na Manutenção */}
                                         <td className="p-3 text-center hide-print">
-                                            <span className={`px-2 py-1 rounded-md font-black text-[9px] uppercase tracking-tighter ${
-                                                e.status === 'Ativo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700 border border-red-200'
+                                            <span className={`px-2 py-1 rounded-md font-black text-[9px] uppercase tracking-tighter border ${
+                                                e.status === 'Ativo' 
+                                                    ? 'bg-green-100 text-green-700 border-green-200' 
+                                                    : e.status === 'Em Manutenção'
+                                                    ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse'
+                                                    : e.status === 'Reserva'
+                                                    ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                                    : 'bg-red-100 text-red-700 border-red-200' // 'Baixado/Quebrado'
                                             }`}>
                                                 {e.status}
                                             </span>
