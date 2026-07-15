@@ -300,7 +300,7 @@ const Equipamentos = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Setor Responsável</label>
-                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, sector_id: e.target.value, setor_id: e.target.value})}>
+                <select value={form.setor_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, setor_id: e.target.value})}>
                   <option value="">Selecione o Setor...</option>
                   {(setores || []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>

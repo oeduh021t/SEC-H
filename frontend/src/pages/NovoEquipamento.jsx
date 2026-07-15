@@ -10,8 +10,17 @@ const NovoEquipamento = () => {
   const API_URL = 'http://192.168.5.101:3000/api';
 
   const [form, setForm] = useState({
-    nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', local_estoque_id: '', status: 'Ativo', periodicidade_preventiva: 0 // 🆕 local_estoque_id adicionado
+    nome: '', 
+    modelo: '', 
+    patrimonio: '', 
+    num_serie: '', 
+    fabricante: '',
+    setor_id: '', 
+    tipo_id: '', 
+    local_estoque_id: '', 
+    status: 'Ativo', 
+    periodicidade_preventiva: 0,
+    data_ultima_preventiva: '' // 🆕 Campo adicionado para paridade com equipamentos.jsx
   });
 
   // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
@@ -56,6 +65,7 @@ const NovoEquipamento = () => {
     formData.append('status', form.status || 'Ativo');
     formData.append('tipo_id', form.tipo_id || '');
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva ? Number(form.periodicidade_preventiva) : 0);
+    formData.append('data_ultima_preventiva', form.data_ultima_preventiva || ''); // 🆕 Append da data de preventiva
     formData.append('local_estoque_id', form.local_estoque_id || ''); // 🆕 Append do local_estoque_id enviado via multipart/form-data
 
     if (fotoEquipamento) {
@@ -116,7 +126,7 @@ const NovoEquipamento = () => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Setor Responsável</label>
-            <select required value={form.setor_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, setor_id: e.target.value})}>
+            <select required value={form.setor_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700 text-black" onChange={e => setForm({...form, setor_id: e.target.value})}>
               <option value="">Selecione...</option>
               {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
@@ -124,16 +134,16 @@ const NovoEquipamento = () => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Tipo / Família do Equipamento</label>
-            <select required value={form.tipo_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, tipo_id: e.target.value})}>
+            <select required value={form.tipo_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700 text-black" onChange={e => setForm({...form, tipo_id: e.target.value})}>
               <option value="">Selecione...</option>
               {tipos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
             </select>
           </div>
 
-          {/* 🆕 INSERIDO COM PRECISÃO: Select dinâmico de Escopo / Local de Estoque */}
+          {/* Select dinâmico de Escopo / Local de Estoque */}
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Escopo / Gestão de Estoque *</label>
-            <select required value={form.local_estoque_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, local_estoque_id: e.target.value})}>
+            <select required value={form.local_estoque_id} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700 text-black" onChange={e => setForm({...form, local_estoque_id: e.target.value})}>
               <option value="">Selecione o Escopo...</option>
               {locaisEstoque.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
             </select>
@@ -141,16 +151,22 @@ const NovoEquipamento = () => {
 
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Status Inicial</label>
-            <select value={form.status} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700" onChange={e => setForm({...form, status: e.target.value})}>
+            <select value={form.status} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm text-slate-700 text-black" onChange={e => setForm({...form, status: e.target.value})}>
               <option value="Ativo">🟢 Ativo</option>
               <option value="Reserva">🔵 Reserva</option>
               <option value="Em Manutenção">🟡 Em Manutenção</option>
             </select>
           </div>
 
+          {/* 🆕 CAMPOS RESTAURADOS DE CONTROLE DE PREVENTIVAS */}
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Periodicidade Preventiva (Dias)</label>
-            <input type="number" min="0" value={form.periodicidade_preventiva} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs text-black" placeholder="Ex: 180" onChange={e => setForm({...form, periodicidade_preventiva: e.target.value})} />
+            <input type="number" min="0" value={form.periodicidade_preventiva} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs text-black" placeholder="Ex: 180" onChange={e => setForm({...form, periodicidade_preventiva: parseInt(e.target.value) || 0})} />
+          </div>
+
+          <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Data da Última Preventiva</label>
+            <input type="date" value={form.data_ultima_preventiva} className="w-full p-3 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none font-bold text-xs text-black" onChange={e => setForm({...form, data_ultima_preventiva: e.target.value})} />
           </div>
 
           <div className="md:col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">

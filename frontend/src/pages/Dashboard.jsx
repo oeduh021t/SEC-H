@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
-import { Doughnut, Bar } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
@@ -30,18 +30,47 @@ const Dashboard = ({ user }) => {
     }, [API_URL, user, nivelUsuario]);
 
     if (nivelUsuario === 'usuario') {
-        return <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">Acesso Negado: Seu perfil não possui acesso ao painel estatístico.</div>;
+        return (
+            <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">
+                Acesso Negado: Seu perfil não possui acesso ao painel estatístico.
+            </div>
+        );
     }
 
-    if (!stats) return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Carregando Painel...</div>;
+    if (!stats) {
+        return (
+            <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">
+                Carregando Painel...
+            </div>
+        );
+    }
 
-    // --- CONFIGURAÇÃO DOS DADOS ---
-    const dataSetores = {
-        labels: stats.porSetor?.map(s => s.nome) || [],
+    // --- CONFIGURAÇÃO DOS DADOS DOS GRÁFICOS ---
+    
+    // 🆕 GRÁFICO: Equipamentos mais Críticos (Com Cores Distintas e Evitando Cortes de Texto)
+    const dataEquipamentos = {
+        labels: stats.porEquipamento?.map(e => e.nome) || [],
         datasets: [{
-            data: stats.porSetor?.map(s => s.total) || [],
-            backgroundColor: ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#f43f5e', '#84cc16'],
-            borderWidth: 0,
+            label: 'Chamados',
+            data: stats.porEquipamento?.map(e => e.total) || [],
+            // Paleta térmica do mais crítico (vermelho) para o menos crítico (cinza slate)
+            backgroundColor: [
+                'rgba(239, 68, 68, 0.75)',   // Vermelho vivo (1º Lugar)
+                'rgba(249, 115, 22, 0.75)',  // Laranja (2º Lugar)
+                'rgba(245, 158, 11, 0.75)',  // Âmbar (3º Lugar)
+                'rgba(59, 130, 246, 0.75)',  // Azul (4º Lugar)
+                'rgba(100, 116, 139, 0.75)'  // Cinza Slate (5º Lugar)
+            ],
+            borderColor: [
+                '#ef4444',
+                '#f97316',
+                '#f59e0b',
+                '#3b82f6',
+                '#64748b'
+            ],
+            borderWidth: 1,
+            borderRadius: 6,
+            barThickness: 24, // Controla o tamanho da barra no container
         }]
     };
 
@@ -55,19 +84,43 @@ const Dashboard = ({ user }) => {
         }]
     };
 
-    const optionsSetores = {
+    // 🆕 OPÇÕES: Evita corte de texto aplicando recuo interno e limitador de string
+    const optionsEquipamentos = {
+        indexAxis: 'y',
         maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                position: 'right',
-                labels: {
-                    boxWidth: 10,
-                    font: { size: 10, weight: 'bold' },
-                    padding: 15
-                }
+        plugins: { 
+            legend: { display: false } 
+        },
+        layout: {
+            padding: {
+                left: 10,  // Margem segura para renderização das labels
+                right: 20
             }
         },
-        cutout: '70%'
+        scales: {
+            x: { 
+                grid: { display: false }, 
+                ticks: { 
+                    font: { size: 10 },
+                    stepSize: 1 // Força números inteiros no contador de chamados (ex: 1, 2, 3...)
+                } 
+            },
+            y: { 
+                grid: { display: false }, 
+                ticks: { 
+                    font: { size: 9, weight: 'bold' }, // Fonte levemente menor para garantir o espaço
+                    color: '#334155',
+                    // Reduz strings excessivamente longas para caber perfeitamente na viewport
+                    callback: function(value) {
+                        const label = this.getLabelForValue(value);
+                        if (label && label.length > 32) {
+                            return label.substring(0, 29) + '...';
+                        }
+                        return label;
+                    }
+                } 
+            }
+        }
     };
 
     const optionsTecnicos = {
@@ -115,10 +168,12 @@ const Dashboard = ({ user }) => {
 
             {/* SEÇÃO DE GRÁFICOS E RECENTES */}
             <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+                
+                {/* GRÁFICO REFORMULADO: ATIVOS MAIS CRÍTICOS (TOP 5) */}
                 <div className="xl:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Incidentes por Setor</h3>
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Ativos Mais Críticos (Top 5 Chamados)</h3>
                     <div className="flex-1 min-h-[300px]">
-                        <Doughnut data={dataSetores} options={optionsSetores} />
+                        <Bar data={dataEquipamentos} options={optionsEquipamentos} />
                     </div>
                 </div>
 

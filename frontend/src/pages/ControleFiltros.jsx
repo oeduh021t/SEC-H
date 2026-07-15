@@ -30,6 +30,14 @@ const ControleFiltros = () => {
         return savedUser ? JSON.parse(savedUser).nivel : '';
     };
 
+    // 🕒 AUXILIAR: Formata datas ignorando deslocamento de fuso horário (Timezone)
+    const formatarDataSemFuso = (dataString) => {
+        if (!dataString) return '--/--/----';
+        // Divide e isola apenas a parte da data YYYY-MM-DD
+        const [ano, mes, dia] = dataString.split('T')[0].split('-');
+        return `${dia}/${mes}/${ano}`;
+    };
+
     const carregarDados = async () => {
         try {
             // Configuração global de headers para passar pelo middleware permitirApenas do backend
@@ -73,7 +81,7 @@ const ControleFiltros = () => {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'x-usuario-nivel': obterNivelUsuario() // 🔑 Header de segurança injetado
+                    'x-usuario-nivel': obterNivelUsuario() // Header de segurança injetado
                 },
                 body: JSON.stringify(novoFiltro)
             });
@@ -100,7 +108,7 @@ const ControleFiltros = () => {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'x-usuario-nivel': obterNivelUsuario() // 🔑 Header de segurança injetado
+                    'x-usuario-nivel': obterNivelUsuario() // Header de segurança injetado
                 },
                 body: JSON.stringify({
                     filtro_id: filtroSelecionado.id,
@@ -265,8 +273,9 @@ const ControleFiltros = () => {
                                         </td>
                                         <td className="py-4 font-bold text-blue-600 uppercase tracking-tight">{filtro.setor_nome}</td>
                                         <td className="py-4">
-                                            <div className="font-bold text-slate-600">{new Date(filtro.data_vencimento).toLocaleDateString('pt-BR')}</div>
-                                            <div className="text-[10px] text-slate-400 mt-0.5">Última: {new Date(filtro.data_ultima_troca).toLocaleDateString('pt-BR')}</div>
+                                            {/* 🕒 Aplicado formatarDataSemFuso para evitar fuso horário invertendo datas */}
+                                            <div className="font-bold text-slate-600">{formatarDataSemFuso(filtro.data_vencimento)}</div>
+                                            <div className="text-[10px] text-slate-400 mt-0.5">Última: {formatarDataSemFuso(filtro.data_ultima_troca)}</div>
                                         </td>
                                         <td className="py-4">
                                             <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider ${
@@ -301,7 +310,8 @@ const ControleFiltros = () => {
                             <span>🔄 Registro de Baixa e Movimentação de Refil</span>
                             <button type="button" onClick={() => setModalBaixa(false)} className="font-bold hover:text-red-200">✕</button>
                         </div>
-                        <div className="p-6 space-y-4">
+                        {/* 🔑 CORREÇÃO: envolvido em tag <form> para disparar corretamente o onSubmit do handleRegistrarTroca */}
+                        <form onSubmit={handleRegistrarTroca} className="p-6 space-y-4">
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                                 <p className="text-[10px] font-black text-slate-400 uppercase">Ponto Alvo</p>
                                 <p className="text-sm font-black text-slate-700 uppercase mt-0.5">{filtroSelecionado.nome}</p>
@@ -349,10 +359,9 @@ const ControleFiltros = () => {
                             
                             <div className="flex gap-3 pt-2">
                                 <button type="button" onClick={() => setModalBaixa(false)} className="flex-1 bg-slate-100 text-slate-400 py-3.5 rounded-xl font-black text-xs uppercase hover:bg-slate-200">Cancelar</button>
-                                {/* 🔑 CORRIGIDO: Alterado para acionar a submissão nativa do formulário e respeitar o onSubmit */}
                                 <button type="submit" className="flex-[2] bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg shadow-green-100 hover:bg-green-700 active:scale-95 transition-all">🔄 Confirmar Baixa de Insumo</button>
                             </div>
-                        </div>
+                        </form>
                     </div>
                 </div>
             )}

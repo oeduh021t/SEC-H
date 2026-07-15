@@ -1,12 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FiMenu, FiX } from 'react-icons/fi';
+import { FiMenu, FiX, FiTrash2 } from 'react-icons/fi'; // Importado o ícone de lixeira
 
 const Sidebar = ({ user, onLogout }) => {
   // Estados de Controle de Menu
   const [menuEquipAberto, setMenuEquipAberto] = useState(false);
   const [menuRelatAberto, setMenuRelatAberto] = useState(false);
   const [modalConfigAberta, setModalConfigAberta] = useState(false);
+  
+  // 🆕 Estados para o Gerenciamento de Tipos de Equipamentos
+  const [modalTipoEquipAberto, setModalTipoEquipAberto] = useState(false);
+  const [tiposEquipamentos, setTiposEquipamentos] = useState([]);
+  const [nomeNovoTipo, setNomeNovoTipo] = useState('');
+  const [carregandoTipos, setCarregandoTipos] = useState(false);
+  const [salvandoTipo, setSalvandoTipo] = useState(false);
   
   // Estado para abrir/fechar sidebar
   const [sidebarAberta, setSidebarAberta] = useState(true);
@@ -27,7 +34,7 @@ const Sidebar = ({ user, onLogout }) => {
   // Mapeamento dinâmico de visibilidade de módulos com base no cargo
   const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerEquipamentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
-  const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario); // 🆕 Permissão adicionada
+  const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeVerFiltrosAgua = nivelUsuario === 'admin';
   const podeVerRelatorios = ['admin', 'coordenador'].includes(nivelUsuario);
@@ -37,6 +44,32 @@ const Sidebar = ({ user, onLogout }) => {
   const isEquipActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas');
   const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
 
+  // 🆕 Função para buscar os tipos já cadastrados no backend
+  const carregarTiposEquipamentos = async () => {
+    setCarregandoTipos(true);
+    try {
+      const response = await fetch(`${API_URL}/tipos-equipamentos`);
+      if (response.ok) {
+        const data = await response.json();
+        setTiposEquipamentos(data);
+      } else {
+        console.error("Erro ao carregar tipos de equipamentos");
+      }
+    } catch (err) {
+      console.error("Erro de conexão ao buscar tipos:", err);
+    } finally {
+      setCarregandoTipos(false);
+    }
+  };
+
+  // Carrega os tipos sempre que o modal for aberto
+  useEffect(() => {
+    if (modalTipoEquipAberto) {
+      carregarTiposEquipamentos();
+    }
+  }, [modalTipoEquipAberto]);
+
+  // Mudar senha
   const handleMudarSenha = async (e) => {
     e.preventDefault();
     if (novaSenha !== confirmaSenha) {
@@ -71,6 +104,60 @@ const Sidebar = ({ user, onLogout }) => {
     }
   };
 
+  // 🆕 Função para cadastrar o novo tipo de equipamento no backend
+  const handleCadastrarTipoEquipamento = async (e) => {
+    e.preventDefault();
+    if (!nomeNovoTipo.trim()) {
+      alert("❌ Por favor, insira o nome do tipo.");
+      return;
+    }
+
+    setSalvandoTipo(true);
+    try {
+      const response = await fetch(`${API_URL}/tipos-equipamentos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: nomeNovoTipo })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert("✅ Tipo de equipamento cadastrado com sucesso!");
+        setNomeNovoTipo('');
+        carregarTiposEquipamentos(); // Atualiza a lista imediatamente no modal
+      } else {
+        alert("❌ " + (data.error || "Erro ao cadastrar tipo."));
+      }
+    } catch (err) {
+      alert("❌ Erro de conexão ao tentar salvar.");
+    } finally {
+      setSalvandoTipo(false);
+    }
+  };
+
+  // 🆕 Função para deletar um tipo de equipamento
+  const handleDeletarTipoEquipamento = async (id, nome) => {
+    const confirmar = window.confirm(`⚠️ Tem certeza de que deseja excluir o tipo "${nome}"?\nIsso pode afetar equipamentos que utilizam este tipo.`);
+    if (!confirmar) return;
+
+    try {
+      const response = await fetch(`${API_URL}/tipos-equipamentos/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        alert("✅ Tipo de equipamento excluído com sucesso!");
+        carregarTiposEquipamentos(); // Recarrega a lista sem fechar o modal
+      } else {
+        const data = await response.json();
+        alert("❌ " + (data.error || "Erro ao excluir tipo. Certifique-se de que não existem equipamentos vinculados a ele."));
+      }
+    } catch (err) {
+      alert("❌ Erro de conexão ao tentar excluir.");
+    }
+  };
+
   return (
     <>
       {/* Botão Hambúrguer Mobile */}
@@ -101,14 +188,14 @@ const Sidebar = ({ user, onLogout }) => {
         {/* NAVEGAÇÃO PRINCIPAL */}
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2 custom-scrollbar">
 
-          {/* DASHBOARD: Oculto para o Solicitante (usuario) */}
+          {/* DASHBOARD */}
           {podeVerDashboard && (
             <Link to="/" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               🏠 Dashboard
             </Link>
           )}
 
-          {/* EQUIPAMENTOS: Apenas Admin, Coordenador e Técnico acessam o inventário */}
+          {/* EQUIPAMENTOS */}
           {podeVerEquipamentos && (
             <div>
               <button
@@ -119,7 +206,7 @@ const Sidebar = ({ user, onLogout }) => {
                 <span className={`text-[10px] transition-transform duration-300 ${menuEquipAberto || isEquipActive ? 'rotate-180' : ''}`}>▼</span>
               </button>
 
-              <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'}`}>
+              <div className={`ml-4 mt-2 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
                 <Link to="/equipamentos" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
                   Listar Ativos
@@ -130,28 +217,40 @@ const Sidebar = ({ user, onLogout }) => {
                 </Link>
                 {/* Cadastro restrito para Admin e Coordenador */}
                 {['admin', 'coordenador'].includes(nivelUsuario) && (
-                  <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
-                    Novo Cadastro
-                  </Link>
+                  <>
+                    <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
+                      Novo Cadastro
+                    </Link>
+
+                    {/* Botão/Link para abrir modal de gerenciar tipos */}
+                    <button 
+                      type="button"
+                      onClick={() => setModalTipoEquipAberto(true)}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider text-slate-500 hover:text-white hover:bg-slate-800/50 transition-all text-left"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                      Gerenciar Tipos (Categorias)
+                    </button>
+                  </>
                 )}
               </div>
             </div>
           )}
 
-          {/* CHAMADOS: Visível e liberado para TODOS os níveis abrir e interagir */}
+          {/* CHAMADOS */}
           <Link to="/chamados" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/chamados') ? 'bg-amber-500 text-white shadow-lg shadow-amber-900/50' : 'hover:bg-slate-800'}`}>
             🎫 Chamados / OS
           </Link>
 
-          {/* DOCUMENTOS: Repositório Geral Auditável para equipes técnicas */}
+          {/* DOCUMENTOS */}
           {podeVerDocumentos && (
             <Link to="/documentos" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/documentos') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               📁 Documentos
             </Link>
           )}
 
-          {/* LOGÍSTICA / INFRAESTRUTURA: Ocultos para Técnico e Solicitante */}
+          {/* LOGÍSTICA / INFRAESTRUTURA */}
           {podeGerenciarInfraestoque && (
             <>
               <Link to="/fornecedores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/fornecedores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
@@ -176,14 +275,14 @@ const Sidebar = ({ user, onLogout }) => {
             </>
           )}
 
-          {/* FILTROS DE ÁGUA: Menu visível exclusivamente para o ADMIN */}
+          {/* FILTROS DE ÁGUA */}
           {podeVerFiltrosAgua && (
             <Link to="/filtros" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/filtros') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               🚰 Controle de Filtros
             </Link>
           )}
 
-          {/* RELATÓRIOS GERAIS: Apenas Admin e Coordenador visualizam o grupo */}
+          {/* RELATÓRIOS GERAIS */}
           {podeVerRelatorios && (
             <div>
               <button
@@ -227,7 +326,6 @@ const Sidebar = ({ user, onLogout }) => {
                   Chamados por Setor
                 </Link>
 
-                {/* Relatório de filtros restrito dinamicamente para o Admin */}
                 {nivelUsuario === 'admin' && (
                   <Link to="/relatorio-filtros" className={`flex items-center gap-3 p-2.5 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorio-filtros') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${isActive('/relatorio-filtros') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
@@ -238,7 +336,7 @@ const Sidebar = ({ user, onLogout }) => {
             </div>
           )}
 
-          {/* GERENCIAMENTO DE OPERADORES: Menu exclusivo do ADMIN */}
+          {/* GERENCIAMENTO DE OPERADORES */}
           {podeGerenciarUsuarios && (
             <Link to="/usuarios" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/usuarios') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800'}`}>
               👥 Usuários
@@ -290,6 +388,88 @@ const Sidebar = ({ user, onLogout }) => {
                 <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-black text-sm uppercase shadow-lg shadow-blue-200 active:scale-95 transition-all">Salvar Alterações</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🆕 MODAL DE GERENCIAMENTO DE TIPOS DE EQUIPAMENTOS */}
+      {modalTipoEquipAberto && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 text-slate-800">
+          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+            {/* Cabeçalho */}
+            <div className="bg-slate-800 p-5 text-white flex justify-between items-center shrink-0">
+              <h3 className="font-black uppercase tracking-widest text-sm">🛠️ Gerenciar Tipos de Equipamento</h3>
+              <button onClick={() => setModalTipoEquipAberto(false)} className="text-xl hover:text-red-400">✕</button>
+            </div>
+            
+            {/* Formulário de Cadastro */}
+            <div className="p-6 border-b border-slate-100 shrink-0">
+              <form onSubmit={handleCadastrarTipoEquipamento} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Cadastrar Novo Tipo</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      className="flex-1 border-2 border-slate-100 p-2.5 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm" 
+                      placeholder="Ex: Cardioversor, Compressor..."
+                      value={nomeNovoTipo} 
+                      onChange={(e) => setNomeNovoTipo(e.target.value)} 
+                      required 
+                    />
+                    <button 
+                      type="submit" 
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 rounded-xl font-black text-xs uppercase shadow-md shadow-indigo-200 transition-all disabled:opacity-50 shrink-0"
+                      disabled={salvandoTipo}
+                    >
+                      {salvandoTipo ? '...' : 'Cadastrar'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            {/* Listagem com Scroll */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar min-h-[250px]">
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Tipos Cadastrados</h4>
+              
+              {carregandoTipos ? (
+                <p className="text-sm text-center text-slate-400 py-4">Carregando tipos...</p>
+              ) : tiposEquipamentos.length === 0 ? (
+                <p className="text-sm text-center text-slate-400 py-4">Nenhum tipo cadastrado.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {tiposEquipamentos.map((tipo) => (
+                    <div 
+                      key={tipo.id} 
+                      className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/80 rounded-xl transition-all border border-slate-100 group"
+                    >
+                      <span className="text-sm font-bold text-slate-700">
+                        {tipo.nome}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletarTipoEquipamento(tipo.id, tipo.nome)}
+                        title="Excluir este tipo"
+                        className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50"
+                      >
+                        <FiTrash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="bg-slate-50 p-4 flex justify-end shrink-0 border-t border-slate-100">
+              <button 
+                type="button" 
+                onClick={() => setModalTipoEquipAberto(false)} 
+                className="bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 px-6 py-2.5 rounded-xl font-black text-xs uppercase"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}

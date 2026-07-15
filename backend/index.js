@@ -125,10 +125,16 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             WHERE periodicidade_preventiva > 0
             AND data_ultima_preventiva IS NOT NULL
             AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) <= CURDATE()`,
-        porSetor: `
-            SELECT s.nome, COUNT(c.id) as total
-            FROM chamados c JOIN setores s ON c.setor_id = s.id
-            GROUP BY s.id HAVING total > 0 ORDER BY total DESC`,
+        
+        // 🆕 SUBSTITUÍDO: ranking dos 5 equipamentos com mais chamados criados
+        porEquipamento: `
+            SELECT e.nome, COUNT(c.id) as total
+            FROM chamados c 
+            JOIN equipamentos e ON c.equipamento_id = e.id
+            GROUP BY e.id 
+            ORDER BY total DESC 
+            LIMIT 5`,
+
         porTecnico: `
             SELECT tecnico_responsavel as nome, COUNT(*) as total
             FROM chamados WHERE tecnico_responsavel IS NOT NULL AND tecnico_responsavel != ''
@@ -149,7 +155,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             JOIN itens_estoque i ON ci.item_id = i.id
             WHERE i.tipo != 'Filtro'`,
 
-        // 🆕 3. Gasto Total em Equipamentos (Soma de peças utilizadas + custos de serviço de chamados vinculados a equipamentos)
+        // 3. Gasto Total em Equipamentos (Soma de peças utilizadas + custos de serviço de chamados vinculados a equipamentos)
         gastoTotalEquipamentos: `
             SELECT (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
@@ -189,7 +195,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         return new Promise((resolve) => {
             db.query(queries[key], (err, results) => {
                 if (err) {
-                    // Impede que uma query com erro quebre o Promise.all inteiro (Evita Erro 500)
                     console.error(`⚠️ Erro silencioso na query [${key}]:`, err.message);
                     resolve({ key, data: [{ total: 0 }] });
                 } else {
@@ -203,7 +208,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                // Se for uma das novas métricas financeiras ou de vencimento, extrai direto o valor numérico puro
                 if (['gastoFiltros', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana'].includes(r.key)) {
                     stats[r.key] = r.data[0]?.total || 0;
                 } else {
@@ -331,7 +335,7 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
             console.error("❌ Erro interno do MySQL no PUT de equipamentos:", err.message);
             return res.status(500).json({ error: err.message });
         }
-        res.json({ message: "Dados atualizados com sucesso!" });
+        res.json({ message: "Dados updates com sucesso!" });
     });
 });
 
@@ -457,19 +461,47 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
 
 app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
-    const { status, tipo_atendimento, descricao_solucao, fornecedor_id, nf_referencia, custo_servico, tecnico_responsavel } = req.body;
+    const { 
+        status, 
+        tipo_atendimento, 
+        descricao_solucao, 
+        fornecedor_id, 
+        nf_referencia, 
+        custo_servico, 
+        tecnico_responsavel, 
+        tecnico_id // 🆕 Recebendo o ID do técnico escolhido
+    } = req.body;
+    
     const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
+    const v_tecnico_id = tecnico_id && tecnico_id !== "" ? Number(tecnico_id) : null;
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
+        // 🆕 Query atualizada para persistir o 'tecnico_id'
         const queryUpdate = `
             UPDATE chamados
-            SET status = ?, tipo_atendimento = ?, tecnico_responsavel = ?, fornecedor_id = ?, nf_referencia = ?, custo_servico = ?,
+            SET status = ?, 
+                tipo_atendimento = ?, 
+                tecnico_responsavel = ?, 
+                tecnico_id = ?, 
+                fornecedor_id = ?, 
+                nf_referencia = ?, 
+                custo_servico = ?,
                 data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
             WHERE id = ?
         `;
-        const valuesUpdate = [status, tipo_atendimento, tecnico_nome, fornecedor_id || null, nf_referencia || null, custo_servico || 0, status, id];
+        const valuesUpdate = [
+            status, 
+            tipo_atendimento, 
+            tecnico_nome, 
+            v_tecnico_id, // 🆕 Vinculando a chave estrangeira
+            fornecedor_id || null, 
+            nf_referencia || null, 
+            custo_servico || 0, 
+            status, 
+            id
+        ];
 
         conn.query(queryUpdate, valuesUpdate, (err) => {
             if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
@@ -489,7 +521,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
                 conn.commit((err) => {
                     if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
                     conn.release();
-                    res.json({ message: "Chamado updated!" });
+                    res.json({ message: "Chamado atualizado com sucesso!" });
                 });
             }
         });
@@ -534,7 +566,7 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
                 conn.query(queryIns, [id, item_id, qtd_solicitada, item.valor_unitario], (errIns) => {
                     if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
-                    conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
+                    conn.query("UPDATE itens_estoque SET quantidade = quantity - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
                         if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
                         const msgEstoque = `Peça utilizada: ${qtd_solicitada}x ${item.nome}`;
@@ -859,6 +891,19 @@ app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador',
         }
     });
 });
+// GET: Listar apenas usuários habilitados para atendimento (técnicos, admins e coordenadores)
+app.get('/api/tecnicos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const query = `
+        SELECT id, nome 
+        FROM usuarios 
+        WHERE nivel IN ('tecnico', 'admin', 'coordenador') 
+        ORDER BY nome ASC
+    `;
+    db.query(query, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
 
 // -------------------------------------------------------------------------
 // RELATÓRIOS GERAIS
@@ -1122,10 +1167,56 @@ app.post('/api/setores', permitirApenas(['admin', 'coordenador']), (req, res) =>
     });
 });
 
+// 🔄 ROTA DE LISTAGEM ATUALIZADA: Mapeamento de endpoint unificado para o React (/api/tipos-equipamentos)
+app.get('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    db.query(`SELECT id, nome FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+// 💡 ROTA LEGADA MANTIDA: Evita quebras ocultas em outras partes do sistema
 app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     db.query(`SELECT * FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
+    });
+});
+
+// 🆕 ROTA DE CADASTRO: Insere um novo tipo de ativo no banco de dados Express/MySQL
+app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { nome } = req.body;
+    if (!nome || nome.trim() === "") {
+        return res.status(400).json({ error: "O nome da categoria/tipo é obrigatório." });
+    }
+
+    db.query(`INSERT INTO tipos_equipamentos (nome) VALUES (?)`, [nome.trim()], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.status(201).json({ message: "Tipo cadastrado com sucesso!", insertId: result.insertId });
+    });
+});
+
+// 🆕 ROTA DE EXCLUSÃO: Remove o tipo por ID com verificação de segurança integridade relacional
+app.delete('/api/tipos-equipamentos/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+
+    // 🛡️ Validação: Impede apagar o tipo se ele estiver em uso por algum equipamento ativo no SEC-H
+    const queryCheck = `SELECT COUNT(*) as em_uso FROM equipamentos WHERE tipo_id = ? OR tipo_equipamento_id = ?`;
+    
+    db.query(queryCheck, [id, id], (errCheck, resultsCheck) => {
+        if (errCheck) return res.status(500).json({ error: errCheck.message });
+        
+        if (resultsCheck[0].em_uso > 0) {
+            return res.status(400).json({ 
+                error: `Não é possível excluir! Existem ${resultsCheck[0].em_uso} equipamentos ativos utilizando este tipo no inventário.` 
+            });
+        }
+
+        // Se passar na verificação, realiza o comando de exclusão física
+        db.query(`DELETE FROM tipos_equipamentos WHERE id = ?`, [id], (errDel) => {
+            if (errDel) return res.status(500).json({ error: errDel.message });
+            res.json({ message: "Tipo de equipamento removido com sucesso!" });
+        });
     });
 });
 
@@ -1343,6 +1434,7 @@ app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req,
     });
 });
 
+// DELETE FORNECEDOR
 app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     db.query("DELETE FROM fornecedores WHERE id = ?", [id], (err) => {

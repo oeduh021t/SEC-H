@@ -9,12 +9,14 @@ export function TratarChamado() {
   const [chamado, setChamado] = useState(null)
   const [itensEstoque, setItensEstoque] = useState([])
   const [fornecedores, setFornecedores] = useState([])
+  const [tecnicos, setTecnicos] = useState([])
   const [loading, setLoading] = useState(true)
 
   // Estados dos Formulários
   const [tipoAtendimento, setTipoAtendimento] = useState("Interno")
   const [status, setStatus] = useState("Em Atendimento")
   const [descricaoSolucao, setDescricaoSolucao] = useState("")
+  const [tecnicoId, setTecnicoId] = useState("")
 
   // Estados para gerenciamento de Laudos/Documentos (Auditoria)
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null)
@@ -36,7 +38,6 @@ export function TratarChamado() {
 
   const carregarTodosOsDados = async () => {
     try {
-      // Resgata o operador logado para pegar o nível para a leitura de segurança
       const usuarioSalvo = localStorage.getItem('user');
       const nivel = usuarioSalvo ? JSON.parse(usuarioSalvo).nivel : '';
 
@@ -45,11 +46,12 @@ export function TratarChamado() {
         'x-usuario-nivel': nivel
       };
 
-      const [resChamado, resEstoque, resFornecedores, resDocumentos] = await Promise.all([
+      const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos] = await Promise.all([
         fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.json()),
-        fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()), // 🔑 CORRIGIDO: Removida a variável que causava erro
+        fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()), 
         fetch(`${API_URL}/fornecedores`, { headers }).then(res => res.json()),
-        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.json()) // 🔑 Adicionado cabeçalho de leitura seguro
+        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.json()),
+        fetch(`${API_URL}/tecnicos`, { headers }).then(res => res.json())
       ])
 
       console.log("Dados da API do chamado:", resChamado);
@@ -57,6 +59,7 @@ export function TratarChamado() {
       setItensEstoque(resEstoque || [])
       setFornecedores(resFornecedores || [])
       setListaDocumentos(resDocumentos || []) 
+      setTecnicos(resTecnicos || [])
 
       // Pré-preenche os estados com o que já existe no chamado
       setTipoAtendimento(resChamado.tipo_atendimento || "Interno")
@@ -65,6 +68,7 @@ export function TratarChamado() {
       setNfReferencia(resChamado.nf_referencia || "")
       setCustoServico(resChamado.custo_servico || 0)
       setDescricaoSolucao(resChamado.descricao_solucao || "")
+      setTecnicoId(resChamado.tecnico_id || "")
     } catch (err) {
       console.error("Erro ao carregar dados do atendimento:", err)
     } finally {
@@ -76,7 +80,8 @@ export function TratarChamado() {
 
   const injetarTextoRapido = (texto) => {
     if (chamado?.status === "Concluído") return
-    setDescricaoSolucao(prev => prev === "" ? text : `${prev} ${texto}`)
+    // Corrigido: alterado 'text' para 'texto' para evitar erro de referência
+    setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`)
   }
 
   const handleAdicionarPeca = (e) => {
@@ -103,7 +108,6 @@ export function TratarChamado() {
     e.preventDefault()
     if (!documentoSelecionado) return alert("Por favor, selecione um arquivo!")
 
-    // Resgata o usuário logado para carregar na auditoria
     const usuarioSalvo = localStorage.getItem('user')
     const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null
 
@@ -117,7 +121,6 @@ export function TratarChamado() {
     fetch(`${API_URL}/documentos`, {
       method: "POST",
       headers: {
-        // 🔑 CORRIGIDO: Injetando cabeçalho obrigatório de segurança exigido pelo backend
         'x-usuario-nivel': usuarioLogado?.nivel || ''
       },
       body: formData
@@ -129,7 +132,7 @@ export function TratarChamado() {
       } else {
         alert("Documento anexado e registrado no histórico para fins de auditoria! 📎✅")
         setDocumentoSelecionado(null)
-        carregarTodosOsDados() // Atualiza os painéis na mesma hora
+        carregarTodosOsDados()
       }
     })
     .catch(err => console.error("Erro ao anexar documento:", err))
@@ -137,6 +140,11 @@ export function TratarChamado() {
 
   const handleSalvarAtendimento = (e) => {
     e.preventDefault()
+
+    const tecnicoSelecionado = tecnicos.find(t => Number(t.id) === Number(tecnicoId));
+    const nomeTecnicoFinal = tecnicoSelecionado 
+      ? tecnicoSelecionado.nome 
+      : (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).nome : "Técnico");
 
     const dadosParaSalvar = {
       status,
@@ -146,7 +154,8 @@ export function TratarChamado() {
       nf_referencia: tipoAtendimento === "Externo" ? nfReferencia : null,
       custo_servico: tipoAtendimento === "Externo" ? Number(custoServico) : 0,
       custo_pecas: totalPecas,
-      tecnico_responsavel: localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).nome : "Técnico"
+      tecnico_id: tipoAtendimento === "Interno" ? tecnicoId : null,
+      tecnico_responsavel: nomeTecnicoFinal
     }
 
     fetch(`${API_URL}/chamados/${id}/atualizar`, {
@@ -155,7 +164,7 @@ export function TratarChamado() {
       body: JSON.stringify(dadosParaSalvar)
     }).then((res) => {
       if (res.ok) {
-        alert("Relatório técnico updated com sucesso! 🎉")
+        alert("Relatório técnico atualizado com sucesso! 🎉")
         navigate("/chamados")
       } else {
         alert("Erro ao salvar o atendimento no servidor.")
@@ -170,7 +179,7 @@ export function TratarChamado() {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* HEADER TOTALMENTE CORRIGIDO */}
+      {/* HEADER */}
       <div className="flex justify-between items-center mb-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <div>
           <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
@@ -207,7 +216,7 @@ export function TratarChamado() {
         {/* COLUNA ESQUERDA (CRONOLOGIA E ESTOQUE DE PEÇAS) */}
         <div className="lg:col-span-5 space-y-6">
 
-          {/* 🆕 PAINEL DE ANEXOS E CERTIFICADOS AUDITÁVEIS */}
+          {/* PAINEL DE ANEXOS */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Anexos e Laudos Técnicos</h3>
             
@@ -253,7 +262,7 @@ export function TratarChamado() {
             </div>
           </div>
 
-          {/* PAINEL DE CRONOLOGIA / HISTÓRICO */}
+          {/* PAINEL DE CRONOLOGIA */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-[350px]">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Cronologia de Atividades</h3>
             <div className="overflow-y-auto pr-2 space-y-4 flex-1">
@@ -271,7 +280,7 @@ export function TratarChamado() {
             </div>
           </div>
 
-          {/* PAINEL DE BAIXA EM PEÇAS DO ESTOQUE */}
+          {/* PAINEL DE PEÇAS */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Peças e Materiais Utilizados</h3>
             
@@ -315,7 +324,7 @@ export function TratarChamado() {
           </div>
         </div>
 
-        {/* COLUNA DIREITA (RELATÓRIO TÉCNICO E EXECUÇÃO) */}
+        {/* COLUNA DIREITA (FORMULÁRIO DE ATENDIMENTO) */}
         <div className="lg:col-span-7">
           <form onSubmit={handleSalvarAtendimento} className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">Conclusão e Diagnóstico Técnico</h3>
@@ -364,13 +373,34 @@ export function TratarChamado() {
               </div>
             )}
 
-            <div className="w-1/2 text-dark">
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Alterar Status Operacional</label>
-              <select disabled={isConcluido} className="w-full p-3 border-2 border-slate-100 bg-white rounded-xl text-xs font-bold outline-none" value={status} onChange={e => setStatus(e.target.value)}>
-                <option value="Aberto">Aberto</option>
-                <option value="Em Atendimento">Em Atendimento</option>
-                <option value="Concluído">Concluído</option>
-              </select>
+            {/* SELEÇÃO DO STATUS E TÉCNICO RESPONSÁVEL */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-dark">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Alterar Status Operacional</label>
+                <select disabled={isConcluido} className="w-full p-3 border-2 border-slate-100 bg-white rounded-xl text-xs font-bold outline-none" value={status} onChange={e => setStatus(e.target.value)}>
+                  <option value="Aberto">Aberto</option>
+                  <option value="Em Atendimento">Em Atendimento</option>
+                  <option value="Concluído">Concluído</option>
+                </select>
+              </div>
+
+              {tipoAtendimento === "Interno" && (
+                <div className="animate-in fade-in duration-150">
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Técnico Designado</label>
+                  <select 
+                    disabled={isConcluido} 
+                    required={tipoAtendimento === "Interno"}
+                    className="w-full p-3 border-2 border-slate-100 bg-white rounded-xl text-xs font-bold outline-none" 
+                    value={tecnicoId} 
+                    onChange={e => setTecnicoId(e.target.value)}
+                  >
+                    <option value="">Selecione o técnico...</option>
+                    {tecnicos.map(t => (
+                      <option key={t.id} value={t.id}>{t.nome}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div>
