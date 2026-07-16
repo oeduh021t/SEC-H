@@ -37,6 +37,7 @@ const Sidebar = ({ user, onLogout }) => {
   const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeVerFiltrosAgua = nivelUsuario === 'admin';
+  const podeVerGases = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario); // 🟢 Permissão para o módulo de gases
   const podeVerRelatorios = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeGerenciarUsuarios = nivelUsuario === 'admin';
 
@@ -152,7 +153,7 @@ const Sidebar = ({ user, onLogout }) => {
       } else {
         const data = await response.json();
         alert("❌ " + (data.error || "Erro ao excluir tipo. Certifique-se de que não existem equipamentos vinculados a ele."));
-      }
+    }
     } catch (err) {
       alert("❌ Erro de conexão ao tentar excluir.");
     }
@@ -257,7 +258,7 @@ const Sidebar = ({ user, onLogout }) => {
                 🚚 Fornecedores
               </Link>
 
-              <Link to="/notas-fiscais" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/notas-fiscais') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              <Link to="/notes-fiscais" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/notas-fiscais') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
                 🧾 Notas Fiscais / Boletos
               </Link>
 
@@ -266,7 +267,7 @@ const Sidebar = ({ user, onLogout }) => {
               </Link>
 
               <Link to="/locais-estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/locais-estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-               🏢 Locais de Estoque / Escopos
+                🏢 Locais de Estoque / Escopos
               </Link>
 
               <Link to="/setores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/setores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
@@ -279,6 +280,13 @@ const Sidebar = ({ user, onLogout }) => {
           {podeVerFiltrosAgua && (
             <Link to="/filtros" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/filtros') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               🚰 Controle de Filtros
+            </Link>
+          )}
+
+          {/* 🟢 CONTROLE DE GASES MEDICINAIS */}
+          {podeVerGases && (
+            <Link to="/gases" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/gases') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              🧪 Controle de Gases
             </Link>
           )}
 
