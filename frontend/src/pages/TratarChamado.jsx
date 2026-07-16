@@ -12,6 +12,12 @@ export function TratarChamado() {
   const [tecnicos, setTecnicos] = useState([])
   const [loading, setLoading] = useState(true)
 
+  // ESTADOS ADICIONADOS PARA A TROCA DE EQUIPAMENTO
+  const [equipamentosReserva, setEquipamentosReserva] = useState([])
+  const [equipamentoReservaSelecionado, setEquipamentoReservaSelecionado] = useState("")
+  const [exibirPainelTroca, setExibirPainelTroca] = useState(false)
+  const [executandoTroca, setExecutandoTroca] = useState(false)
+
   // Estados dos Formulários
   const [tipoAtendimento, setTipoAtendimento] = useState("Interno")
   const [status, setStatus] = useState("Em Atendimento")
@@ -69,10 +75,30 @@ export function TratarChamado() {
       setCustoServico(resChamado.custo_servico || 0)
       setDescricaoSolucao(resChamado.descricao_solucao || "")
       setTecnicoId(resChamado.tecnico_id || "")
+
+      // Se o chamado possuir um equipamento vinculado, busca os reservas do mesmo tipo
+      if (resChamado.equipamento_id) {
+        carregarEquipamentosReserva(resChamado.equipamento_id, headers);
+      }
+
     } catch (err) {
       console.error("Erro ao carregar dados do atendimento:", err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Busca os equipamentos reservas baseados no tipo do equipamento atual do chamado
+  const carregarEquipamentosReserva = async (equipamentoId, headers) => {
+    try {
+      // Passa o equipamento_id atual para o backend conseguir identificar o tipo de equipamento e trazer apenas os reservas equivalentes
+      const res = await fetch(`${API_URL}/equipamentos/reservas?tipo_de_equipamento_com_base_em=${equipamentoId}`, { headers });
+      if (res.ok) {
+        const dados = await res.json();
+        setEquipamentosReserva(dados || []);
+      }
+    } catch (err) {
+      console.error("Erro ao buscar equipamentos em reserva:", err);
     }
   }
 
@@ -87,16 +113,14 @@ export function TratarChamado() {
     e.preventDefault()
     if (!pecaSelecionada) return
 
-    // Obtém o usuário logado no localStorage como fallback de segurança
     const usuarioSalvo = localStorage.getItem('user')
     const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null
 
-    // Monta o payload garantindo que propriedades nulas do chamado tenham um substituto válido
     const dadosPeca = {
       item_id: pecaSelecionada,
       quantidade: qtdPeca,
-      usuario_id: chamado?.usuario_id || usuarioLogado?.id || 1, // Fallback se o chamado.usuario_id for null
-      equipamento_id: chamado?.equipamento_id || null // Envia null de forma explícita se não houver ativo vinculado
+      usuario_id: chamado?.usuario_id || usuarioLogado?.id || 1, 
+      equipamento_id: chamado?.equipamento_id || null 
     }
 
     fetch(`${API_URL}/chamados/${id}/itens`, {
@@ -175,12 +199,63 @@ export function TratarChamado() {
       body: JSON.stringify(dadosParaSalvar)
     }).then((res) => {
       if (res.ok) {
-        alert("Relatório técnico atualizado com sucesso! 🎉")
+        alert("Relatório técnico updated com sucesso! 🎉")
         navigate("/chamados")
       } else {
         alert("Erro ao salvar o atendimento no servidor.")
       }
     })
+  }
+
+  // FUNÇÃO QUE SUBMETE A TROCA DE EQUIPAMENTO
+  const handleTrocaEquipamento = async (e) => {
+    e.preventDefault();
+    if (!equipamentoReservaSelecionado) return alert("Selecione um equipamento de reserva para a troca!");
+
+    const confirmar = window.confirm("Deseja realmente realizar a troca? O equipamento atual irá para 'Em Manutenção' e o reserva será ativado.");
+    if (!confirmar) return;
+
+    setExecutandoTroca(true);
+
+    const usuarioSalvo = localStorage.getItem('user');
+    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
+
+    const payload = {
+      equipamento_atual_id: chamado?.equipamento_id,
+      equipamento_reserva_id: equipamentoReservaSelecionado,
+      chamado_id: id,
+      tecnico_nome: usuarioLogado?.nome || "Técnico",
+      setor_destino_id: chamado?.setor_id // O reserva assume o setor (quarto) do chamado
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/equipamentos/trocar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        alert("Substituição realizada com sucesso! 🔄 O histórico do ativo foi gerado.");
+        setExibirPainelTroca(false);
+        setEquipamentoReservaSelecionado("");
+        
+        // Injeta automaticamente no relatório que houve a troca
+        const equipamentoReservaInfo = equipamentosReserva.find(eq => Number(eq.id) === Number(equipamentoReservaSelecionado));
+        const textoTroca = `[🔄 TROCA DE EQUIPAMENTO] Equipamento anterior (Pat: ${chamado.patrimonio}) substituído pelo novo equipamento (Pat: ${equipamentoReservaInfo?.patrimonio || 'Reserva'}).`;
+        setDescricaoSolucao(prev => prev === "" ? textoTroca : `${prev}\n${textoTroca}`);
+        
+        carregarTodosOsDados();
+      } else {
+        const errorData = await res.json();
+        alert(`Erro na substituição: ${errorData.message || 'Verifique as regras de estoque.'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao conectar com o servidor para realizar a troca.");
+    } finally {
+      setExecutandoTroca(false);
+    }
   }
 
   if (loading) return <div className="p-8 text-center font-bold">Carregando painel de atendimento técnico...</div>
@@ -209,6 +284,17 @@ export function TratarChamado() {
         </div>
         
         <div className="flex gap-2">
+          {/* BOTÃO DA INTERFACE DE TROCA - Apenas visível se o chamado tiver um equipamento atrelado */}
+          {chamado?.equipamento_id && !isConcluido && (
+            <button
+              type="button"
+              onClick={() => setExibirPainelTroca(!exibirPainelTroca)}
+              className="px-5 py-2 bg-amber-500 text-white rounded-xl text-xs font-black uppercase hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center gap-1.5"
+            >
+              🔄 Substituir Equipamento (Troca)
+            </button>
+          )}
+
           <button 
             type="button"
             onClick={() => window.open(`/chamados/${id}/imprimir`, '_blank')} 
@@ -221,6 +307,56 @@ export function TratarChamado() {
           </button>
         </div>
       </div>
+
+      {/* PAINEL DE TROCA (CONTEÚDO EXPANSÍVEL) */}
+      {exibirPainelTroca && chamado?.equipamento_id && (
+        <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 p-6 rounded-3xl border-2 border-amber-200 shadow-sm animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider flex items-center gap-2">
+              🔄 Substituição Emergencial de Ativo
+            </h3>
+            <button 
+              type="button" 
+              onClick={() => setExibirPainelTroca(false)} 
+              className="text-amber-800 hover:text-amber-950 font-bold text-xs"
+            >
+              Fechar Painel ✕
+            </button>
+          </div>
+          <p className="text-xs text-amber-700 mb-4 font-medium">
+            Ao confirmar, o equipamento atual <strong>{chamado.eq_nome} (Pat: {chamado.patrimonio})</strong> passará para o status de <strong className="text-red-600">"Em Manutenção"</strong>. O equipamento reserva selecionado herdará a localização atual (<strong>{chamado.setor_nome}</strong>) e assumirá o status operacional ativo.
+          </p>
+
+          <form onSubmit={handleTrocaEquipamento} className="flex gap-4 items-end flex-wrap">
+            <div className="flex-1 min-w-[280px]">
+              <label className="block text-[10px] font-black text-amber-800 uppercase mb-1">
+                Ativos em Reserva ({equipamentosReserva.length} disponíveis)
+              </label>
+              <select
+                disabled={executandoTroca}
+                required
+                className="w-full p-3 border-2 border-amber-200 bg-white rounded-xl text-xs font-bold outline-none text-slate-700"
+                value={equipamentoReservaSelecionado}
+                onChange={e => setEquipamentoReservaSelecionado(e.target.value)}
+              >
+                <option value="">Selecione o equipamento de reserva...</option>
+                {equipamentosReserva.map(eq => (
+                  <option key={eq.id} value={eq.id}>
+                    {eq.nome} - Patrimônio: {eq.patrimonio} (Setor atual: {eq.setor_nome || 'Reserva'})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="submit"
+              disabled={executandoTroca || !equipamentoReservaSelecionado}
+              className="px-6 py-3.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+            >
+              {executandoTroca ? "Processando..." : "Confirmar e Trocar Ativo 🔁"}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 

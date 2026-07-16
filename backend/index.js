@@ -759,16 +759,60 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
     const queryEquip = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id WHERE e.id = ?`;
     
     const queryTimeline = `
-        (SELECT data_abertura as data, titulo as evento, 'Abertura OS' as tipo, 'Usuário' as responsavel, status, id as ref_id, NULL as url_anexo FROM chamados WHERE equipamento_id = ?)
+        (
+            SELECT 
+                c.data_abertura as data, 
+                c.titulo as evento, 
+                'Abertura OS' as tipo, 
+                'Usuário' as responsavel, 
+                c.status, 
+                c.id as ref_id, 
+                NULL as url_anexo 
+            FROM chamados c 
+            WHERE c.equipamento_id = ?
+        )
         UNION
-        (SELECT h.data_registro as data, h.texto_historico as evento, 'Intervenção Técnica' as tipo, h.tecnico_nome as responsavel, h.status_momento as status, c.id as ref_id, h.arquivo_url as url_anexo
-         FROM chamados_historico h JOIN chamados c ON h.chamado_id = c.id WHERE c.equipamento_id = ?)
+        (
+            SELECT 
+                h.data_registro as data, 
+                h.texto_historico as evento, 
+                'Intervenção Técnica' as tipo, 
+                h.tecnico_nome as responsavel, 
+                h.status_momento as status, 
+                c.id as ref_id, 
+                COALESCE(d.url_arquivo, h.arquivo_url) as url_anexo
+            FROM chamados_historico h 
+            JOIN chamados c ON h.chamado_id = c.id 
+            -- 🟢 AJUSTE AQUI: Faz um JOIN com a tabela de documentos usando o nome do arquivo para obter a url real
+            LEFT JOIN documentos d ON d.chamado_id = c.id AND h.texto_historico LIKE CONCAT('%', d.nome_original, '%')
+            WHERE c.equipamento_id = ?
+        )
         UNION
-        (SELECT data_registro as data, texto_historico as evento, 'Preventiva' as tipo, tecnico_nome as responsavel, status_momento as status, 0 as ref_id, arquivo_url as url_anexo
-         FROM chamados_historico WHERE texto_historico LIKE CONCAT('%[ID EQUIP: ', ?, ']%'))
+        (
+            SELECT 
+                data_registro as data, 
+                texto_historico as evento, 
+                'Preventiva' as tipo, 
+                tecnico_nome as responsavel, 
+                status_momento as status, 
+                0 as ref_id, 
+                arquivo_url as url_anexo
+            FROM chamados_historico 
+            WHERE texto_historico LIKE CONCAT('%[ID EQUIP: ', ?, ']%')
+        )
         UNION
-        (SELECT data_movimentacao as data, descricao_log as evento, 'Movimentação' as tipo, tecnico_nome as responsavel, status_novo as status, 0 as ref_id, NULL as url_anexo
-         FROM equipamentos_historico WHERE equipamento_id = ?)
+        (
+            SELECT 
+                data_movimentacao as data, 
+                descricao_log as evento, 
+                'Movimentação' as tipo, 
+                tecnico_nome as responsavel, 
+                status_novo as status, 
+                0 as ref_id, 
+                NULL as url_anexo
+            FROM equipamentos_historico 
+            WHERE equipamento_id = ?
+        )
         ORDER BY data DESC
     `;
 
@@ -1687,6 +1731,147 @@ app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'u
     db.query(query, params, (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results || []);
+    });
+});
+
+// 🔄 LISTAR EQUIPAMENTOS EM RESERVA DO MESMO TIPO DO EQUIPAMENTO DO CHAMADO
+app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { tipo_de_equipamento_com_base_em } = req.query;
+
+    if (!tipo_de_equipamento_com_base_em) {
+        return res.status(400).json({ error: "O ID do equipamento de referência é obrigatório." });
+    }
+
+    // Primeiro, descobre qual é o tipo_id do equipamento atual
+    const queryTipo = `SELECT tipo_id, tipo_equipamento_id FROM equipamentos WHERE id = ?`;
+    
+    db.query(queryTipo, [Number(tipo_de_equipamento_com_base_em)], (errTipo, resultTipo) => {
+        if (errTipo) return res.status(500).json({ error: errTipo.message });
+        if (resultTipo.length === 0) return res.status(404).json({ error: "Equipamento de referência não encontrado." });
+
+        const tipoId = resultTipo[0].tipo_id || resultTipo[0].tipo_equipamento_id;
+
+        // Se o equipamento atual não possuir tipo configurado, trazemos reservas gerais
+        let queryReservas = `
+            SELECT e.id, e.nome, e.patrimonio, s.nome as setor_nome 
+            FROM equipamentos e
+            LEFT JOIN setores s ON e.setor_id = s.id
+            WHERE e.status = 'Reserva'
+        `;
+        const queryParams = [];
+
+        if (tipoId) {
+            queryReservas += ` AND (e.tipo_id = ? OR e.tipo_equipamento_id = ?)`;
+            queryParams.push(tipoId, tipoId);
+        }
+
+        queryReservas += ` ORDER BY e.nome ASC`;
+
+        db.query(queryReservas, queryParams, (errRes, resultReservas) => {
+            if (errRes) return res.status(500).json({ error: errRes.message });
+            res.json(resultReservas || []);
+        });
+    });
+});
+
+// 🔄 EXECUTAR TROCA FÍSICA E ATUALIZAÇÃO DE HISTÓRICO DE AUDITORIA (TRANSAÇÃO)
+app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { 
+        equipamento_atual_id, 
+        equipamento_reserva_id, 
+        chamado_id, 
+        tecnico_nome, 
+        setor_destino_id 
+    } = req.body;
+
+    if (!equipamento_atual_id || !equipamento_reserva_id || !chamado_id || !setor_destino_id) {
+        return res.status(400).json({ error: "Dados incompletos para processar a substituição." });
+    }
+
+    // Iniciando transação segura usando o padrão do seu db.js
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // Passo 1: Obter informações do equipamento antigo e novo para compor os logs detalhados
+        const queryInfo = `SELECT id, nome, patrimonio, status, setor_id FROM equipamentos WHERE id IN (?, ?)`;
+        conn.query(queryInfo, [equipamento_atual_id, equipamento_reserva_id], (errInfo, eqResults) => {
+            if (errInfo || eqResults.length < 2) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(400).json({ error: "Não foi possível localizar os dados de ambos os equipamentos." });
+                });
+            }
+
+            const eqAntigo = eqResults.find(e => e.id === Number(equipamento_atual_id));
+            const eqNovo = eqResults.find(e => e.id === Number(equipamento_reserva_id));
+
+            // Passo 2: Atualizar Equipamento Antigo (Ativo -> Em Manutenção)
+            const queryUpdateAntigo = `
+                UPDATE equipamentos 
+                SET status = 'Em Manutenção', 
+                    setor_id = NULL 
+                WHERE id = ?`;
+            
+            conn.query(queryUpdateAntigo, [equipamento_atual_id], (errUpAntigo) => {
+                if (errUpAntigo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpAntigo.message }); });
+
+                // Passo 3: Atualizar Equipamento Reserva (Reserva -> Ativo e herda o setor/quarto)
+                const queryUpdateNovo = `
+                    UPDATE equipamentos 
+                    SET status = 'Ativo', 
+                        setor_id = ? 
+                    WHERE id = ?`;
+
+                conn.query(queryUpdateNovo, [setor_destino_id, equipamento_reserva_id], (errUpNovo) => {
+                    if (errUpNovo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpNovo.message }); });
+
+                    // Passo 4: Registrar histórico do Equipamento Danificado que SAI
+                    const logDescricaoAntigo = `Retirado do setor (ID: ${setor_destino_id}) devido a falha relatada no Chamado #${chamado_id}. Substituído pelo Equipamento ${eqNovo.nome} (Pat: ${eqNovo.patrimonio}).`;
+                    const queryHistAntigo = `
+                        INSERT INTO equipamentos_historico 
+                        (equipamento_id, setor_origem_id, setor_destino_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
+                        VALUES (?, ?, NULL, ?, 'Em Manutenção', ?, ?, NOW())`;
+
+                    conn.query(queryHistAntigo, [equipamento_atual_id, eqAntigo.setor_id, eqAntigo.status, logDescricaoAntigo, tecnico_nome], (errHistA) => {
+                        if (errHistA) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistA.message }); });
+
+                        // Passo 5: Registrar histórico do Equipamento Reserva que ENTRA
+                        const logDescricaoNovo = `Instalado no setor (ID: ${setor_destino_id}) em substituição ao Equipamento ${eqAntigo.nome} (Pat: ${eqAntigo.patrimonio}) através do Chamado #${chamado_id}.`;
+                        const queryHistNovo = `
+                            INSERT INTO equipamentos_historico 
+                            (equipamento_id, setor_origem_id, setor_destino_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
+                            VALUES (?, NULL, ?, ?, 'Ativo', ?, ?, NOW())`;
+
+                        conn.query(queryHistNovo, [equipamento_reserva_id, setor_destino_id, eqNovo.status, logDescricaoNovo, tecnico_nome], (errHistN) => {
+                            if (errHistN) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistN.message }); });
+
+                            // Passo 6: Atualizar chamado técnico para vincular o novo equipamento instalado
+                            const queryUpdateChamado = `UPDATE chamados SET equipamento_id = ? WHERE id = ?`;
+                            conn.query(queryUpdateChamado, [equipamento_reserva_id, chamado_id], (errChamado) => {
+                                if (errChamado) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errChamado.message }); });
+
+                                // Passo 7: Adicionar cronologia técnica ao histórico da OS
+                                const msgHistOs = `[🔄 SUBSTITUIÇÃO DE ATIVO] Equipamento anterior (Pat: ${eqAntigo.patrimonio}) substituído por novo equipamento reserva (Pat: ${eqNovo.patrimonio}).`;
+                                const queryHistOs = `
+                                    INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
+                                    VALUES (?, ?, ?, 'Em Atendimento', NOW())`;
+
+                                conn.query(queryHistOs, [chamado_id, tecnico_nome, msgHistOs], (errHistOs) => {
+                                    if (errHistOs) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistOs.message }); });
+
+                                    // Commit Final se todas as operações executaram perfeitamente
+                                    conn.commit((errCommit) => {
+                                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                        conn.release();
+                                        res.json({ message: "Troca e logs de rastreabilidade gravados com sucesso!" });
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
     });
 });
 

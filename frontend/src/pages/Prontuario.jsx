@@ -5,16 +5,36 @@ const Prontuario = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const [dados, setDados] = useState(null);
+    const [erroAutenticacao, setErroAutenticacao] = useState(false);
     
     const API_URL = 'http://192.168.5.101:3000/api';
-    const BASE_URL = 'http://192.168.5.101:3000'; // Adicionado para carregar as mídias do backend
+    const BASE_URL = 'http://192.168.5.101:3000'; 
 
     useEffect(() => {
-        fetch(`${API_URL}/equipamentos/${id}/prontuario`)
-            .then(res => res.json())
-            .then(setDados);
+        const usuarioSalvo = localStorage.getItem('user');
+        const nivel = usuarioSalvo ? JSON.parse(usuarioSalvo).nivel : '';
+
+        fetch(`${API_URL}/equipamentos/${id}/prontuario`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-usuario-nivel': nivel
+            }
+        })
+            .then(res => {
+                if (res.status === 401 || res.status === 403) {
+                    setErroAutenticacao(true);
+                    throw new Error("Não autorizado");
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data) setDados(data);
+            })
+            .catch(err => console.error("Erro ao carregar prontuário:", err));
     }, [id]);
 
+    // 🟢 RECOLOCADA: Função contextualizada para abertura de ordens de serviço
     const handleCriarChamadoContextualizado = () => {
         if (!dados || !dados.dados) return;
         
@@ -27,7 +47,17 @@ const Prontuario = () => {
         });
     };
 
-    if (!dados) return <div className="p-10 text-slate-400 font-bold">Carregando prontuário...</div>;
+    if (erroAutenticacao) {
+        return (
+            <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">
+                Acesso Negado: Seu perfil não possui privilégios para visualizar o prontuário.
+            </div>
+        );
+    }
+
+    if (!dados || !dados.dados) {
+        return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Carregando prontuário...</div>;
+    }
 
     return (
         <div className="p-6 bg-slate-50 min-h-screen">
@@ -54,8 +84,6 @@ const Prontuario = () => {
                 <div className="lg:col-span-4 space-y-6">
                     <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                         <div className="p-6 text-center">
-                            
-                            {/* BOX DE FOTO CORRIGIDO E ATUALIZADO COm RENDERS DINÂMICOS */}
                             <div className="bg-slate-100 w-full h-48 rounded-2xl mb-4 flex items-center justify-center text-slate-300 overflow-hidden border border-slate-200">
                                 {dados.dados.foto_equipamento ? (
                                     <img 
@@ -100,19 +128,35 @@ const Prontuario = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="text-xs font-medium text-slate-600">
-                                    {dados.timeline.map((item, i) => (
+                                    {dados.timeline && dados.timeline.map((item, i) => (
                                         <tr key={i} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                                            <td className="p-4 whitespace-nowrap font-bold text-slate-400">{new Date(item.data).toLocaleDateString('pt-BR')}</td>
-                                            <td className="p-4">{item.evento}</td>
+                                            <td className="p-4 whitespace-nowrap font-bold text-slate-400">{item.data ? new Date(item.data).toLocaleDateString('pt-BR') : '---'}</td>
+                                            
                                             <td className="p-4">
-                                                <span className={`px-2 py-1 rounded text-[9px] font-black text-white uppercase ${item.tipo.includes('Abertura') ? 'bg-amber-400' : 'bg-blue-500'}`}>
-                                                    {item.tipo}
+                                                {item.url_anexo ? (
+                                                    <a 
+                                                        href={`${BASE_URL}${item.url_anexo}`} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer" 
+                                                        className="text-blue-600 font-bold hover:underline flex items-center gap-1 group"
+                                                    >
+                                                        <span>📎</span> 
+                                                        <span className="group-hover:text-blue-800">{item.evento}</span>
+                                                    </a>
+                                                ) : (
+                                                    <span>{item.evento}</span>
+                                                )}
+                                            </td>
+
+                                            <td className="p-4">
+                                                <span className={`px-2 py-1 rounded text-[9px] font-black text-white uppercase ${item.tipo && item.tipo.includes('Abertura') ? 'bg-amber-400' : 'bg-blue-500'}`}>
+                                                    {item.tipo || 'Intervenção'}
                                                 </span>
                                             </td>
                                             <td className="p-4 italic">{item.responsavel}</td>
                                         </tr>
                                     ))}
-                                    {dados.timeline.length === 0 && (
+                                    {(!dados.timeline || dados.timeline.length === 0) && (
                                         <tr>
                                             <td colSpan="4" className="p-8 text-center text-slate-400 font-bold italic">Nenhum evento registrado no prontuário.</td>
                                         </tr>
