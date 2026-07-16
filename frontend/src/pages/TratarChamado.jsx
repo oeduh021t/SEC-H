@@ -80,7 +80,6 @@ export function TratarChamado() {
 
   const injetarTextoRapido = (texto) => {
     if (chamado?.status === "Concluído") return
-    // Corrigido: alterado 'text' para 'texto' para evitar erro de referência
     setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`)
   }
 
@@ -88,10 +87,22 @@ export function TratarChamado() {
     e.preventDefault()
     if (!pecaSelecionada) return
 
+    // Obtém o usuário logado no localStorage como fallback de segurança
+    const usuarioSalvo = localStorage.getItem('user')
+    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null
+
+    // Monta o payload garantindo que propriedades nulas do chamado tenham um substituto válido
+    const dadosPeca = {
+      item_id: pecaSelecionada,
+      quantidade: qtdPeca,
+      usuario_id: chamado?.usuario_id || usuarioLogado?.id || 1, // Fallback se o chamado.usuario_id for null
+      equipamento_id: chamado?.equipamento_id || null // Envia null de forma explícita se não houver ativo vinculado
+    }
+
     fetch(`${API_URL}/chamados/${id}/itens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item_id: pecaSelecionada, quantidade: qtdPeca })
+      body: JSON.stringify(dadosPeca)
     }).then((res) => {
       if (res.ok) {
         alert("Peça debitada do estoque com sucesso! 📦")

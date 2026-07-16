@@ -127,7 +127,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) 
                 BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 15 DAY)`,
         
-        // 🆕 SUBSTITUÍDO: ranking dos 5 equipamentos com mais chamados criados
         porEquipamento: `
             SELECT e.nome, COUNT(c.id) as total
             FROM chamados c 
@@ -169,11 +168,18 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 WHERE equipamento_id IS NOT NULL
             ) as total`,
 
-        // 4. Gasto Total em Estrutura / TI (Baseado na categoria 'TI' da tabela chamados)
+        // 4. 🛠️ CORRIGIDOConceitualmente: Gasto Total em Estrutura (Soma peças + serviços terceirizados onde NÃO há equipamento atrelado)
         gastoTotalEstrutura: `
-            SELECT IFNULL(SUM(custo_servico), 0) as total 
-            FROM chamados 
-            WHERE category = 'TI' OR categoria = 'TI'`,
+            SELECT (
+                SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
+                FROM chamados_itens ci
+                JOIN chamados c ON ci.chamado_id = c.id
+                WHERE c.equipamento_id IS NULL
+            ) + (
+                SELECT IFNULL(SUM(custo_servico), 0)
+                FROM chamados
+                WHERE equipamento_id IS NULL
+            ) as total`,
 
         // Boletos que vencem hoje e estão abertos
         boletosVencendoHoje: `
@@ -238,7 +244,7 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: message = mensagem, parse_mode: 'Markdown' });
+        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
         const finalErr = err || { message: 'Erro desconhecido' };
@@ -509,18 +515,18 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
 
             if (descricao_solucao && descricao_solucao.trim() !== "") {
                 const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
-                conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (err) => {
-                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (errHist) => {
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
-                    conn.commit((err) => {
-                        if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                    conn.commit((errCommit) => {
+                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                         conn.release();
                         res.json({ message: "Chamado e cronologia atualizados com sucesso!" });
                     });
                 });
             } else {
-                conn.commit((err) => {
-                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                     conn.release();
                     res.json({ message: "Chamado atualizado com sucesso!" });
                 });
@@ -529,7 +535,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
     });
 });
 
-// 🟢 CORRIGIDO: Correção do erro de sintaxe estrutural na linha 478 da desestruturação do req.body
+// 🟢 CORRIGIDO: Correção do erro de digitação de "quantity" para "quantidade" no UPDATE do estoque
 app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { item_id, quantity, quantidade } = req.body;
@@ -567,7 +573,8 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
                 conn.query(queryIns, [id, item_id, qtd_solicitada, item.valor_unitario], (errIns) => {
                     if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
-                    conn.query("UPDATE itens_estoque SET quantidade = quantity - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
+                    // 🛠️ CORREÇÃO AQUI: Mudado de quantity para quantidade
+                    conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
                         if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
                         const msgEstoque = `Peça utilizada: ${qtd_solicitada}x ${item.nome}`;
@@ -619,8 +626,8 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
             conn.query(queryHist, [id, tecnico_responsavel, msgHist, status], (err) => {
                 if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
                 
-                conn.commit(err => {
-                    if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+                conn.commit(errCommit => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json(errCommit); });
                     conn.release();
                     res.json({ message: "Sucesso!" });
                 });
@@ -712,72 +719,73 @@ app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', '
     });
 });
 
-app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('arquivo'), (req, res) => {
     const { equipamento_id, relatorio_tecnico, tecnico_nome } = req.body;
     
-    db.beginTransaction((err) => {
+    // Captura o caminho do arquivo se ele foi enviado
+    const url_anexo = req.file ? `/uploads/${req.file.filename}` : null;
+
+    db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
         
-        // Atulaiza a data da última preventiva para HOJE
-        db.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (err) => {
-            if (err) {
-                return db.rollback(() => {
-                    res.status(500).json(err);
-                });
-            }
+        // 1. Atualiza a data da última preventiva para HOJE
+        conn.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json(errUp); });
             
+            // 2. Insere na cronologia salvando a url do anexo na coluna 'arquivo_url'
             const historicoTexto = `[ID EQUIP: ${equipamento_id}] RELATÓRIO DE PREVENTIVA: ${relatorio_tecnico}`;
-            const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (NULL, ?, ?, 'Preventiva Realizada', NOW())";
+            const queryHist = `
+                INSERT INTO chamados_historico 
+                (chamado_id, tecnico_nome, texto_historico, status_momento, arquivo_url, data_registro) 
+                VALUES (NULL, ?, ?, 'Preventiva Realizada', ?, NOW())
+            `;
             
-            db.query(queryHist, [tecnico_nome || 'Técnico', historicoTexto], (err) => {
-                if (err) {
-                    return db.rollback(() => {
-                        res.status(500).json(err);
-                    });
-                }
+            conn.query(queryHist, [tecnico_nome || 'Técnico', historicoTexto, url_anexo], (errHist) => {
+                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json(errHist); });
                 
-                db.commit((errCommit) => {
-                    if (errCommit) {
-                        return db.rollback(() => {
-                            res.status(500).json(errCommit);
-                        });
-                    }
-                    res.json({ message: "Baixa de preventiva registrada!" });
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json(errCommit); });
+                    conn.release();
+                    res.json({ message: "Baixa de preventiva registrada com sucesso!" });
                 });
             });
         });
     });
 });
 
-// -------------------------------------------------------------------------
-// PRONTUÁRIO
-// -------------------------------------------------------------------------
+// 🛠️ VERSÃO DEFINITIVA: Prontuário ajustado para ler 'arquivo_url' do histórico
 app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const queryEquip = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id WHERE e.id = ?`;
+    
     const queryTimeline = `
-        (SELECT data_abertura as data, titulo as evento, 'Abertura OS' as tipo, 'Usuário' as responsavel, status, id as ref_id FROM chamados WHERE equipamento_id = ?)
+        (SELECT data_abertura as data, titulo as evento, 'Abertura OS' as tipo, 'Usuário' as responsavel, status, id as ref_id, NULL as url_anexo FROM chamados WHERE equipamento_id = ?)
         UNION
-        (SELECT h.data_registro as data, h.texto_historico as evento, 'Intervenção Técnica' as tipo, h.tecnico_nome as responsavel, h.status_momento as status, c.id as ref_id
+        (SELECT h.data_registro as data, h.texto_historico as evento, 'Intervenção Técnica' as tipo, h.tecnico_nome as responsavel, h.status_momento as status, c.id as ref_id, h.arquivo_url as url_anexo
          FROM chamados_historico h JOIN chamados c ON h.chamado_id = c.id WHERE c.equipamento_id = ?)
         UNION
-        (SELECT data_registro as data, texto_historico as evento, 'Preventiva' as tipo, tecnico_nome as responsavel, status_momento as status, 0 as ref_id
+        (SELECT data_registro as data, texto_historico as evento, 'Preventiva' as tipo, tecnico_nome as responsavel, status_momento as status, 0 as ref_id, arquivo_url as url_anexo
          FROM chamados_historico WHERE texto_historico LIKE CONCAT('%[ID EQUIP: ', ?, ']%'))
         UNION
-        (SELECT data_movimentacao as data, descricao_log as evento, 'Movimentação' as tipo, tecnico_nome as responsavel, status_novo as status, 0 as ref_id
+        (SELECT data_movimentacao as data, descricao_log as evento, 'Movimentação' as tipo, tecnico_nome as responsavel, status_novo as status, 0 as ref_id, NULL as url_anexo
          FROM equipamentos_historico WHERE equipamento_id = ?)
         ORDER BY data DESC
     `;
+
     db.query(queryEquip, [id], (err, equip) => {
         if (err) return res.status(500).json(err);
         if (equip.length === 0) return res.status(404).json({ message: "Não encontrado" });
-        db.query(queryTimeline, [id, id, id, id], (err, timeline) => {
+        
+        db.query(queryTimeline, [id, id, id, id], (errTimeline, timeline) => {
+            if (errTimeline) return res.status(500).json(errTimeline);
+            
             const queryCusto = `
                 SELECT (SELECT IFNULL(SUM(custo_servico), 0) FROM chamados WHERE equipamento_id = ? AND status = 'Concluído') +
                         (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?)
                 as total`;
-            db.query(queryCusto, [id, id], (err, custo) => {
-                if (err) return res.status(500).json(err);
+                
+            db.query(queryCusto, [id, id], (errCusto, custo) => {
+                if (errCusto) return res.status(500).json(errCusto);
                 res.json({ dados: equip[0], timeline, custoAcumulado: custo[0].total || 0 });
             });
         });
@@ -886,6 +894,7 @@ app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador',
         }
     });
 });
+
 // GET: Listar apenas usuários habilitados para atendimento (técnicos, admins e coordenadores)
 app.get('/api/tecnicos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `
@@ -1475,8 +1484,8 @@ app.post('/api/filtros', permitirApenas(['admin']), (req, res) => {
 });
 
 app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
-    const { filtro_id, tecnico_nome, obs_intervencao, item_id, quantidade } = req.body;
-    const qtd_usada = Number(quantidade) || 0;
+    const { filtro_id, tecnico_nome, obs_intervencao, item_id, quantity, quantidade } = req.body;
+    const qtd_usada = Number(quantidade || quantity || 0);
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -1680,8 +1689,6 @@ app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'u
         res.json(results || []);
     });
 });
-
-
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

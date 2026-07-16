@@ -10,6 +10,9 @@ const Preventivas = () => {
     const [modalBaixa, setModalBaixa] = useState(false);
     const [selecionado, setSelecionado] = useState(null);
     const [relatorio, setRelatorio] = useState('');
+    
+    // 🆕 Estado para gerenciar o laudo opcional fixado à cronologia
+    const [arquivoLaudo, setArquivoLaudo] = useState(null);
 
     // Estados dos Filtros Dinâmicos
     const [busca, setBusca] = useState('');
@@ -55,27 +58,34 @@ const Preventivas = () => {
 
     useEffect(() => { carregarDados(); }, []);
 
+    // 🛠️ ATUALIZADO: Modificado para FormData para suportar a transmissão do payload binário do laudo
     const handleBaixa = (e) => {
         e.preventDefault();
         const userLogado = localStorage.getItem('user');
         const tecnicoNome = userLogado ? JSON.parse(userLogado).nome : 'Técnico do Sistema';
 
+        const formData = new FormData();
+        formData.append('equipamento_id', selecionado.id);
+        formData.append('relatorio_tecnico', relatorio);
+        formData.append('tecnico_nome', tecnicoNome);
+        
+        if (arquivoLaudo) {
+            formData.append('arquivo', arquivoLaudo);
+        }
+
         fetch(`${API_URL}/preventivas/baixa`, {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/json',
                 'x-usuario-nivel': obterNivelUsuario() 
+                // O Content-Type multipart/form-data com o boundary correto é injetado pelo próprio navegador
             },
-            body: JSON.stringify({
-                equipamento_id: selecionado.id,
-                relatorio_tecnico: relatorio,
-                tecnico_nome: tecnicoNome
-            })
+            body: formData
         }).then((res) => {
             if (res.ok) {
                 alert("Baixa de preventiva registrada e cronologia atualizada! 📅🎉");
                 setModalBaixa(false);
                 setRelatorio('');
+                setArquivoLaudo(null); // Limpa o arquivo temporário do estado
                 carregarDados();
             } else {
                 alert("Erro ao registrar a baixa da preventiva.");
@@ -100,17 +110,14 @@ const Preventivas = () => {
         if (filtroStatusCard === 'atrasadas') {
             matchesCard = p.dias_restantes < 0;
         } else if (filtroStatusCard === 'criticas') {
-            // 🛠️ MUDADO: Limite superior agora vai até 15 dias
             matchesCard = p.dias_restantes >= 0 && p.dias_restantes <= 15; 
         } else if (filtroStatusCard === 'emDia') {
-            // 🛠️ MUDADO: Considera em dia tudo o que passar de 15 dias de folga
             matchesCard = p.dias_restantes > 15; 
         }
 
         return matchesBusca && matchesSetor && matchesTipo && matchesCard;
     });
 
-    // 🛠️ MUDADO: Agrupamento térmico ajustado para a janela de 15 dias
     const totais = dados.reduce((acc, curr) => {
         if (curr.dias_restantes < 0) acc.atrasadas++;
         else if (curr.dias_restantes <= 15) acc.criticas++; 
@@ -178,7 +185,6 @@ const Preventivas = () => {
                     }`}
                 >
                     <div>
-                        {/* 🛠️ MUDADO: Ajustado texto indicativo para 15 dias */}
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Atenção (Vence em 15 dias)</span>
                         <p className="text-xl font-black text-amber-500 mt-0.5">{totais.criticas} Ativos</p>
                     </div>
@@ -264,7 +270,6 @@ const Preventivas = () => {
                                         <div className="text-[10px] text-slate-400 mt-0.5 font-medium">Última: {formatarDataLocal(p.data_ultima_preventiva)}</div>
                                     </td>
                                     <td className="p-5">
-                                        {/* 🛠️ MUDADO: Estilização condicional da tag alterada para a regra de 15 dias */}
                                         <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider ${
                                             p.dias_restantes < 0 ? 'bg-red-50 text-red-600 border border-red-100' : 
                                             p.dias_restantes <= 15 ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-green-50 text-green-600 border border-green-100'
@@ -317,6 +322,18 @@ const Preventivas = () => {
                                     placeholder="Descreva detalhadamente as ações de manutenção efetuadas..."
                                 ></textarea>
                             </div>
+                            
+                            {/* 🆕 NOVO CAMPO: Upload de Laudo de Preventiva Terceirizada ou Interna (Opcional) */}
+                            <div className="bg-slate-50 p-4 rounded-2xl border-2 border-dashed border-slate-200">
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Comprovante / Ordem de Serviço Externa (Opcional)</label>
+                                <input 
+                                    type="file" 
+                                    accept="image/*,application/pdf" 
+                                    className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-white hover:file:bg-slate-900 file:cursor-pointer"
+                                    onChange={e => setArquivoLaudo(e.target.files[0])}
+                                />
+                            </div>
+
                             <div className="flex gap-3 pt-2">
                                 <button type="button" onClick={() => setModalBaixa(false)} className="flex-1 bg-slate-100 text-slate-400 py-3.5 rounded-xl font-black text-xs uppercase hover:bg-slate-200 transition-colors">Cancelar</button>
                                 <button type="submit" className="flex-[2] bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg shadow-green-100 hover:bg-green-700 transition-all active:scale-95">💾 Confirmar Execução</button>
