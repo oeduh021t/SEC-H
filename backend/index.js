@@ -124,7 +124,8 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             SELECT COUNT(*) as total FROM equipamentos
             WHERE periodicidade_preventiva > 0
             AND data_ultima_preventiva IS NOT NULL
-            AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) <= CURDATE()`,
+            AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) 
+                BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 15 DAY)`,
         
         // 🆕 SUBSTITUÍDO: ranking dos 5 equipamentos com mais chamados criados
         porEquipamento: `
@@ -679,8 +680,6 @@ app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', '
 // ROTAS DE PREVENTIVAS (VERSÃO ULTRA-ESTÁVEL - ZERO SUBQUERIES)
 // -------------------------------------------------------------------------
 app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    // 💡 Estrutura direta com LEFT JOIN simplificado. 
-    // Filtro positivo no WHERE impede 100% de quebras ocultas por enums corrompidos.
     const query = `
         SELECT 
             e.id, 
@@ -690,21 +689,17 @@ app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', '
             s.nome as setor_nome,
             e.data_ultima_preventiva, 
             e.periodicidade_preventiva,
-            -- Define um tipo padrão caso não exista amarração nas chaves estrangeiras
-            'Aparelho' as tipo_nome,
-            -- Calcula a data de vencimento (se a periodicidade for 0, projeta para 30 dias à frente para testes)
-            COALESCE(
-                DATE_ADD(e.data_ultima_preventiva, INTERVAL IF(e.periodicidade_preventiva > 0, e.periodicidade_preventiva, 30) DAY), 
-                CURDATE()
-            ) as data_vencimento,
-            -- Calcula os dias restantes para os cards operacionais
-            COALESCE(
-                DATEDIFF(DATE_ADD(e.data_ultima_preventiva, INTERVAL IF(e.periodicidade_preventiva > 0, e.periodicidade_preventiva, 30) DAY), CURDATE()), 
-                0
-            ) as dias_restantes
+            IFNULL(t.nome, 'Aparelho') as tipo_nome,
+            e.tipo_id,
+            -- Calcula a data exata do próximo vencimento baseado no ciclo real do ativo
+            DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY) as data_vencimento,
+            -- Calcula a diferença de dias exata até a data de vencimento projetada
+            DATEDIFF(DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY), CURDATE()) as dias_restantes
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
-        WHERE e.status = 'Ativo' OR e.status = 'Em Manutenção' OR e.status = 'Reserva'
+        LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
+        WHERE (e.status IN ('Ativo', 'Em Manutenção', 'Reserva'))
+          AND e.periodicidade_preventiva > 0 -- 🛠️ Correção: Ignora ativos que não possuem plano de preventiva/PMOC
         ORDER BY dias_restantes ASC
     `;
 

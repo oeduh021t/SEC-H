@@ -150,7 +150,10 @@ const Dashboard = ({ user }) => {
             {/* INDICADORES OPERACIONAIS */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <StatCard title="Total Ativos" value={stats.totalEquipamentos?.[0]?.total || 0} color="border-blue-500" link="/equipamentos" />
-                <StatCard title="Preventivas" value={stats.preventivasAtrasadas?.[0]?.total || 0} color="border-green-500" link="/preventivas" />
+                
+                {/* 🛠️ ALTERADO: Mudamos o título para 'Em Atenção (15d)' e a cor para border-amber-500 */}
+                <StatCard title="Em Atenção (15d)" value={stats.preventivasAtrasadas?.[0]?.total || 0} color="border-amber-500" link="/preventivas" />
+                
                 <StatCard title="Abertos" value={stats.chamadosAbertos?.[0]?.total || 0} color="border-red-500" link="/chamados" />
                 <StatCard title="Em Atendimento" value={stats.chamadosAndamento?.[0]?.total || 0} color="border-amber-500" link="/chamados" />
                 <StatCard title="Concluídos" value={stats.chamadosConcluidos?.[0]?.total || 0} color="border-emerald-500" link="/chamados" />
