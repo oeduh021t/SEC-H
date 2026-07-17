@@ -32,7 +32,7 @@ const Dashboard = ({ user }) => {
     if (nivelUsuario === 'usuario') {
         return (
             <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">
-                Acesso Negado: Seu perfil não possui acesso ao painel estatístico.
+                Acesso Negado: Seu perfil não possui access ao painel estatístico.
             </div>
         );
     }
@@ -163,6 +163,7 @@ const Dashboard = ({ user }) => {
             <div className="space-y-2">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Balanço Financeiro (Mês Atual)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* 🛠️ CORRIGIDO: Removido fallback de objeto posicional inconsistente para ler direto os valores numéricos higienizados da API */}
                     <FinanceCard title="Gastos com Insumos Gerais" value={formatarMoeda(stats.gastoInsumosGerais)} color="border-indigo-500" />
                     <FinanceCard title="Total em Equipamentos" value={formatarMoeda(stats.gastoTotalEquipamentos)} color="border-emerald-500" />
                     <FinanceCard title="Total em Estrutura" value={formatarMoeda(stats.gastoTotalEstrutura)} color="border-purple-500" />

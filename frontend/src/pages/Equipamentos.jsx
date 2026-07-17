@@ -67,7 +67,8 @@ const Equipamentos = () => {
       data_ultima_preventiva: e.data_ultima_preventiva ? e.data_ultima_preventiva.split('T')[0] : '',
       periodicidade_preventiva: e.periodicidade_preventiva || 0,
       tipo_id: e.tipo_id || '',
-      local_estoque_id: e.local_estoque_id || '' // 🆕 Atribui local_estoque_id na edição
+      local_estoque_id: e.local_estoque_id || '',
+      valor: e.valor !== undefined && e.valor !== null ? e.valor : '' // 🆕 CORRIGIDO: Vincula o valor patrimonial inicial no modal ao editar!
     })
     setFotoEquipamento(null)
     setModalAberta(true)
@@ -98,6 +99,7 @@ const Equipamentos = () => {
     formData.append('data_ultima_preventiva', form.data_ultima_preventiva || '')
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0)
     formData.append('local_estoque_id', form.local_estoque_id || '') // 🆕 Append do local_estoque_id para sincronia com o backend
+    formData.append('valor', form.valor || 0) // 🆕 CORRIGIDO: Adicionado append explícito do valor para tráfego com a API
     
     if (fotoEquipamento) {
       formData.append('foto_equipamento', fotoEquipamento)
@@ -331,6 +333,19 @@ const Equipamentos = () => {
                   <option value="Em Manutenção">🟡 Em Manutenção</option>
                   <option value="Baixado/Quebrado">🔴 Baixado/Quebrado</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Valor de Aquisição (R$)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  placeholder="0.00"
+                  value={form.valor || ''} 
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black font-bold" 
+                  onChange={e => setForm({...form, valor: e.target.value})} 
+                />
               </div>
 
               {/* 🛠️ CAMPOS RESTAURADOS DE CONTROLE DE PREVENTIVAS */}
