@@ -273,7 +273,10 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
     // Sanitização de tipos contra valores vazios
     const v_nome = nome && nome.trim() !== "" ? nome : 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
-    const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio : 'S/P';
+    
+    // 🛠️ ALTERAÇÃO DE CORREÇÃO: Envia NULL se estiver vazio, permitindo múltiplos registros duplicados no banco UNIQUE
+    const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio.trim() : null;
+    
     const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
     const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
@@ -311,7 +314,10 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
     
     const v_nome = nome || 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
-    const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio : 'S/P';
+    
+    // 🛠️ ALTERAÇÃO DE CORREÇÃO: Mantém o padrão de gravação NULL para a edição do equipamento
+    const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio.trim() : null;
+    
     const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
     const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
@@ -1166,8 +1172,7 @@ app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador'
             COUNT(c.id) AS total_chamados
         FROM setores s
         LEFT JOIN chamados c
-            ON c.setor_id = s.id
-            ON c.data_abertura BETWEEN ? AND ?
+            ON c.setor_id = s.id AND c.data_abertura BETWEEN ? AND ?
         WHERE 1=1 ${filtroSetor}
         GROUP BY s.id, s.nome
         ORDER BY total_chamados DESC
@@ -1391,7 +1396,7 @@ app.post('/api/boletos', permitirApenas(['admin', 'coordenador']), uploadDocumen
     `;
     const values = [Number(nota_fiscal_id), parcela || '1/1', codigo_barras || null, linha_digitavel || null, Number(valor_boleto), data_vencimento, url_boleto_pdf];
 
-    db.query(query, values, (err, result) => {
+    db.query(values, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         res.status(201).json({ message: "Boleto anexado com sucesso!", id: result.insertId });
     });
@@ -1551,9 +1556,9 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
                         return conn.rollback(() => { res.status(400).json({ error: `Estoque insuficiente! Saldo arterial: ${item.quantidade} un.` }); });
                     }
 
-                    const custo_total = item.valor_unitario * qtd_usada;
+                    const cubic_total = item.valor_unitario * qtd_usada;
                     // String de histórico com formato clássico para a tabela do relatório ler as peças
-                    const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${custo_total.toFixed(2)}]`;
+                    const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${cubic_total.toFixed(2)}]`;
 
                     // 3. Atualiza o custo acumulado numérico do ponto de filtragem
                     const queryUpdateFiltro = `
@@ -1561,7 +1566,7 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
                         SET custo_acumulado = custo_acumulado + ?
                         WHERE id = ?`;
 
-                    conn.query(queryUpdateFiltro, [custo_total, filtro_id], (errCusto) => {
+                    conn.query(queryUpdateFiltro, [cubic_total, filtro_id], (errCusto) => {
                         if (errCusto) return conn.rollback(() => { res.status(500).json({ error: errCusto.message }); });
 
                         // 4. Grava no histórico tradicional do módulo
@@ -1826,7 +1831,7 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                     if (errUpNovo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpNovo.message }); });
 
                     // Passo 4: Registrar histórico do Equipamento Danificado que SAI
-                    const logDescricaoAntigo = `Retirado do setor (ID: ${setor_destino_id}) devido a falha relatada no Chamado #${chamado_id}. Substituído pelo Equipamento ${eqNovo.nome} (Pat: ${eqNovo.patrimonio}).`;
+                    const logDescricaoAntigo = `Retirado do setor (ID: ${setor_destino_id}) due to falha relatada no Chamado #${chamado_id}. Substituído pelo Equipamento ${eqNovo.nome} (Pat: ${eqNovo.patrimonio}).`;
                     const queryHistAntigo = `
                         INSERT INTO equipamentos_historico 
                         (equipamento_id, setor_origem_id, setor_destino_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
@@ -2032,7 +2037,7 @@ app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico
 
     let query = `
         SELECT m.*, g.tipo_gas, g.capacidade_cilindro,
-               (m.quantidade_cilindros * m.valor_unitario_cilindro) as custo_total_movimentacao
+               (m.quantidade_cilindros * m.valor_unitario_cilindro) as cubic_total_movimentacao
         FROM gases_movimentacoes m
         JOIN gases_estoque g ON m.tipo_gas_id = g.id
         WHERE 1=1

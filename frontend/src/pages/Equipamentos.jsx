@@ -89,7 +89,7 @@ const Equipamentos = () => {
     const formData = new FormData()
     formData.append('nome', form.nome || '')
     formData.append('modelo', form.modelo || '')
-    formData.append('patrimonio', form.patrimonio || '')
+    formData.append('patrimonio', form.patrimonio ? form.patrimonio.trim() : '');
     formData.append('num_serie', form.num_serie || '')
     formData.append('fabricante', form.fabricante || '')
     formData.append('setor_id', form.setor_id || '')

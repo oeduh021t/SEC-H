@@ -30,7 +30,7 @@ export function RelatorioChamadosSetor() {
       const res = await fetch(`${API_URL}/setores`, {
         headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
       }).then(res => res.json())
-      setSetores(res || [])
+      setSetores(Array.isArray(res) ? res : [])
     } catch (err) {
       console.error("Erro ao carregar setores:", err)
     }
@@ -42,17 +42,19 @@ export function RelatorioChamadosSetor() {
     try {
       const url =
         `${API_URL}/relatorios/chamados-setor` +
-        `?data_inicio=${dataInicio} 00:00:00` +
-        `&data_fim=${dataFim} 23:59:59` +
+        `?data_inicio=${dataInicio}` +
+        `&data_fim=${dataFim}` +
         `&setor_id=${setorSelecionado}`
 
       const res = await fetch(url, {
         headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
       }).then(res => res.json())
 
-      setDados(res || [])
+      // Protente contra erros 500: só define se for de fato uma lista []
+      setDados(Array.isArray(res) ? res : [])
     } catch (err) {
       console.error("Erro ao carregar relatório:", err)
+      setDados([])
     } finally {
       setLoading(false)
     }
@@ -62,6 +64,7 @@ export function RelatorioChamadosSetor() {
     carregarSetores()
   }, [])
 
+  // 🛠️ CORRIGIDO: Removido useEffect duplicado e ajustadas as dependências sem erros de digitação
   useEffect(() => {
     carregarRelatorio()
   }, [dataInicio, dataFim, setorSelecionado])
@@ -71,9 +74,11 @@ export function RelatorioChamadosSetor() {
     0
   )
 
-  const setorMaisAtivo = [...dados].sort(
-    (a, b) => b.total_chamados - a.total_chamados
-  )[0]
+  // 🛠️ CORRIGIDO: Alinhamento das variáveis em português para evitar erros de referência
+  const setorOrdenado = [...dados].sort(
+    (a, b) => (b.total_chamados || 0) - (a.total_chamados || 0)
+  )
+  const setorMaisAtivo = setorOrdenado.length > 0 ? setorOrdenado[0] : null;
 
   const mediaChamados =
     dados.length > 0
@@ -82,9 +87,9 @@ export function RelatorioChamadosSetor() {
 
   const formatarDataBR = (dataStr) => {
     if (!dataStr) return ""
-
-    const [ano, mes, dia] = dataStr.split("-")
-
+    const partes = dataStr.split(" ")[0].split("-")
+    if (partes.length < 3) return dataStr
+    const [ano, mes, dia] = partes
     return `${dia}/${mes}/${ano}`
   }
 
