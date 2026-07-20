@@ -25,7 +25,6 @@ import { RelatorioChamadosSetor } from './pages/RelatorioChamadosSetor';
 import Documentos from './pages/Documentos'; 
 import GestaoLocais from './pages/GestaoLocais';
 import { RelatorioEstoqueLocal } from './pages/RelatorioEstoqueLocal';
-import Gases from './pages/Gases'; // 🟢 Importação da página de Controle de Gases
 
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
@@ -147,10 +146,6 @@ function App() {
               {/* Controle e Relatório Financeiro de Filtros: Exclusivo ADMIN */}
               <Route path="/filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><ControleFiltros /></RotaProtegida>} />
               <Route path="/relatorio-filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><RelatorioFiltros /></RotaProtegida>} />
-
-              {/* --- 🟢 5.2 MÓDULO CONTROLE DE GASES MEDICINAIS --- */}
-              {/* Liberado para o corpo técnico e gestores (admin, coordenador, tecnico) */}
-              <Route path="/gases" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Gases /></RotaProtegida>} />
 
               {/* --- 6. RELATÓRIOS GERENCIAIS --- */}
               {/* Inventário e Custos por Setor: Apenas ADMIN e COORDENADOR acessam */}

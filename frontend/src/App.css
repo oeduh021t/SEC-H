@@ -225,3 +225,42 @@
     color: black !important;
   }
 }
+
+/* =========================================================================
+   BLINDAGEM DE LAYOUT RESPONSIVO (RESOLVE CORTE DE TELA)
+   ========================================================================= */
+
+/* 1. Garante que nada na página seja maior que a tela do usuário */
+html, body {
+  width: 100%;
+  overflow-x: hidden; /* Corta qualquer barra de rolagem lateral inútil */
+  margin: 0;
+  padding: 0;
+}
+
+/* 2. Em telas menores que 1280px (como o seu monitor), reduz o zoom globalmente 
+   para garantir que o layout complexo caiba sem quebrar as colunas */
+@media (max-width: 1280px) {
+  body {
+    zoom: 0.95; /* Diminui 5% do tamanho, criando espaço extra automaticamente */
+  }
+}
+
+/* 3. Ajuste para o conteúdo principal (main) não espremer o layout */
+main {
+  flex: 1 1 auto; /* Permite que o main encolha se precisar */
+  min-width: 0;   /* Essencial para tabelas e gráficos não estourarem a largura */
+}
+
+/* 4. Garantia para os Cards de Dashboard não "amassarem" o texto */
+.stat-card, .finance-card {
+  word-wrap: break-word;
+  overflow: hidden;
+}
+
+/* 5. Ajuste fino para Sidebar em telas médias */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 200px !important; /* Sidebar um pouco mais fina em telas menores */
+  }
+}

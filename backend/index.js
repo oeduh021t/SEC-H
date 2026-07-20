@@ -1196,9 +1196,25 @@ app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador'
 // LOGÍSTICA / AUXILIARES
 // -------------------------------------------------------------------------
 app.get('/api/setores', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    const query = `SELECT s1.id, TRIM(LEADING ' > ' FROM CONCAT_WS(' > ', s3.nome, s2.nome, s1.nome)) as nome
-                    FROM setores s1 LEFT JOIN setores s2 ON s1.setor_pai_id = s2.id LEFT JOIN setores s3 ON s2.setor_pai_id = s3.id
-                    ORDER BY s3.nome, s2.nome, s1.nome ASC`;
+    const query = `
+        WITH RECURSIVE ArvoreSetores AS (
+            -- Caso Base: Pega todos os setores e inicia a linha com o nome próprio
+            SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+            FROM setores
+            WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+            
+            UNION ALL
+            
+            -- Passo Recursivo: Junta o setor pai ao filho indefinidamente até o topo
+            SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+            FROM setores filho
+            INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+        )
+        SELECT id, caminho as nome
+        FROM ArvoreSetores
+        ORDER BY caminho ASC;
+    `;
+    
     db.query(query, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);

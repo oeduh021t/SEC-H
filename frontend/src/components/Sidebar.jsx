@@ -258,7 +258,7 @@ const Sidebar = ({ user, onLogout }) => {
                 🚚 Fornecedores
               </Link>
 
-              <Link to="/notes-fiscais" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/notas-fiscais') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              <Link to="/notas-fiscais" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/notas-fiscais') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
                 🧾 Notas Fiscais / Boletos
               </Link>
 
