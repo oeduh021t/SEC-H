@@ -1861,14 +1861,14 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                         if (errHistA) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistA.message }); });
 
                         // Passo 5: Registrar histórico do Equipamento Reserva que ENTRA
-                        const logDescricaoNovo = `Instalado no setor (ID: ${setor_destino_id}) em substituição ao Equipamento ${eqAntigo.nome} (Pat: ${eqAntigo.patrimonio}) através do Chamado #${chamado_id}.`;
-                        const queryHistNovo = `
-                            INSERT INTO equipamentos_historico 
-                            (equipamento_id, setor_origem_id, setor_destino_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
-                            VALUES (?, NULL, ?, ?, 'Ativo', ?, ?, NOW())`;
+                    const logDescricaoNovo = `Instalado no setor (ID: ${setor_destino_id}) em substituição ao Equipamento ${eqAntigo.nome} (Pat: ${eqAntigo.patrimonio}) através do Chamado #${chamado_id}.`;
+                    const queryHistNovo = `
+                        INSERT INTO equipamentos_historico 
+                        (equipamento_id, setor_origem_id, setor_destino_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
+                        VALUES (?, NULL, ?, ?, 'Ativo', ?, ?, NOW())`;
 
-                        conn.query(queryHistNovo, [equipamento_reserva_id, sector_destino_id, eqNovo.status, logDescricaoNovo, tecnico_nome], (errHistN) => {
-                            if (errHistN) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistN.message }); });
+                    conn.query(queryHistNovo, [equipamento_reserva_id, setor_destino_id, eqNovo.status, logDescricaoNovo, tecnico_nome], (errHistN) => {
+                        if (errHistN) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistN.message }); });
 
                             // Passo 6: Atualizar chamado técnico para vincular o novo equipamento instalado
                             const queryUpdateChamado = `UPDATE chamados SET equipamento_id = ? WHERE id = ?`;

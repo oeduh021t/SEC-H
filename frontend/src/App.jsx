@@ -88,8 +88,7 @@ function App() {
 
   return (
     <Router>
-      shadow-slate-900
-      <div className="flex min-h-screen bg-gray-100">
+      <div className="flex min-h-screen bg-gray-100 shadow-slate-900">
         {/* Passamos o usuário e a função de logout para a Sidebar */}
         <Sidebar user={user} onLogout={handleLogout} />
 
@@ -141,6 +140,7 @@ function App() {
               <Route path="/notas-fiscais" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NotasFiscais /></RotaProtegida>} />
               <Route path="/estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoEstoque /></RotaProtegida>} />
               <Route path="/setores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoSetores /></RotaProtegida>} />
+              <Route path="/locais-estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoLocais /></RotaProtegida>} />
 
               {/* --- 5. MÓDULO FILTROS DE ÁGUA --- */}
               {/* Controle e Relatório Financeiro de Filtros: Exclusivo ADMIN */}
@@ -157,11 +157,6 @@ function App() {
               {/* --- 7. GERENCIAMENTO DE USUÁRIOS --- */}
               {/* Criação e edição de operadores: Exclusivo ADMIN */}
               <Route path="/usuarios" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><Usuarios /></RotaProtegida>} />
-               
-              {/* // Adicione nas rotas de Logística / Infraestrutura (logo abaixo do Cadastro de Setores): */}
-              <Route path="/setores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoSetores /></RotaProtegida>} />
-              <Route path="/locais-estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoLocais /></RotaProtegida>} />
-
 
               {/* Fallback */}
               <Route path="*" element={<div className="p-10 text-center text-slate-400 font-bold">Página não encontrada...</div>} />

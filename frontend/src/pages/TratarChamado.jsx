@@ -15,6 +15,7 @@ export function TratarChamado() {
   // ESTADOS ADICIONADOS PARA A TROCA DE EQUIPAMENTO
   const [equipamentosReserva, setEquipamentosReserva] = useState([])
   const [equipamentoReservaSelecionado, setEquipamentoReservaSelecionado] = useState("")
+  const [buscaPatrimonioReserva, setBuscaPatrimonioReserva] = useState("") // 🔎 NOVO ESTADO DE FILTRO DE PATRIMÔNIO
   const [exibirPainelTroca, setExibirPainelTroca] = useState(false)
   const [executandoTroca, setExecutandoTroca] = useState(false)
 
@@ -91,7 +92,6 @@ export function TratarChamado() {
   // Busca os equipamentos reservas baseados no tipo do equipamento atual do chamado
   const carregarEquipamentosReserva = async (equipamentoId, headers) => {
     try {
-      // Passa o equipamento_id atual para o backend conseguir identificar o tipo de equipamento e trazer apenas os reservas equivalentes
       const res = await fetch(`${API_URL}/equipamentos/reservas?tipo_de_equipamento_com_base_em=${equipamentoId}`, { headers });
       if (res.ok) {
         const dados = await res.json();
@@ -199,7 +199,7 @@ export function TratarChamado() {
       body: JSON.stringify(dadosParaSalvar)
     }).then((res) => {
       if (res.ok) {
-        alert("Relatório técnico updated com sucesso! 🎉")
+        alert("Relatório técnico atualizado com sucesso! 🎉")
         navigate("/chamados")
       } else {
         alert("Erro ao salvar o atendimento no servidor.")
@@ -225,7 +225,7 @@ export function TratarChamado() {
       equipamento_reserva_id: equipamentoReservaSelecionado,
       chamado_id: id,
       tecnico_nome: usuarioLogado?.nome || "Técnico",
-      setor_destino_id: chamado?.setor_id // O reserva assume o setor (quarto) do chamado
+      setor_destino_id: chamado?.setor_id 
     };
 
     try {
@@ -239,8 +239,8 @@ export function TratarChamado() {
         alert("Substituição realizada com sucesso! 🔄 O histórico do ativo foi gerado.");
         setExibirPainelTroca(false);
         setEquipamentoReservaSelecionado("");
+        setBuscaPatrimonioReserva("");
         
-        // Injeta automaticamente no relatório que houve a troca
         const equipamentoReservaInfo = equipamentosReserva.find(eq => Number(eq.id) === Number(equipamentoReservaSelecionado));
         const textoTroca = `[🔄 TROCA DE EQUIPAMENTO] Equipamento anterior (Pat: ${chamado.patrimonio}) substituído pelo novo equipamento (Pat: ${equipamentoReservaInfo?.patrimonio || 'Reserva'}).`;
         setDescricaoSolucao(prev => prev === "" ? textoTroca : `${prev}\n${textoTroca}`);
@@ -257,6 +257,15 @@ export function TratarChamado() {
       setExecutandoTroca(false);
     }
   }
+
+  // 🔎 FILTRA OS EQUIPAMENTOS RESERVA DIGITANDO O PATRIMÔNIO OU NOME
+  const equipamentosReservaFiltrados = equipamentosReserva.filter(eq => {
+    const termo = buscaPatrimonioReserva.toLowerCase().trim();
+    if (!termo) return true;
+    const patrimonioStr = String(eq.patrimonio || "").toLowerCase();
+    const nomeStr = String(eq.nome || "").toLowerCase();
+    return patrimonioStr.includes(termo) || nomeStr.includes(termo);
+  });
 
   if (loading) return <div className="p-8 text-center font-bold">Carregando painel de atendimento técnico...</div>
 
@@ -284,7 +293,6 @@ export function TratarChamado() {
         </div>
         
         <div className="flex gap-2">
-          {/* BOTÃO DA INTERFACE DE TROCA - Apenas visível se o chamado tiver um equipamento atrelado */}
           {chamado?.equipamento_id && !isConcluido && (
             <button
               type="button"
@@ -317,7 +325,7 @@ export function TratarChamado() {
             </h3>
             <button 
               type="button" 
-              onClick={() => setExibirPainelTroca(false)} 
+              onClick={() => { setExibirPainelTroca(false); setBuscaPatrimonioReserva(""); }} 
               className="text-amber-800 hover:text-amber-950 font-bold text-xs"
             >
               Fechar Painel ✕
@@ -328,9 +336,25 @@ export function TratarChamado() {
           </p>
 
           <form onSubmit={handleTrocaEquipamento} className="flex gap-4 items-end flex-wrap">
-            <div className="flex-1 min-w-[280px]">
+            
+            {/* 🔎 CAMPO DE BUSCA RÁPIDA POR PATRIMÔNIO OU NOME */}
+            <div className="flex-1 min-w-[200px]">
               <label className="block text-[10px] font-black text-amber-800 uppercase mb-1">
-                Ativos em Reserva ({equipamentosReserva.length} disponíveis)
+                Filtrar por Patrimônio / Nome
+              </label>
+              <input
+                type="text"
+                placeholder="Digite o patrimônio..."
+                value={buscaPatrimonioReserva}
+                onChange={e => setBuscaPatrimonioReserva(e.target.value)}
+                className="w-full p-3 border-2 border-amber-200 bg-white rounded-xl text-xs font-bold outline-none text-slate-700"
+              />
+            </div>
+
+            {/* LISTA SUSPENSA COM OS ITENS FILTRADOS */}
+            <div className="flex-[2] min-w-[280px]">
+              <label className="block text-[10px] font-black text-amber-800 uppercase mb-1">
+                Ativos em Reserva ({equipamentosReservaFiltrados.length} encontrados)
               </label>
               <select
                 disabled={executandoTroca}
@@ -340,13 +364,14 @@ export function TratarChamado() {
                 onChange={e => setEquipamentoReservaSelecionado(e.target.value)}
               >
                 <option value="">Selecione o equipamento de reserva...</option>
-                {equipamentosReserva.map(eq => (
+                {equipamentosReservaFiltrados.map(eq => (
                   <option key={eq.id} value={eq.id}>
-                    {eq.nome} - Patrimônio: {eq.patrimonio} (Setor atual: {eq.setor_nome || 'Reserva'})
+                    Pat: {eq.patrimonio} — {eq.nome} ({eq.setor_nome || 'Reserva'})
                   </option>
                 ))}
               </select>
             </div>
+
             <button
               type="submit"
               disabled={executandoTroca || !equipamentoReservaSelecionado}
