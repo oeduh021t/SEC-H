@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom'; // ADICIONADO: Importação do Link para gerenciar abas com segurança
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
-  const location = useLocation(); // Habilitado para ler o estado vindo do prontuário
+  const location = useLocation();
   
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
 
-  // --- RESGATE DE USUÁRIO (Garante que o nível seja reconhecido) ---
+  // --- RESGATE DE USUÁRIO ---
   const [user] = useState(() => {
     if (userProp) return userProp;
     const saved = localStorage.getItem('user');
@@ -39,7 +39,7 @@ const Chamados = ({ user: userProp }) => {
   const API_URL = 'http://192.168.5.101:3000/api';
   const BASE_URL = 'http://192.168.5.101:3000';
 
-// Estados para o módulo de Documentos/Auditoria
+  // Estados para o módulo de Documentos/Auditoria
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
 
@@ -50,7 +50,7 @@ const Chamados = ({ user: userProp }) => {
   const carregarDados = () => {
     const headers = {
       'Content-Type': 'application/json',
-      'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+      'x-usuario-nivel': obterNivelUsuario()
     };
 
     fetch(`${API_URL}/chamados`, { headers }).then(res => res.json()).then(setChamados).catch(err => console.error(err));
@@ -61,6 +61,15 @@ const Chamados = ({ user: userProp }) => {
   useEffect(() => { 
     carregarDados(); 
   }, []);
+
+  // 🎯 CAPTURA O ID DA OS VINDO DE OUTRAS TELAS (EX: RELATÓRIO DE CUSTOS / DRILL-DOWN)
+  useEffect(() => {
+    if (location.state?.buscaId) {
+      setBusca(String(location.state.buscaId));
+      // Limpa o estado da rota para o filtro não ficar preso em futuros reloads da tela
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, navigate, location.pathname]);
 
   // --- LOGICA DE CAPTURA DE CONTEXTO DO PRONTUÁRIO ---
   useEffect(() => {
@@ -77,7 +86,7 @@ const Chamados = ({ user: userProp }) => {
     }
   }, [location.state, navigate, location.pathname]);
 
-const abrirDetalhes = (id) => {
+  const abrirDetalhes = (id) => {
     const headers = {
       'Content-Type': 'application/json',
       'x-usuario-nivel': obterNivelUsuario()
@@ -89,7 +98,7 @@ const abrirDetalhes = (id) => {
         setChamadoSelecionado(data);
         setModalDetalhesAberta(true);
         
-        // 🆕 BUSCA ADICIONADA: Carrega os documentos vinculados ao chamado para auditoria
+        // Carrega os documentos vinculados ao chamado para auditoria
         fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
           .then(res => res.json())
           .then(setListaDocumentos)
@@ -112,7 +121,7 @@ const abrirDetalhes = (id) => {
     fetch(`${API_URL}/chamados`, {
       method: 'POST',
       headers: {
-        'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401 (Nota: FormData não leva Content-Type manual)
+        'x-usuario-nivel': obterNivelUsuario()
       },
       body: formData
     }).then(() => {
@@ -123,14 +132,14 @@ const abrirDetalhes = (id) => {
     }).catch(err => console.error("Erro ao abrir chamado:", err));
   };
 
-const handleUploadDocumento = (e) => {
+  const handleUploadDocumento = (e) => {
     e.preventDefault();
     if (!documentoSelecionado) return alert("Selecione um arquivo PDF ou Imagem!");
 
     const formData = new FormData();
     formData.append('arquivo', documentoSelecionado);
     formData.append('chamado_id', chamadoSelecionado.id);
-    formData.append('usuario_id', user?.id || 1); // Garante o ID do usuário ativo na auditoria
+    formData.append('usuario_id', user?.id || 1);
     formData.append('setor_id', chamadoSelecionado.setor_id || '');
     formData.append('equipamento_id', chamadoSelecionado.equipamento_id || '');
 
@@ -148,7 +157,6 @@ const handleUploadDocumento = (e) => {
       } else {
         alert("Documento anexado com sucesso para fins de auditoria! ✅");
         setDocumentoSelecionado(null);
-        // Atualiza a listagem de anexos na tela e o histórico geral do chamado
         abrirDetalhes(chamadoSelecionado.id);
         carregarDados();
       }
@@ -168,7 +176,7 @@ const handleUploadDocumento = (e) => {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
-          'x-usuario-nivel': obterNivelUsuario() // CORREÇÃO CONTRA ERRO 401
+          'x-usuario-nivel': obterNivelUsuario()
         },
         body: JSON.stringify({
             nova_obs: textoObs,
@@ -210,7 +218,15 @@ const handleUploadDocumento = (e) => {
             <option value="Em Atendimento">🟡 Em Atendimento</option>
             <option value="Concluído">🟢 Concluídos</option>
           </select>
-          <input type="text" placeholder="Buscar..." className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none" onChange={(e) => setBusca(e.target.value)} />
+          
+          <input 
+            type="text" 
+            placeholder="Buscar..." 
+            value={busca}
+            className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800" 
+            onChange={(e) => setBusca(e.target.value)} 
+          />
+
           <button onClick={() => { setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); setModalAberta(true); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all">+ NOVO CHAMADO</button>
         </div>
       </div>
@@ -247,7 +263,6 @@ const handleUploadDocumento = (e) => {
                   </button>
                 )}
 
-                {/* CORRIGIDO: Modificado de window.open para Link estrutural do React Router para herdar cabeçalhos locais */}
                 <Link
                   to={`/chamados/${c.id}/imprimir`}
                   target="_blank"
@@ -302,56 +317,56 @@ const handleUploadDocumento = (e) => {
                               </div>
                           )}
 
-                          {/* 🆕 BLOCO DE DOCUMENTOS E AUDITORIA ADICIONADO */}
-                  <div className="bg-white rounded-2xl shadow-sm p-5 border border-slate-100 space-y-4">
-                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>📎</span> Arquivos e Laudos (Auditoria)
-                    </h4>
-                    
-                    {/* Formulário de Upload */}
-                    <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase">Anexar Novo Documento (PDF/Imagem)</label>
-                      <input 
-                        type="file" 
-                        accept="image/*,application/pdf" 
-                        className="text-xs w-full block file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
-                        onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
-                      />
-                      <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all">
-                        Firmar Anexo no Histórico
-                      </button>
-                    </form>
+                          {/* BLOCO DE DOCUMENTOS E AUDITORIA */}
+                          <div className="bg-white rounded-2xl shadow-sm p-5 border border-slate-100 space-y-4">
+                            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                              <span>📎</span> Arquivos e Laudos (Auditoria)
+                            </h4>
+                            
+                            {/* Formulário de Upload */}
+                            <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                              <label className="block text-[9px] font-black text-slate-400 uppercase">Anexar Novo Documento (PDF/Imagem)</label>
+                              <input 
+                                type="file" 
+                                accept="image/*,application/pdf" 
+                                className="text-xs w-full block file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
+                                onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
+                              />
+                              <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all">
+                                Firmar Anexo no Histórico
+                              </button>
+                            </form>
 
-                    {/* Lista de Documentos Firmados */}
-                    <div className="space-y-2 max-h-48 overflow-y-auto pt-2">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase border-b pb-1">Documentos Arquivados:</label>
-                      {listaDocumentos.map((doc) => (
-                        <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-1 text-[11px]">
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={doc.nome_original}>
-                              {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
-                            </span>
-                            <a 
-                              href={`${BASE_URL}${doc.url_arquivo}`} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-blue-600 font-black hover:underline shrink-0 text-[10px]"
-                            >
-                              ABRIR
-                            </a>
+                            {/* Lista de Documentos Firmados */}
+                            <div className="space-y-2 max-h-48 overflow-y-auto pt-2">
+                              <label className="block text-[9px] font-black text-slate-400 uppercase border-b pb-1">Documentos Arquivados:</label>
+                              {listaDocumentos.map((doc) => (
+                                <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-1 text-[11px]">
+                                  <div className="flex justify-between items-start gap-1">
+                                    <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={doc.nome_original}>
+                                      {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
+                                    </span>
+                                    <a 
+                                      href={`${BASE_URL}${doc.url_arquivo}`} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer" 
+                                      className="text-blue-600 font-black hover:underline shrink-0 text-[10px]"
+                                    >
+                                      ABRIR
+                                    </a>
+                                  </div>
+                                  <div className="text-[9px] text-slate-400 leading-tight">
+                                    Enviado em: <strong>{new Date(doc.data_upload).toLocaleString('pt-BR')}</strong> <br />
+                                    Por: <strong>{doc.usuario_nome}</strong>
+                                  </div>
+                                </div>
+                              ))}
+                              {listaDocumentos.length === 0 && (
+                                <p className="text-[11px] text-slate-400 italic text-center py-2">Nenhum laudo ou documento anexado.</p>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-[9px] text-slate-400 leading-tight">
-                            Enviado em: <strong>{new Date(doc.data_upload).toLocaleString('pt-BR')}</strong> <br />
-                            Por: <strong>{doc.usuario_nome}</strong>
-                          </div>
-                        </div>
-                      ))}
-                      {listaDocumentos.length === 0 && (
-                        <p className="text-[11px] text-slate-400 italic text-center py-2">Nenhum laudo ou documento anexado.</p>
-                      )}
-                    </div>
-                  </div>
-                  
+                          
                       </div>
                   </div>
                 </div>

@@ -184,10 +184,9 @@
 }
 
 /* =========================================================================
-   BLOQUEIO CIRÚRGICO DE OVERFLOW PARA IMPRESSÃO (RESOLVE TELA EM BRANCO)
+   BLOQUEIO CIRÚRGICO DE OVERFLOW PARA IMPRESSÃO
    ========================================================================= */
 @media print {
-  /* Força todas as estruturas pai e containers flex a liberarem o conteúdo para o papel */
   html, 
   body, 
   #root, 
@@ -201,16 +200,14 @@
     overflow: visible !important;
     overflow-y: visible !important;
     position: static !important;
-    display: block !important; /* Desfaz o modelo flexbox que corta páginas */
+    display: block !important;
   }
 
-  /* Garante que o grid do Tailwind usado no relatório quebre em linhas verticais normais */
   div[class*="grid"] {
     display: block !important;
     width: 100% !important;
   }
 
-  /* Expande o miolo do relatório para ocupar toda a largura da folha A4 */
   div[class*="max-w-7xl"], 
   div[class*="mx-auto"] {
     max-width: 100% !important;
@@ -219,7 +216,6 @@
     margin: 0 !important;
   }
 
-  /* Limpa fundos escuros residuais ou cinzas para não bugar o contraste da impressão */
   body {
     background: white !important;
     color: black !important;
@@ -227,40 +223,42 @@
 }
 
 /* =========================================================================
-   BLINDAGEM DE LAYOUT RESPONSIVO (RESOLVE CORTE DE TELA)
+   EXPANSÃO E PREENCHIMENTO DE TELA (RESOLVE O EFEITO "SISTEMA PEQUENO")
    ========================================================================= */
 
-/* 1. Garante que nada na página seja maior que a tela do usuário */
+/* 1. Reset básico do HTML e BODY para ocupar toda a viewport */
 html, body {
   width: 100%;
-  overflow-x: hidden; /* Corta qualquer barra de rolagem lateral inútil */
+  height: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: hidden;
+  font-size: 15px; /* Ligeiro aumento na base tipográfica para preenchimento */
 }
 
-/* 2. Em telas menores que 1280px (como o seu monitor), reduz o zoom globalmente 
-   para garantir que o layout complexo caiba sem quebrar as colunas */
-@media (max-width: 1280px) {
-  body {
-    zoom: 0.95; /* Diminui 5% do tamanho, criando espaço extra automaticamente */
-  }
-}
-
-/* 3. Ajuste para o conteúdo principal (main) não espremer o layout */
+/* 2. Expande a área principal de conteúdo para usar 100% do espaço disponível ao lado da sidebar */
 main {
-  flex: 1 1 auto; /* Permite que o main encolha se precisar */
-  min-width: 0;   /* Essencial para tabelas e gráficos não estourarem a largura */
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100%;
+  padding: 2rem !important; /* Espaçamento interno mais generoso */
 }
 
-/* 4. Garantia para os Cards de Dashboard não "amassarem" o texto */
+/* 3. Força containers do Tailwind a aproveitarem a largura total */
+.max-w-7xl, .max-w-6xl, .max-w-5xl {
+  max-width: 100% !important;
+}
+
+/* 4. Aumenta a altura visual dos cards e área de gráficos no Dashboard */
 .stat-card, .finance-card {
   word-wrap: break-word;
   overflow: hidden;
+  padding: 1.5rem !important;
 }
 
-/* 5. Ajuste fino para Sidebar em telas médias */
+/* 5. Ajuste fino da Sidebar */
 @media (max-width: 1024px) {
   .sidebar {
-    width: 200px !important; /* Sidebar um pouco mais fina em telas menores */
+    width: 200px !important;
   }
 }

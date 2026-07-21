@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
 
 export function RelatorioCustosSetor() {
+  const navigate = useNavigate()
+  
   const [dados, setDados] = useState([])
   const [setores, setSetores] = useState([])
   const [loading, setLoading] = useState(true)
@@ -9,9 +12,14 @@ export function RelatorioCustosSetor() {
   const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0])
   const [setorSelecionado, setSetorSelecionado] = useState("todos")
 
+  // ESTADOS DO MODAL DRILL-DOWN
+  const [modalAberto, setModalAberto] = useState(false)
+  const [setorAtivoModal, setSetorAtivoModal] = useState(null)
+  const [chamadosModal, setChamadosModal] = useState([])
+  const [carregandoModal, setCarregandoModal] = useState(false)
+
   const API_URL = "http://192.168.5.101:3000/api"
 
-  // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser).nivel : '';
@@ -20,7 +28,7 @@ export function RelatorioCustosSetor() {
   const carregarSetores = async () => {
     try {
       const res = await fetch(`${API_URL}/setores`, {
-        headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
       }).then(res => res.json())
       setSetores(res || [])
     } catch (err) {
@@ -33,7 +41,7 @@ export function RelatorioCustosSetor() {
     try {
       const url = `${API_URL}/relatorios/custos-setor?data_inicio=${dataInicio} 00:00:00&data_fim=${dataFim} 23:59:59&setor_id=${setorSelecionado}`
       const res = await fetch(url, {
-        headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
       }).then(res => res.json())
       setDados(res || [])
     } catch (err) {
@@ -46,6 +54,34 @@ export function RelatorioCustosSetor() {
   useEffect(() => { carregarSetores() }, [])
   useEffect(() => { carregarRelatorio() }, [dataInicio, dataFim, setorSelecionado])
 
+  // 🔍 AÇÃO DO DRILL-DOWN: Abre o Modal e carrega as OSs do setor clicado
+  const abrirModalDetalhes = async (setorObj) => {
+    if (!setorObj || setorObj.total_chamados === 0) return;
+
+    setSetorAtivoModal(setorObj)
+    setModalAberto(true)
+    setCarregandoModal(true)
+
+    try {
+      const url = `${API_URL}/relatorios/chamados-detalhes-setor?setor_id=${setorObj.setor_id}&data_inicio=${dataInicio} 00:00:00&data_fim=${dataFim} 23:59:59`
+      const res = await fetch(url, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
+      }).then(res => res.json())
+      setChamadosModal(res || [])
+    } catch (err) {
+      console.error("Erro ao carregar detalhamento de chamados:", err)
+      setChamadosModal([])
+    } finally {
+      setCarregandoModal(false)
+    }
+  }
+
+  // 🎯 NAVEGAÇÃO DIRETA PARA A TELA CENTRAL DE CHAMADOS COM O FILTRO PREENCHIDO
+  const handleAbrirChamado = (osId) => {
+    setModalAberto(false)
+    navigate('/chamados', { state: { buscaId: osId } })
+  }
+
   const totalChamadosPeriodo = dados.reduce((acc, obj) => acc + Number(obj.total_chamados || 0), 0)
   const totalGeralServicos = dados.reduce((acc, obj) => acc + Number(obj.total_custo_servico || 0), 0)
   const totalGeralPecas = dados.reduce((acc, obj) => acc + Number(obj.total_custo_pecas || 0), 0)
@@ -53,14 +89,15 @@ export function RelatorioCustosSetor() {
 
   const formatarDataBR = (dataStr) => {
     if (!dataStr) return ""
-    const [ano, mes, dia] = dataStr.split("-")
-    return `${dia}/${mes}/${ano}`
+    const [dataPart] = dataStr.replace('T', ' ').split(' ')
+    const partes = dataPart.split("-")
+    if (partes.length < 3) return dataStr
+    return `${partes[2]}/${partes[1]}/${partes[0]}`
   }
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* MESMA LÓGICA DA IMPRESSÃO DE OS: Oculta o sistema e força a exibição apenas do bloco de relatório */}
       <style>{`
         @media print {
           body * { visibility: hidden; background: white !important; }
@@ -75,7 +112,6 @@ export function RelatorioCustosSetor() {
           }
           .hide-print { display: none !important; }
           
-          /* Ajuste para manter os cards em row na impressão */
           .indicadores-impressao {
             display: flex !important;
             flex-direction: row !important;
@@ -92,12 +128,12 @@ export function RelatorioCustosSetor() {
         }
       `}</style>
 
-      {/* Botões Superiores de Controle (Somem na impressão) */}
+      {/* Botões Superiores */}
       <div className="flex gap-2 justify-end mb-6 hide-print">
         <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95">🖨️ IMPRIMIR RELATÓRIO</button>
       </div>
 
-      {/* BARRA DE FILTROS (Some na impressão) */}
+      {/* BARRA DE FILTROS */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 hide-print">
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data Inicial</label>
@@ -116,10 +152,10 @@ export function RelatorioCustosSetor() {
         </div>
       </div>
 
-      {/* CONTAINER ALVO DA IMPRESSÃO (Envelopa todo o miolo do relatório) */}
+      {/* CONTAINER ALVO DA IMPRESSÃO */}
       <div className="relatorio-container space-y-6">
         
-        {/* CABEÇALHO DO RELATÓRIO */}
+        {/* CABEÇALHO */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 print:border-none print:p-0 print:mb-4">
           <h1 className="text-xl font-black text-slate-800 flex items-center gap-2 print:text-lg">
             SEC-H - RELATÓRIO DE CUSTOS E CHAMADOS POR SETOR
@@ -169,7 +205,24 @@ export function RelatorioCustosSetor() {
                   {dados.map((obj) => (
                     <tr key={obj.setor_id} className="text-xs hover:bg-slate-50/50 transition-colors print:text-[10px]">
                       <td className="py-3.5 pr-2 font-black text-slate-700">{obj.nome_setor}</td>
-                      <td className="py-3.5 text-center font-bold text-slate-500">{obj.total_chamados} OS</td>
+                      
+                      {/* 🎯 BOTÃO CLICÁVEL DRILL-DOWN NA COLUNA DE OS */}
+                      <td className="py-3.5 text-center font-bold">
+                        {obj.total_chamados > 0 ? (
+                          <button 
+                            type="button"
+                            onClick={() => abrirModalDetalhes(obj)}
+                            className="text-blue-600 hover:text-blue-800 font-black hover:underline cursor-pointer bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100 transition-all hide-print"
+                            title="Clique para ver a lista dessas Ordens de Serviço"
+                          >
+                            🔍 {obj.total_chamados} OS
+                          </button>
+                        ) : (
+                          <span className="text-slate-400">0 OS</span>
+                        )}
+                        <span className="hidden print:inline">{obj.total_chamados} OS</span>
+                      </td>
+
                       <td className="py-3.5 text-right font-mono text-slate-600">R$ {Number(obj.total_custo_servico || 0).toFixed(2)}</td>
                       <td className="py-3.5 text-right font-mono text-slate-600">R$ {Number(obj.total_custo_pecas || 0).toFixed(2)}</td>
                       <td className="py-3.5 text-right font-mono font-black text-slate-800 print:text-slate-900">
@@ -188,12 +241,123 @@ export function RelatorioCustosSetor() {
           )}
         </div>
 
-        {/* RODAPÉ EXCLUSIVO DA IMPRESSÃO */}
+        {/* RODAPÉ */}
         <div className="hidden print:block mt-12 pt-4 border-t border-slate-200 text-center text-[9px] text-slate-400 font-bold uppercase tracking-wider">
           Relatório financeiro emitido pelo sistema SEC-H Engenharia Clínica em {new Date().toLocaleString('pt-BR')}
         </div>
 
       </div>
+
+      {/* 🪟 MODAL DE DRILL-DOWN (LISTA DE OSs DO SETOR) */}
+      {modalAberto && setorAtivoModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hide-print">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 border border-slate-100">
+            
+            {/* Header do Modal */}
+            <div className="bg-slate-900 p-5 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-blue-400">
+                  📍 Ordens de Serviço — {setorAtivoModal.nome_setor}
+                </h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                  Exibindo {setorAtivoModal.total_chamados} OS(s) no período de {formatarDataBR(dataInicio)} a {formatarDataBR(dataFim)}
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setModalAberto(false)}
+                className="bg-slate-800 hover:bg-slate-700 text-white w-8 h-8 rounded-full font-black text-xs flex items-center justify-center transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Conteúdo do Modal */}
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              {carregandoModal ? (
+                <div className="text-center py-12 font-bold text-xs text-slate-400 animate-pulse">
+                  Carregando detalhes das Ordens de Serviço...
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider bg-slate-50">
+                        <th className="p-3">Nº OS</th>
+                        <th className="p-3">Data</th>
+                        <th className="p-3">Título / Defeito</th>
+                        <th className="p-3">Ativo Vinculado</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3 text-right">Custo Total</th>
+                        <th className="p-3 text-center">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {chamadosModal.map((os) => (
+                        <tr key={os.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-3 font-black text-blue-600">#{os.id}</td>
+                          <td className="p-3 font-mono text-[11px] text-slate-500">{formatarDataBR(os.data_abertura)}</td>
+                          <td className="p-3 font-bold text-slate-800">{os.titulo}</td>
+                          <td className="p-3">
+                            {os.equipamento_nome ? (
+                              <span className="text-[10px] font-bold text-slate-600 block">
+                                🤖 {os.equipamento_nome} {os.equipamento_patrimonio ? `(PAT: ${os.equipamento_patrimonio})` : ''}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-400 italic">Infraestrutura / Predial</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                              os.status === 'Concluído' ? 'bg-green-100 text-green-700' :
+                              os.status === 'Em Atendimento' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {os.status}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-slate-700">
+                            R$ {Number(os.custo_total || 0).toFixed(2)}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button 
+                              type="button"
+                              onClick={() => handleAbrirChamado(os.id)}
+                              className="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-transform active:scale-95"
+                            >
+                              Abrir ↗
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {chamadosModal.length === 0 && (
+                        <tr>
+                          <td colSpan="7" className="text-center py-8 text-xs font-bold text-slate-400 italic">
+                            Nenhum chamado localizado para este setor no período.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Rodapé do Modal */}
+            <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-end">
+              <button 
+                type="button" 
+                onClick={() => setModalAberto(false)}
+                className="bg-slate-200 text-slate-600 hover:bg-slate-300 px-5 py-2 rounded-xl text-xs font-bold uppercase transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

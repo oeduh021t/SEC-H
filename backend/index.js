@@ -1141,15 +1141,27 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
         queryParams.push(setor_id);
     }
 
+    // 🌳 SQL RECURSIVA: Monta o caminho completo do setor (Ex: Centro Médico > Térreo)
     const sql = `
+        WITH RECURSIVE ArvoreSetores AS (
+            SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+            FROM setores
+            WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+            
+            UNION ALL
+            
+            SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+            FROM setores filho
+            INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+        )
         SELECT 
             s.id AS setor_id,
-            s.nome AS nome_setor,
+            s.caminho AS nome_setor, -- 👈 Agora retorna a árvore completa!
             COUNT(c.id) AS total_chamados,
             SUM(COALESCE(c.custo_servico, 0)) AS total_custo_servico,
             SUM(COALESCE(ci.total_pecas, 0)) AS total_custo_pecas,
             (SUM(COALESCE(c.custo_servico, 0)) + SUM(COALESCE(ci.total_pecas, 0))) AS custo_total_geral
-        FROM setores s
+        FROM ArvoreSetores s
         LEFT JOIN chamados c ON c.setor_id = s.id AND c.data_abertura BETWEEN ? AND ?
         LEFT JOIN (
             SELECT chamado_id, SUM(quantidade * valor_unitario_na_epoca) AS total_pecas
@@ -1157,59 +1169,59 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
             GROUP BY chamado_id
         ) ci ON ci.chamado_id = c.id
         WHERE 1=1 ${filterSetor}
-        GROUP BY s.id, s.nome
-        ORDER BY custo_total_geral DESC
+        GROUP BY s.id, s.caminho
+        ORDER BY custo_total_geral DESC, s.caminho ASC
     `;
 
     db.query(sql, queryParams, (err, result) => {
         if (err) {
-            console.error("❌ Erro ao gerar relatório por setor:", err);
+            console.error("❌ Erro ao gerar relatório por setor:", err.message);
             return res.status(500).json({ error: err.message });
         }
-        res.json(result);
+        res.json(result || []);
     });
 });
 
-app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { data_inicio, data_fim, setor_id } = req.query;
+// 🔍 DRILL-DOWN: Busca as OSs detalhadas de um setor específico no período
+app.get('/api/relatorios/chamados-detalhes-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { setor_id, data_inicio, data_fim } = req.query;
 
-    const inicio = data_inicio 
-        ? `${data_inicio} 00:00:00` 
-        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
-
-    const fim = data_fim 
-        ? `${data_fim} 23:59:59` 
-        : new Date().toISOString().split('T')[0] + ' 23:59:59';
-
-    let queryParams = [inicio, fim];
-    let filterSetor = '';
-
-    // 🛠️ CORRIGIDO: Variável corrigida de 'sector_id' para 'setor_id'
-    if (setor_id && setor_id !== 'todos') {
-        filterSetor = 'AND s.id = ?';
-        queryParams.push(Number(setor_id));
+    if (!setor_id) {
+        return res.status(400).json({ error: "Setor é obrigatório." });
     }
 
+    const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+    const fim = data_fim || new Date().toISOString().split('T')[0] + ' 23:59:59';
+
     const sql = `
-        SELECT
-            s.id AS setor_id,
-            s.nome AS nome_setor,
-            COUNT(c.id) AS total_chamados
-        FROM setores s
-        LEFT JOIN chamados c
-            ON c.setor_id = s.id AND c.data_abertura BETWEEN ? AND ?
-        WHERE 1=1 ${filterSetor}
-        GROUP BY s.id, s.nome
-        ORDER BY total_chamados DESC
+        SELECT 
+            c.id, 
+            c.titulo, 
+            c.status, 
+            c.data_abertura, 
+            c.tecnico_responsavel,
+            e.nome AS equipamento_nome, 
+            e.patrimonio AS equipamento_patrimonio,
+            COALESCE(c.custo_servico, 0) AS custo_servico,
+            COALESCE(ci.total_pecas, 0) AS custo_pecas,
+            (COALESCE(c.custo_servico, 0) + COALESCE(ci.total_pecas, 0)) AS custo_total
+        FROM chamados c
+        LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        LEFT JOIN (
+            SELECT chamado_id, SUM(quantidade * valor_unitario_na_epoca) AS total_pecas
+            FROM chamados_itens
+            GROUP BY chamado_id
+        ) ci ON ci.chamado_id = c.id
+        WHERE c.setor_id = ? AND c.data_abertura BETWEEN ? AND ?
+        ORDER BY c.data_abertura DESC
     `;
 
-    db.query(sql, queryParams, (err, result) => {
+    db.query(sql, [Number(setor_id), inicio, fim], (err, results) => {
         if (err) {
-            console.error("❌ Erro no relatório de chamados por setor:", err.message);
+            console.error("❌ Erro ao buscar detalhamento de OSs do setor:", err.message);
             return res.status(500).json({ error: err.message });
         }
-
-        res.json(result || []);
+        res.json(results || []);
     });
 });
 
