@@ -64,6 +64,8 @@ const pool = mysql.createPool({
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
+    timezone: '-03:00',
+    dateStrings: true,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -110,6 +112,27 @@ const permitirApenas = (niveisPermitidos) => {
         }
     };
 };
+
+
+// TESTE HORA
+
+app.get('/api/testar-horario', (req, res) => {
+    const horaNode = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+    const horaNodeUTC = new Date().toISOString();
+
+    db.query("SELECT NOW() AS hora_banco, NOW() - INTERVAL 0 HOUR AS data_hora_banco", (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        res.json({
+            horario_servidor_node: horaNode,
+            horario_utc_node: horaNodeUTC,
+            horario_banco_mysql: result[0].hora_banco
+        });
+    });
+});
+
+
+
 
 // -------------------------------------------------------------------------
 // DASHBOARD - INCLUSÃO DE MÉTRICAS DE CONTROLE DE GASTOS (100% CORRIGIDO)
@@ -1148,25 +1171,23 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
 });
 
 app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
-
     const { data_inicio, data_fim, setor_id } = req.query;
 
-    const inicio =
-        data_inicio ||
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-            .toISOString()
-            .split('T')[0] + ' 00:00:00';
+    const inicio = data_inicio 
+        ? `${data_inicio} 00:00:00` 
+        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
 
-    const fim =
-        data_fim ||
-        new Date().toISOString().split('T')[0] + ' 23:59:59';
+    const fim = data_fim 
+        ? `${data_fim} 23:59:59` 
+        : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
     let queryParams = [inicio, fim];
     let filterSetor = '';
 
-    if (setor_id && sector_id !== 'todos') {
+    // 🛠️ CORRIGIDO: Variável corrigida de 'sector_id' para 'setor_id'
+    if (setor_id && setor_id !== 'todos') {
         filterSetor = 'AND s.id = ?';
-        queryParams.push(setor_id);
+        queryParams.push(Number(setor_id));
     }
 
     const sql = `
@@ -1184,7 +1205,7 @@ app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador'
 
     db.query(sql, queryParams, (err, result) => {
         if (err) {
-            console.error("❌ Erro no relatório de chamados:", err);
+            console.error("❌ Erro no relatório de chamados por setor:", err.message);
             return res.status(500).json({ error: err.message });
         }
 
@@ -1519,14 +1540,18 @@ app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (r
 // -------------------------------------------------------------------------
 // ROTAS DE CONTROLE DE FILTROS DE ÁGUA
 // -------------------------------------------------------------------------
-app.get('/api/filtros', permitirApenas(['admin']), (req, res) => {
+
+// 1. LISTAR PONTOS DE FILTRAGEM (Com dados do Setor e Equipamento/Bebedouro vinculado)
+app.get('/api/filtros', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
-        SELECT f.id, f.nome, f.setor_id, f.modelo_refil, f.data_ultima_troca, f.periodicidade_meses, f.observacoes,
-                s.nome as setor_nome,
-                DATE_ADD(f.data_ultima_troca, INTERVAL COALESCE(f.periodicidade_meses, 3) MONTH) as data_vencimento,
-                DATEDIFF(DATE_ADD(f.data_ultima_troca, INTERVAL COALESCE(f.periodicidade_meses, 3) MONTH), CURDATE()) as dias_restantes
+        SELECT f.id, f.nome, f.setor_id, f.equipamento_id, f.modelo_refil, f.data_ultima_troca, f.periodicidade_meses, f.observacoes,
+               s.nome as setor_nome,
+               e.nome as equipamento_nome, e.patrimonio as equipamento_patrimonio,
+               DATE_ADD(f.data_ultima_troca, INTERVAL COALESCE(f.periodicidade_meses, 3) MONTH) as data_vencimento,
+               DATEDIFF(DATE_ADD(f.data_ultima_troca, INTERVAL COALESCE(f.periodicidade_meses, 3) MONTH), CURDATE()) as dias_restantes
         FROM filtros_agua f
         LEFT JOIN setores s ON f.setor_id = s.id
+        LEFT JOIN equipamentos e ON f.equipamento_id = e.id
         ORDER BY data_vencimento ASC
     `;
     db.query(query, (err, result) => {
@@ -1538,21 +1563,29 @@ app.get('/api/filtros', permitirApenas(['admin']), (req, res) => {
     });
 });
 
-app.post('/api/filtros', permitirApenas(['admin']), (req, res) => {
-    const { nome, setor_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes } = req.body;
+// 2. CADASTRAR NOVO PONTO DE FILTRAGEM (Com suporte a equipamento_id opcional)
+app.post('/api/filtros', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { nome, setor_id, equipamento_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes } = req.body;
     
     const v_setor = setor_id ? Number(setor_id) : null;
+    const v_equip = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" ? Number(equipamento_id) : null;
     const v_periodo = periodicidade_meses ? Number(periodicidade_meses) : 3;
     const v_data = data_ultima_troca || new Date().toISOString().split('T')[0];
 
-    const query = `INSERT INTO filtros_agua (nome, setor_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes) VALUES (?, ?, ?, ?, ?, ?)`;
-    db.query(query, [nome, v_setor, modelo_refil || null, v_data, v_periodo, observacoes || null], (err, result) => {
+    const query = `
+        INSERT INTO filtros_agua 
+        (nome, setor_id, equipamento_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    db.query(query, [nome, v_setor, v_equip, modelo_refil || null, v_data, v_periodo, observacoes || null], (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.status(201).json({ message: "Filtro cadastrado!", id: result.insertId });
+        res.status(201).json({ message: "Ponto de filtragem monitorado com sucesso!", id: result.insertId });
     });
 });
 
-app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
+// 3. REGISTRAR TROCA / BAIXA DE REFIL NO ALMOXARIFADO
+app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { filtro_id, tecnico_nome, obs_intervencao, item_id, quantity, quantidade } = req.body;
     const qtd_usada = Number(quantidade || quantity || 0);
 
@@ -1562,22 +1595,21 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
         // 1. Atualiza a data da última troca na tabela filtros_agua
         const queryUpdate = `UPDATE filtros_agua SET data_ultima_troca = CURDATE() WHERE id = ?`;
         conn.query(queryUpdate, [filtro_id], (errUp) => {
-            if (errUp) return conn.rollback(() => { res.status(500).json({ error: errUp.message }); });
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
             if (item_id && qtd_usada > 0) {
                 // 2. Busca o valor unitário do item no estoque
                 conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
                     if (errEstoque || results.length === 0) {
-                        return conn.rollback(() => { res.status(400).json({ error: "Item de refil não localizado no almoxarifado." }); });
+                        return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item de refil não localizado no almoxarifado." }); });
                     }
 
                     const item = results[0];
                     if (item.quantidade < qtd_usada) {
-                        return conn.rollback(() => { res.status(400).json({ error: `Estoque insuficiente! Saldo arterial: ${item.quantidade} un.` }); });
+                        return conn.rollback(() => { conn.release(); res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
                     }
 
                     const cubic_total = item.valor_unitario * qtd_usada;
-                    // String de histórico com formato clássico para a tabela do relatório ler as peças
                     const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${cubic_total.toFixed(2)}]`;
 
                     // 3. Atualiza o custo acumulado numérico do ponto de filtragem
@@ -1587,19 +1619,20 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
                         WHERE id = ?`;
 
                     conn.query(queryUpdateFiltro, [cubic_total, filtro_id], (errCusto) => {
-                        if (errCusto) return conn.rollback(() => { res.status(500).json({ error: errCusto.message }); });
+                        if (errCusto) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCusto.message }); });
 
-                        // 4. Grava no histórico tradicional do módulo
+                        // 4. Grava no histórico do módulo
                         const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
                         conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', log_intervencao], (errHist) => {
-                            if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
+                            if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
                             // 5. Deduz a quantidade física do estoque do almoxarifado
                             conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
                                 if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
                                 conn.commit((errCommit) => {
-                                    if (errCommit) return conn.rollback(() => { res.status(500).json({ error: errCommit.message }); });
+                                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                    conn.release();
                                     res.json({ message: "Refil trocado, estoque deduzido e custo processado com sucesso! 🚰✅" });
                                 });
                             });
@@ -1610,10 +1643,11 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
                 // Caso seja uma troca manual sem deduzir insumos do estoque
                 const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
                 conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', obs_intervencao || 'Troca manual sem peça do estoque'], (errHist) => {
-                    if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
                     conn.commit((errCommit) => {
                         if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                        conn.release();
                         res.json({ message: "Troca registrada com sucesso!" });
                     });
                 });
@@ -1622,10 +1656,11 @@ app.post('/api/filtros/baixa', permitirApenas(['admin']), (req, res) => {
     });
 });
 
-app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
+// 4. RELATÓRIO DE TROCAS DE FILTROS
+app.get('/api/filtros/relatorio', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim } = req.query;
-    const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const fim = data_fim || new Date().toISOString().split('T')[0];
+    const inicio = data_inicio ? `${data_inicio} 00:00:00` : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+    const fim = data_fim ? `${data_fim} 23:59:59` : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
     const query = `
         SELECT h.id, h.data_troca, h.tecnico_nome, h.obs_intervencao, f.nome AS filtro_nome, s.nome AS setor_nome
@@ -1642,7 +1677,6 @@ app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
         let totalFiltrosTrocados = results.length;
         let custoTotalPeriodo = 0;
 
-        // 🟢 Varre as linhas procurando o padrão de texto de forma resiliente (aceita ou não espaços)
         results.forEach(row => {
             if (row.obs_intervencao && row.obs_intervencao.includes('Custo Médio: R$')) {
                 try {
@@ -1652,7 +1686,7 @@ app.get('/api/filtros/relatorio', permitirApenas(['admin']), (req, res) => {
                         custoTotalPeriodo += parseFloat(valorLimpo) || 0;
                     }
                 } catch (e) {
-                    console.error(e);
+                    console.error("Erro ao calcular valor da troca:", e);
                 }
             }
         });

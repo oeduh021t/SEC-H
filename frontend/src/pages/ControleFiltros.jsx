@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react';
 const ControleFiltros = () => {
     const [filtros, setFiltros] = useState([]);
     const [setores, setSetores] = useState([]);
+    const [equipamentos, setEquipamentos] = useState([]);
     const [itensEstoque, setItensEstoque] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [busca, setBusca] = useState('');
 
     // Estados do Formulário de Cadastro
     const [nome, setNome] = useState('');
+    const [equipamentoId, setEquipamentoId] = useState('');
     const [setorId, setSetorId] = useState('');
     const [modeloRefil, setModeloRefil] = useState('');
     const [periodicidadeMeses, setPeriodicidadeMeses] = useState(3);
@@ -24,35 +26,39 @@ const ControleFiltros = () => {
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
-    // 🔑 AUXILIAR: Captura dinamicamente o nível do operador para autenticar nas rotas protegidas
     const obterNivelUsuario = () => {
         const savedUser = localStorage.getItem('user');
         return savedUser ? JSON.parse(savedUser).nivel : '';
     };
 
-    // 🕒 AUXILIAR: Formata datas ignorando deslocamento de fuso horário (Timezone)
     const formatarDataSemFuso = (dataString) => {
         if (!dataString) return '--/--/----';
-        // Divide e isola apenas a parte da data YYYY-MM-DD
         const [ano, mes, dia] = dataString.split('T')[0].split('-');
         return `${dia}/${mes}/${ano}`;
     };
 
     const carregarDados = async () => {
         try {
-            // Configuração global de headers para passar pelo middleware permitirApenas do backend
             const headers = {
                 'Content-Type': 'application/json',
                 'x-usuario-nivel': obterNivelUsuario()
             };
 
-            const [resFiltros, resSetores, resEstoque] = await Promise.all([
+            const [resFiltros, resSetores, resEquipamentos, resEstoque] = await Promise.all([
                 fetch(`${API_URL}/filtros`, { headers }).then(res => res.json()),
                 fetch(`${API_URL}/setores`, { headers }).then(res => res.json()),
+                fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()),
                 fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()) 
             ]);
+
+            // 🎯 FILTRO EXCLUSIVO: Isola apenas os equipamentos do tipo 19 (Bebedouros)
+            const bebedourosApenas = (resEquipamentos || []).filter(eq => 
+                Number(eq.tipo_id) === 19 || Number(eq.tipo_equipamento_id) === 19
+            );
+
             setFiltros(resFiltros || []);
             setSetores(resSetores || []);
+            setEquipamentos(bebedourosApenas);
             setItensEstoque(resEstoque || []);
         } catch (err) {
             console.error("Erro ao carregar dados do módulo de filtros:", err);
@@ -63,12 +69,25 @@ const ControleFiltros = () => {
 
     useEffect(() => { carregarDados(); }, []);
 
+    // 💡 Ao selecionar um Bebedouro, auto-preenche o Setor e sugere o Nome do Ponto
+    const handleSelecionarEquipamento = (id) => {
+        setEquipamentoId(id);
+        if (!id) return;
+
+        const eq = equipamentos.find(e => Number(e.id) === Number(id));
+        if (eq) {
+            if (eq.setor_id) setSetorId(String(eq.setor_id));
+            if (!nome) setNome(`${eq.nome} (${eq.patrimonio || 'S/P'})`);
+        }
+    };
+
     const handleCadastrarFiltro = async (e) => {
         e.preventDefault();
         if (!nome || !setorId) return;
 
         const novoFiltro = {
             nome,
+            equipamento_id: equipamentoId || null,
             setor_id: setorId,
             modelo_refil: modeloRefil,
             data_ultima_troca: dataUltimaTroca,
@@ -81,14 +100,14 @@ const ControleFiltros = () => {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'x-usuario-nivel': obterNivelUsuario() // Header de segurança injetado
+                    'x-usuario-nivel': obterNivelUsuario()
                 },
                 body: JSON.stringify(novoFiltro)
             });
 
             if (res.ok) {
                 alert("Ponto de filtragem monitorado com sucesso! 🚰✅");
-                setNome(''); setSetorId(''); setModeloRefil('');
+                setNome(''); setEquipamentoId(''); setSetorId(''); setModeloRefil('');
                 setPeriodicidadeMeses(3); setObservacoes('');
                 carregarDados();
             }
@@ -108,7 +127,7 @@ const ControleFiltros = () => {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'x-usuario-nivel': obterNivelUsuario() // Header de segurança injetado
+                    'x-usuario-nivel': obterNivelUsuario()
                 },
                 body: JSON.stringify({
                     filtro_id: filtroSelecionado.id,
@@ -141,7 +160,9 @@ const ControleFiltros = () => {
         return (
             (f.nome && f.nome.toLowerCase().includes(termo)) ||
             (f.modelo_refil && f.modelo_refil.toLowerCase().includes(termo)) ||
-            (f.setor_nome && f.setor_nome.toLowerCase().includes(termo))
+            (f.setor_nome && f.setor_nome.toLowerCase().includes(termo)) ||
+            (f.equipamento_nome && f.equipamento_nome.toLowerCase().includes(termo)) ||
+            (f.equipamento_patrimonio && f.equipamento_patrimonio.toLowerCase().includes(termo))
         );
     });
 
@@ -152,7 +173,6 @@ const ControleFiltros = () => {
         return acc;
     }, { vencidos: 0, atencao: 0, emDia: 0 });
 
-    // Funil para isolar apenas insumos cadastrados como 'Filtro' no estoque
     const refisFiltrados = itensEstoque.filter(item => item.tipo?.toLowerCase() === 'filtro');
 
     if (loading) return <div className="p-10 text-center font-bold text-slate-400">Processando cronograma de saturação dos refis...</div>;
@@ -170,7 +190,7 @@ const ControleFiltros = () => {
                 </div>
                 <input 
                   type="text" 
-                  placeholder="🔍 Buscar ponto de água ou refil..." 
+                  placeholder="🔍 Buscar ponto de água, bebedouro ou refil..." 
                   className="p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 w-72 focus:border-blue-500 transition-colors"
                   value={busca}
                   onChange={e => setBusca(e.target.value)}
@@ -209,9 +229,26 @@ const ControleFiltros = () => {
                     <form onSubmit={handleCadastrarFiltro} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">Novo Ponto de Filtragem</h3>
                         
+                        {/* SELEÇÃO EXCLUSIVA DE BEBEDOUROS (TIPO ID = 19) */}
+                        <div>
+                            <label className="text-[10px] font-black text-blue-600 uppercase mb-1 block">Vincular Bebedouro Cadastrado (Opcional)</label>
+                            <select 
+                                className="w-full p-3 border-2 border-blue-100 rounded-xl bg-blue-50/50 font-bold text-xs outline-none focus:bg-white focus:border-blue-500 text-slate-700" 
+                                value={equipamentoId} 
+                                onChange={e => handleSelecionarEquipamento(e.target.value)}
+                            >
+                                <option value="">Sem bebedouro específico (Ponto de parede / Torneira)</option>
+                                {equipamentos.map(eq => (
+                                    <option key={eq.id} value={eq.id}>
+                                        🚰 {eq.nome} {eq.patrimonio ? `(PAT: ${eq.patrimonio})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
                         <div>
                             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Identificação do Ponto</label>
-                            <input required type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: Filtro Central da Hemodiálise, Purificador UTI" value={nome} onChange={e => setNome(e.target.value)} />
+                            <input required type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-blue-500" placeholder="Ex: Bebedouro Recepção, Purificador UTI" value={nome} onChange={e => setNome(e.target.value)} />
                         </div>
 
                         <div>
@@ -257,7 +294,7 @@ const ControleFiltros = () => {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
-                                    <th className="pb-3">Ponto / Modelo Refil</th>
+                                    <th className="pb-3">Ponto / Bebedouro</th>
                                     <th className="pb-3">Setor</th>
                                     <th className="pb-3">Vencimento</th>
                                     <th className="pb-3">Status</th>
@@ -269,11 +306,15 @@ const ControleFiltros = () => {
                                     <tr key={filtro.id} className="hover:bg-slate-50/50 transition-colors">
                                         <td className="py-4">
                                             <div className="font-black text-slate-700 uppercase">{filtro.nome}</div>
+                                            {filtro.equipamento_nome && (
+                                                <div className="text-[10px] font-bold text-blue-600 mt-0.5">
+                                                    🚰 Ativo: {filtro.equipamento_nome} {filtro.equipamento_patrimonio ? `(PAT: ${filtro.equipamento_patrimonio})` : ''}
+                                                </div>
+                                            )}
                                             <div className="text-[10px] text-slate-400 font-mono mt-0.5">Refil: {filtro.modelo_refil || 'Padrão'}</div>
                                         </td>
                                         <td className="py-4 font-bold text-blue-600 uppercase tracking-tight">{filtro.setor_nome}</td>
                                         <td className="py-4">
-                                            {/* 🕒 Aplicado formatarDataSemFuso para evitar fuso horário invertendo datas */}
                                             <div className="font-bold text-slate-600">{formatarDataSemFuso(filtro.data_vencimento)}</div>
                                             <div className="text-[10px] text-slate-400 mt-0.5">Última: {formatarDataSemFuso(filtro.data_ultima_troca)}</div>
                                         </td>
@@ -310,11 +351,13 @@ const ControleFiltros = () => {
                             <span>🔄 Registro de Baixa e Movimentação de Refil</span>
                             <button type="button" onClick={() => setModalBaixa(false)} className="font-bold hover:text-red-200">✕</button>
                         </div>
-                        {/* 🔑 CORREÇÃO: envolvido em tag <form> para disparar corretamente o onSubmit do handleRegistrarTroca */}
                         <form onSubmit={handleRegistrarTroca} className="p-6 space-y-4">
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                                 <p className="text-[10px] font-black text-slate-400 uppercase">Ponto Alvo</p>
                                 <p className="text-sm font-black text-slate-700 uppercase mt-0.5">{filtroSelecionado.nome}</p>
+                                {filtroSelecionado.equipamento_nome && (
+                                    <p className="text-xs font-bold text-blue-600 uppercase mt-1">🚰 Bebedouro Vinculado: {filtroSelecionado.equipamento_nome}</p>
+                                )}
                             </div>
 
                             {/* SELETOR DE REFIL DO ALMOXARIFADO FILTRADO */}

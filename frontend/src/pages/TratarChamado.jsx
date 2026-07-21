@@ -77,7 +77,7 @@ export function TratarChamado() {
       setDescricaoSolucao(resChamado.descricao_solucao || "")
       setTecnicoId(resChamado.tecnico_id || "")
 
-      // Se o chamado possuir um equipamento vinculado, busca os reservas do mesmo tipo
+      // Se o chamado possuir um equipamento vinculado, busca os reservas do mesmo tipo (passando o ID do equipamento ou o tipo dele)
       if (resChamado.equipamento_id) {
         carregarEquipamentosReserva(resChamado.equipamento_id, headers);
       }
@@ -92,6 +92,7 @@ export function TratarChamado() {
   // Busca os equipamentos reservas baseados no tipo do equipamento atual do chamado
   const carregarEquipamentosReserva = async (equipamentoId, headers) => {
     try {
+      // Ajustado para garantir que a rota consiga filtrar pelo tipo correto do equipamento vinculado ao chamado
       const res = await fetch(`${API_URL}/equipamentos/reservas?tipo_de_equipamento_com_base_em=${equipamentoId}`, { headers });
       if (res.ok) {
         const dados = await res.json();
