@@ -12,26 +12,26 @@ const Equipamentos = () => {
   const [qrZoomUrl, setQrZoomUrl] = useState(null)
   const [ativoSelecionadoQR, setAtivoSelecionadoQR] = useState(null)
 
-  // NOVO ESTADO: Armazena temporariamente o arquivo binário da foto selecionada
+  // Armazena temporariamente o arquivo binário da foto selecionada
   const [fotoEquipamento, setFotoEquipamento] = useState(null)
 
   const [setores, setSetores] = useState([])
   const [tipos, setTipos] = useState([])
-  const [locaisEstoque, setLocaisEstoque] = useState([]) // 🆕 Estado para armazenar os locais de estoque dinâmicos
+  const [locaisEstoque, setLocaisEstoque] = useState([])
 
   // Filtros dinâmicos da barra superior
   const [filtroSetor, setFiltroSetor] = useState('todos')
   const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [filtroTipo, setFiltroTipo] = useState('todos') // 🆕 Filtro por categoria/tipo
 
   const estadoInicial = {
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', periodicidade_preventiva: 0, status: 'Ativo' // 🆕 local_estoque_id adicionado
+    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', periodicidade_preventiva: 0, status: 'Ativo'
   }
   const [form, setForm] = useState(estadoInicial)
 
   const API_URL = 'http://192.168.5.101:3000/api';
 
-  // 🔑 AUXILIAR: Captura o nível do operador logado para validar no middleware do backend
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser).nivel : '';
@@ -57,7 +57,7 @@ const Equipamentos = () => {
     
     fetch(`${API_URL}/setores`, { headers: headersComNivel }).then(res => res.json()).then(data => setSetores(data || []))
     fetch(`${API_URL}/types_equipamentos`, { headers: headersComNivel }).then(res => res.json()).then(data => setTipos(data || []))
-    fetch(`${API_URL}/locais-estoque`, { headers: headersComNivel }).then(res => res.json()).then(data => setLocaisEstoque(data || [])) // 🆕 Carrega locais de estoque dinâmicos
+    fetch(`${API_URL}/locais-estoque`, { headers: headersComNivel }).then(res => res.json()).then(data => setLocaisEstoque(data || []))
   }, [])
 
   const prepararEdicao = (e) => {
@@ -68,7 +68,7 @@ const Equipamentos = () => {
       periodicidade_preventiva: e.periodicidade_preventiva || 0,
       tipo_id: e.tipo_id || '',
       local_estoque_id: e.local_estoque_id || '',
-      valor: e.valor !== undefined && e.valor !== null ? e.valor : '' // 🆕 CORRIGIDO: Vincula o valor patrimonial inicial no modal ao editar!
+      valor: e.valor !== undefined && e.valor !== null ? e.valor : ''
     })
     setFotoEquipamento(null)
     setModalAberta(true)
@@ -98,8 +98,8 @@ const Equipamentos = () => {
     formData.append('tipo_id', form.tipo_id || '')
     formData.append('data_ultima_preventiva', form.data_ultima_preventiva || '')
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0)
-    formData.append('local_estoque_id', form.local_estoque_id || '') // 🆕 Append do local_estoque_id para sincronia com o backend
-    formData.append('valor', form.valor || 0) // 🆕 CORRIGIDO: Adicionado append explícito do valor para tráfego com a API
+    formData.append('local_estoque_id', form.local_estoque_id || '')
+    formData.append('valor', form.valor || 0)
     
     if (fotoEquipamento) {
       formData.append('foto_equipamento', fotoEquipamento)
@@ -108,7 +108,6 @@ const Equipamentos = () => {
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
       headers: {
-        // 🔥 IMPORTANTE: Para objetos FormData com envio de arquivos binários, o navegador define o Boundary automaticamente. Passamos apenas o nível.
         'x-usuario-nivel': obterNivelUsuario()
       },
       body: formData 
@@ -127,7 +126,7 @@ const Equipamentos = () => {
     .catch(err => console.error("Erro ao salvar equipamento:", err))
   }
 
-  // FILTRAGEM ORIGINAL MULTI-CAMPO EM TEMPO REAL (Preservada idêntica)
+  // FILTRAGEM MULTI-CAMPO EM TEMPO REAL
   const equipamentosFiltrados = (equipamentos || []).filter(e => {
     if (!e) return false;
     const termo = busca.toLowerCase();
@@ -139,9 +138,18 @@ const Equipamentos = () => {
 
     const matchesSetor = filtroSetor === 'todos' || String(e.setor_id) === String(filtroSetor);
     const matchesStatus = filtroStatus === 'todos' || e.status === filtroStatus;
+    const matchesTipo = filtroTipo === 'todos' || String(e.tipo_id || e.tipo_equipamento_id) === String(filtroTipo);
 
-    return matchesBusca && matchesSetor && matchesStatus;
+    return matchesBusca && matchesSetor && matchesStatus && matchesTipo;
   });
+
+  // 🆕 MÉTRICAS/KPIs RÁPIDOS
+  const kpis = {
+    total: equipamentosFiltrados.length,
+    ativos: equipamentosFiltrados.filter(e => e.status === 'Ativo').length,
+    reserva: equipamentosFiltrados.filter(e => e.status === 'Reserva').length,
+    manutencao: equipamentosFiltrados.filter(e => e.status === 'Em Manutenção').length,
+  };
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
@@ -175,12 +183,48 @@ const Equipamentos = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* 🆕 CARDS DE METRICAS (KPIs) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between">
+            <div>
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Total Filtrado</p>
+              <p className="text-lg font-black text-slate-800 mt-0.5">{kpis.total}</p>
+            </div>
+            <span className="p-2 bg-slate-200 rounded-xl text-xs">📦</span>
+          </div>
+
+          <div className="bg-green-50/50 p-3.5 rounded-2xl border border-green-100 flex items-center justify-between">
+            <div>
+              <p className="text-[9px] font-black text-green-600 uppercase tracking-wider">🟢 Em Operação</p>
+              <p className="text-lg font-black text-green-700 mt-0.5">{kpis.ativos}</p>
+            </div>
+            <span className="p-2 bg-green-100 text-green-600 rounded-xl text-xs">✅</span>
+          </div>
+
+          <div className="bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100 flex items-center justify-between">
+            <div>
+              <p className="text-[9px] font-black text-blue-600 uppercase tracking-wider">🔵 Em Reserva</p>
+              <p className="text-lg font-black text-blue-700 mt-0.5">{kpis.reserva}</p>
+            </div>
+            <span className="p-2 bg-blue-100 text-blue-600 rounded-xl text-xs">🔄</span>
+          </div>
+
+          <div className="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-100 flex items-center justify-between">
+            <div>
+              <p className="text-[9px] font-black text-amber-600 uppercase tracking-wider">🟡 Em Manutenção</p>
+              <p className="text-lg font-black text-amber-700 mt-0.5">{kpis.manutencao}</p>
+            </div>
+            <span className="p-2 bg-amber-100 text-amber-600 rounded-xl text-xs">🛠️</span>
+          </div>
+        </div>
+
+        {/* FILTROS DE PESQUISA */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Busca Global</label>
             <input
               type="text"
-              placeholder="🔍 Nome, patrimônio, série ou fabricante..."
+              placeholder="🔍 Nome, patrimônio, série..."
               className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-500 transition-all text-xs font-bold bg-slate-50"
               value={busca}
               onChange={e => setBusca(e.target.value)}
@@ -188,14 +232,21 @@ const Equipamentos = () => {
           </div>
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Isolar Localização</label>
-            <select className="w-full p-2.5 border-2 border-slate-110 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroSetor} onChange={e => setFiltroSetor(e.target.value)}>
+            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroSetor} onChange={e => setFiltroSetor(e.target.value)}>
               <option value="todos">⭐ Todos os Setores</option>
               {(setores || []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
           <div>
+            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Filtrar Categoria</label>
+            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+              <option value="todos">⭐ Todas as Categorias</option>
+              {(tipos || []).map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Filtrar Status</label>
-            <select className="w-full p-2.5 border-2 border-slate-110 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
               <option value="todos">⭐ Todos os Status</option>
               <option value="Ativo">🟢 Ativo</option>
               <option value="Reserva">🔵 Reserva</option>
@@ -222,8 +273,20 @@ const Equipamentos = () => {
             {equipamentosFiltrados.map(e => (
               <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group group text-dark">
                 <td className="p-5">
-                  <div className="font-black text-slate-700 uppercase tracking-tight">{e.nome}</div>
-                  <div className="text-[10px] text-blue-600 font-bold uppercase tracking-wide mt-0.5">{e.setor_nome || 'Setor não definido'}</div>
+                  <div className="flex items-center gap-3">
+                    {/* 🆕 MINIATURA DA FOTO DO ATIVO (SE HOUVER) */}
+                    {e.foto_equipamento ? (
+                      <img src={`http://192.168.5.101:3000${e.foto_equipamento}`} alt="Ativo" className="w-9 h-9 rounded-xl object-cover border border-slate-200" />
+                    ) : (
+                      <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xs border border-slate-200">
+                        {e.nome ? e.nome.substring(0,2).toUpperCase() : 'EQ'}
+                      </div>
+                    )}
+                    <div>
+                      <div className="font-black text-slate-700 uppercase tracking-tight">{e.nome}</div>
+                      <div className="text-[10px] text-blue-600 font-bold uppercase tracking-wide mt-0.5">{e.setor_nome || 'Setor não definido'}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="p-5">
                   <div className="text-[11px] font-mono font-black text-slate-600 bg-slate-100 inline-block px-2 py-0.5 rounded uppercase">{e.patrimonio || 'S/P'}</div>
@@ -249,9 +312,9 @@ const Equipamentos = () => {
                 </td>
                 <td className="p-5">
                   <div className="flex justify-center gap-2">
-                    <Link to={`/prontuario/${e.id}`} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all border border-blue-100">📋</Link>
-                    <button onClick={() => prepararEdicao(e)} className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all border border-amber-100">✏️</button>
-                    <button onClick={() => excluir(e.id)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all border border-red-100">🗑️</button>
+                    <Link to={`/prontuario/${e.id}`} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all border border-blue-100" title="Ver Prontuário">📋</Link>
+                    <button onClick={() => prepararEdicao(e)} className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all border border-amber-100" title="Editar">✏️</button>
+                    <button onClick={() => excluir(e.id)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all border border-red-100" title="Excluir">🗑️</button>
                   </div>
                 </td>
               </tr>
@@ -316,7 +379,6 @@ const Equipamentos = () => {
                 </select>
               </div>
 
-              {/* Select dinâmico de Escopo / Local de Estoque */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Escopo / Gestão de Estoque *</label>
                 <select required value={form.local_estoque_id || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl bg-white font-bold text-xs outline-none text-black" onChange={e => setForm({...form, local_estoque_id: e.target.value})}>
@@ -348,7 +410,6 @@ const Equipamentos = () => {
                 />
               </div>
 
-              {/* 🛠️ CAMPOS RESTAURADOS DE CONTROLE DE PREVENTIVAS */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Periodicidade Preventiva (Dias)</label>
                 <input type="number" min="0" value={form.periodicidade_preventiva || 0} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black font-bold" onChange={e => setForm({...form, periodicidade_preventiva: parseInt(e.target.value) || 0})} />
