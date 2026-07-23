@@ -2124,5 +2124,135 @@ app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico
     });
 });
 
+// -------------------------------------------------------------------------
+// MÓDULO DE SOLICITAÇÃO DE COMPRAS UNIFICADO
+// -------------------------------------------------------------------------
+
+// 1. LISTAR TODAS AS SOLICITAÇÕES (Com JOIN de setor, equipamento e solicitante)
+app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const query = `
+        SELECT 
+            sc.*, 
+            s.nome AS setor_nome, 
+            e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio,
+            u.nome AS solicitante_nome,
+            (SELECT COUNT(*) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS total_itens,
+            (SELECT IFNULL(SUM(sci.quantidade * sci.valor_estimado), 0) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS valor_total_calculado
+        FROM solicitacoes_compra sc
+        LEFT JOIN setores s ON sc.setor_id = s.id
+        LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
+        LEFT JOIN usuarios u ON sc.solicitante_id = u.id
+        ORDER BY sc.id DESC
+    `;
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results || []);
+    });
+});
+
+// 2. BUSCAR UMA SOLICITAÇÃO ESPECÍFICA (Com itens para Impressão/Visualização)
+app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const { id } = req.params;
+
+    const queryHeader = `
+        SELECT 
+            sc.*, 
+            s.nome AS setor_nome, 
+            e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio, e.modelo AS equipamento_modelo,
+            u.nome AS solicitante_nome
+        FROM solicitacoes_compra sc
+        LEFT JOIN setores s ON sc.setor_id = s.id
+        LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
+        LEFT JOIN usuarios u ON sc.solicitante_id = u.id
+        WHERE sc.id = ?
+    `;
+
+    db.query(queryHeader, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (results.length === 0) return res.status(404).json({ error: "Solicitação não encontrada." });
+
+        const solicitacao = results[0];
+
+        // Busca a lista de itens vinculados
+        db.query("SELECT * FROM solicitacoes_compra_itens WHERE solicitacao_id = ?", [id], (errItens, itens) => {
+            if (errItens) return res.status(500).json({ error: errItens.message });
+            solicitacao.itens = itens || [];
+            res.json(solicitacao);
+        });
+    });
+});
+
+// 3. CRIAR NOVA SOLICITAÇÃO (TRANSAÇÃO: Cabeçalho + Múltiplos Itens)
+app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const { setor_id, equipamento_id, solicitante_id, urgencia, motivo, itens } = req.body;
+
+    if (!solicitante_id || !motivo || !itens || itens.length === 0) {
+        return res.status(400).json({ error: "Preencha o motivo e adicione ao menos 1 item na solicitação." });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const queryHeader = `
+            INSERT INTO solicitacoes_compra 
+            (setor_id, equipamento_id, solicitante_id, urgencia, motivo, status, data_solicitacao) 
+            VALUES (?, ?, ?, ?, ?, 'Pendente', NOW())
+        `;
+
+        const v_setor = setor_id && setor_id !== "" ? Number(setor_id) : null;
+        const v_equip = equipamento_id && equipamento_id !== "" ? Number(equipamento_id) : null;
+
+        conn.query(queryHeader, [v_setor, v_equip, Number(solicitante_id), urgencia || 'Média', motivo], (errIns, resultIns) => {
+            if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
+
+            const solicitacaoId = resultIns.insertId;
+
+            // Insere cada item da lista
+            const queryItem = `INSERT INTO solicitacoes_compra_itens (solicitacao_id, descricao, quantidade, valor_estimado) VALUES ?`;
+            const valuesItens = itens.map(item => [
+                solicitacaoId,
+                item.descricao,
+                Number(item.quantidade || 1),
+                Number(item.valor_estimado || 0)
+            ]);
+
+            conn.query(queryItem, [valuesItens], (errItens) => {
+                if (errItens) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errItens.message }); });
+
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.status(201).json({ message: "Solicitação de compra criada com sucesso!", id: solicitacaoId });
+                });
+            });
+        });
+    });
+});
+
+// 4. MUDAR STATUS DA SOLICITAÇÃO (Aprovações / Fluxo de Diretoria/Financeiro)
+app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { status, usuario_id } = req.body;
+
+    let query = `UPDATE solicitacoes_compra SET status = ?`;
+    let params = [status];
+
+    if (status === 'Financeiro') {
+        query += `, user_financeiro_id = ?, data_financeiro = NOW()`;
+        params.push(usuario_id);
+    } else if (status === 'Diretoria' || status === 'Aprovado') {
+        query += `, user_diretoria_id = ?, data_diretoria = NOW()`;
+        params.push(usuario_id);
+    }
+
+    query += ` WHERE id = ?`;
+    params.push(id);
+
+    db.query(query, params, (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: `Status alterado para ${status} com sucesso!` });
+    });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

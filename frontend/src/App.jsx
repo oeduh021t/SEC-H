@@ -25,7 +25,8 @@ import { RelatorioChamadosSetor } from './pages/RelatorioChamadosSetor';
 import Documentos from './pages/Documentos'; 
 import GestaoLocais from './pages/GestaoLocais';
 import { RelatorioEstoqueLocal } from './pages/RelatorioEstoqueLocal';
-import Gases from './pages/Gases'; // 🧪 Módulo de Controle de Gases
+import Gases from './pages/Gases';
+import SolicitacaoCompras from './pages/SolicitacaoCompras'; // 🛒 Módulo de Requisições/Compras
 
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
@@ -135,8 +136,8 @@ function App() {
                 } 
               />
 
-              {/* --- 4. LOGÍSTICA / INFRAESTRUTURA --- */}
-              {/* Fornecedores, Estoque e Setores: Apenas ADMIN e COORDENADOR acessam */}
+              {/* --- 4. LOGÍSTICA / INFRAESTRUTURA / SUPRIMENTOS --- */}
+              <Route path="/solicitacoes-compra" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><SolicitacaoCompras /></RotaProtegida>} />
               <Route path="/fornecedores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><Fornecedores /></RotaProtegida>} />
               <Route path="/notas-fiscais" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NotasFiscais /></RotaProtegida>} />
               <Route path="/estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoEstoque /></RotaProtegida>} />

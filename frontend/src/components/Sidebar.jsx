@@ -35,6 +35,7 @@ const Sidebar = ({ user, onLogout }) => {
   const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerEquipamentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
+  const podeSolicitarCompras = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario); // 🛒 Permissão para Solicitações de Compra
   const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeVerFiltrosAgua = nivelUsuario === 'admin';
   const podeVerGases = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario); // 🟢 Permissão para o módulo de gases
@@ -153,7 +154,7 @@ const Sidebar = ({ user, onLogout }) => {
       } else {
         const data = await response.json();
         alert("❌ " + (data.error || "Erro ao excluir tipo. Certifique-se de que não existem equipamentos vinculados a ele."));
-    }
+      }
     } catch (err) {
       alert("❌ Erro de conexão ao tentar excluir.");
     }
@@ -248,6 +249,13 @@ const Sidebar = ({ user, onLogout }) => {
           {podeVerDocumentos && (
             <Link to="/documentos" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/documentos') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               📁 Documentos
+            </Link>
+          )}
+
+          {/* 🛒 SOLICITAÇÃO DE COMPRAS */}
+          {podeSolicitarCompras && (
+            <Link to="/solicitacoes-compra" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/solicitacoes-compra') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+              🛒 Solicitação de Compras
             </Link>
           )}
 
