@@ -5,6 +5,7 @@ const ControleFiltros = () => {
     const [setores, setSetores] = useState([]);
     const [equipamentos, setEquipamentos] = useState([]);
     const [itensEstoque, setItensEstoque] = useState([]); 
+    const [tecnicos, setTecnicos] = useState([]); // Lista de técnicos trazida do backend
     const [loading, setLoading] = useState(true);
     const [busca, setBusca] = useState('');
 
@@ -16,12 +17,14 @@ const ControleFiltros = () => {
     const [periodicidadeMeses, setPeriodicidadeMeses] = useState(3);
     const [dataUltimaTroca, setDataUltimaTroca] = useState(new Date().toISOString().split('T')[0]);
     const [observacoes, setObservacoes] = useState('');
+    const [tecnicoCadastroId, setTecnicoCadastroId] = useState(''); // 🆕 Técnico para o cadastro inicial
 
     // Estados do Modal de Baixa/Troca
     const [modalBaixa, setModalBaixa] = useState(false);
     const [filtroSelecionado, setFiltroSelecionado] = useState(null);
     const [obsIntervencao, setObsIntervencao] = useState('');
     const [itemIdSelecionado, setItemIdSelecionado] = useState(''); 
+    const [tecnicoIdSelecionado, setTecnicoIdSelecionado] = useState(''); // Técnico para a troca
     const [qtdUsada, setQtdUsada] = useState(1); 
 
     const API_URL = 'http://192.168.5.101:3000/api';
@@ -44,14 +47,14 @@ const ControleFiltros = () => {
                 'x-usuario-nivel': obterNivelUsuario()
             };
 
-            const [resFiltros, resSetores, resEquipamentos, resEstoque] = await Promise.all([
+            const [resFiltros, resSetores, resEquipamentos, resEstoque, resTecnicos] = await Promise.all([
                 fetch(`${API_URL}/filtros`, { headers }).then(res => res.json()),
                 fetch(`${API_URL}/setores`, { headers }).then(res => res.json()),
                 fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()),
-                fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()) 
+                fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()),
+                fetch(`${API_URL}/tecnicos`, { headers }).then(res => res.json()) // 🆕 Busca técnicos
             ]);
 
-            // 🎯 FILTRO EXCLUSIVO: Isola apenas os equipamentos do tipo 19 (Bebedouros)
             const bebedourosApenas = (resEquipamentos || []).filter(eq => 
                 Number(eq.tipo_id) === 19 || Number(eq.tipo_equipamento_id) === 19
             );
@@ -60,6 +63,15 @@ const ControleFiltros = () => {
             setSetores(resSetores || []);
             setEquipamentos(bebedourosApenas);
             setItensEstoque(resEstoque || []);
+            setTecnicos(resTecnicos || []);
+
+            // Pré-seleciona o usuário logado no formulário se ele for um técnico
+            const savedUser = localStorage.getItem('user');
+            if (savedUser) {
+                const userObj = JSON.parse(savedUser);
+                const enco = (resTecnicos || []).find(t => Number(t.id) === Number(userObj.id) || t.nome.toLowerCase() === userObj.nome?.toLowerCase());
+                if (enco) setTecnicoCadastroId(String(enco.id));
+            }
         } catch (err) {
             console.error("Erro ao carregar dados do módulo de filtros:", err);
         } finally {
@@ -69,7 +81,6 @@ const ControleFiltros = () => {
 
     useEffect(() => { carregarDados(); }, []);
 
-    // 💡 Ao selecionar um Bebedouro, auto-preenche o Setor e sugere o Nome do Ponto
     const handleSelecionarEquipamento = (id) => {
         setEquipamentoId(id);
         if (!id) return;
@@ -81,9 +92,28 @@ const ControleFiltros = () => {
         }
     };
 
+    const handleAbrirModalTroca = (filtro) => {
+        setFiltroSelecionado(filtro);
+        
+        const savedUser = localStorage.getItem('user');
+        if (savedUser) {
+            const userObj = JSON.parse(savedUser);
+            const enco = tecnicos.find(t => Number(t.id) === Number(userObj.id) || t.nome.toLowerCase() === userObj.nome?.toLowerCase());
+            if (enco) setTecnicoIdSelecionado(String(enco.id));
+            else setTecnicoIdSelecionado('');
+        } else {
+            setTecnicoIdSelecionado('');
+        }
+
+        setModalBaixa(true);
+    };
+
     const handleCadastrarFiltro = async (e) => {
         e.preventDefault();
         if (!nome || !setorId) return;
+
+        const tecEncontrado = tecnicos.find(t => Number(t.id) === Number(tecnicoCadastroId));
+        const tecnicoNome = tecEncontrado ? tecEncontrado.nome : 'Técnico do Sistema';
 
         const novoFiltro = {
             nome,
@@ -92,7 +122,7 @@ const ControleFiltros = () => {
             modelo_refil: modeloRefil,
             data_ultima_troca: dataUltimaTroca,
             periodicidade_meses: Number(periodicidadeMeses),
-            observacoes
+            observacoes: observacoes ? `[Cadastrado por: ${tecnicoNome}] ${observacoes}` : `[Cadastrado por: ${tecnicoNome}]`
         };
 
         try {
@@ -119,8 +149,8 @@ const ControleFiltros = () => {
     const handleRegistrarTroca = async (e) => {
         e.preventDefault();
         
-        const userLogado = localStorage.getItem('user');
-        const tecnicoNome = userLogado ? JSON.parse(userLogado).nome : 'Técnico do Sistema';
+        const tecEncontrado = tecnicos.find(t => Number(t.id) === Number(tecnicoIdSelecionado));
+        const tecnicoNome = tecEncontrado ? tecEncontrado.nome : 'Técnico do Sistema';
 
         try {
             const res = await fetch(`${API_URL}/filtros/baixa`, {
@@ -143,6 +173,7 @@ const ControleFiltros = () => {
                 setModalBaixa(false);
                 setObsIntervencao('');
                 setItemIdSelecionado('');
+                setTecnicoIdSelecionado('');
                 setQtdUsada(1);
                 setFiltroSelecionado(null);
                 carregarDados();
@@ -229,6 +260,24 @@ const ControleFiltros = () => {
                     <form onSubmit={handleCadastrarFiltro} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">Novo Ponto de Filtragem</h3>
                         
+                        {/* 🆕 SELEÇÃO DE TÉCNICO RESPONSÁVEL NO CADASTRO */}
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Técnico Responsável *</label>
+                            <select 
+                                required 
+                                className="w-full p-3 border-2 border-slate-100 rounded-xl bg-slate-50 font-bold text-xs outline-none focus:bg-white focus:border-blue-500 text-slate-700" 
+                                value={tecnicoCadastroId} 
+                                onChange={e => setTecnicoCadastroId(e.target.value)}
+                            >
+                                <option value="">Selecione o Técnico...</option>
+                                {tecnicos.map(tec => (
+                                    <option key={tec.id} value={tec.id}>
+                                        👤 {tec.nome}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
                         {/* SELEÇÃO EXCLUSIVA DE BEBEDOUROS (TIPO ID = 19) */}
                         <div>
                             <label className="text-[10px] font-black text-blue-600 uppercase mb-1 block">Vincular Bebedouro Cadastrado (Opcional)</label>
@@ -329,7 +378,7 @@ const ControleFiltros = () => {
                                         </td>
                                         <td className="py-4 text-center">
                                             <button 
-                                                onClick={() => { setFiltroSelecionado(filtro); setModalBaixa(true); }}
+                                                onClick={() => handleAbrirModalTroca(filtro)}
                                                 className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-xl font-black text-[10px] uppercase shadow-sm active:scale-95 transition-transform"
                                             >
                                                 🔄 Trocar Refil
@@ -343,7 +392,7 @@ const ControleFiltros = () => {
                 </div>
             </div>
 
-            {/* MODAL DE SUBSTITUIÇÃO INTEGRADO AO ESTOQUE */}
+            {/* MODAL DE SUBSTITUIÇÃO INTEGRADO AO ESTOQUE E TÉCNICOS */}
             {modalBaixa && filtroSelecionado && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 text-dark">
@@ -358,6 +407,24 @@ const ControleFiltros = () => {
                                 {filtroSelecionado.equipamento_nome && (
                                     <p className="text-xs font-bold text-blue-600 uppercase mt-1">🚰 Bebedouro Vinculado: {filtroSelecionado.equipamento_nome}</p>
                                 )}
+                            </div>
+
+                            {/* SELETOR DE TÉCNICO RESPONSÁVEL NO MODAL */}
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Técnico Responsável *</label>
+                                <select 
+                                    required
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl bg-slate-50 font-bold text-xs outline-none focus:bg-white focus:border-green-500 text-slate-700"
+                                    value={tecnicoIdSelecionado}
+                                    onChange={e => setTecnicoIdSelecionado(e.target.value)}
+                                >
+                                    <option value="">Selecione o Técnico...</option>
+                                    {tecnicos.map(tec => (
+                                        <option key={tec.id} value={tec.id}>
+                                            👤 {tec.nome}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             {/* SELETOR DE REFIL DO ALMOXARIFADO FILTRADO */}

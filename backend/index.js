@@ -1947,7 +1947,7 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
 });
 
 // -------------------------------------------------------------------------
-// MÓDULO DE CONTROLE DE GASES MEDICINAIS
+// MÓDULO DE CONTROLE DE GASES MEDICINAIS (CORRIGIDO)
 // -------------------------------------------------------------------------
 
 // 1. CADASTRAR NOVO TIPO DE GÁS NO INVENTÁRIO
@@ -1959,7 +1959,7 @@ app.post('/api/gases', permitirApenas(['admin', 'coordenador']), (req, res) => {
     }
 
     const query = `
-        INSERT INTO gases_estoque (tipo_gas, capacidade_cilindro, estoque_minimo, quantity_atual) 
+        INSERT INTO gases_estoque (tipo_gas, capacidade_cilindro, estoque_minimo, quantidade_atual) 
         VALUES (?, ?, ?, 0)
     `;
     const values = [tipo_gas.trim(), Number(capacidade_cilindro), Number(estoque_minimo || 5)];
@@ -1979,8 +1979,8 @@ app.post('/api/gases', permitirApenas(['admin', 'coordenador']), (req, res) => {
 app.get('/api/gases', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT *, 
-               (quantity_atual * capacidade_cilindro) as volume_total_m3,
-               (quantity_atual <= estoque_minimo) as alerta_estoque
+               (quantidade_atual * capacidade_cilindro) as volume_total_m3,
+               (quantidade_atual <= estoque_minimo) as alerta_estoque
         FROM gases_estoque 
         ORDER BY tipo_gas ASC
     `;
@@ -1992,35 +1992,34 @@ app.get('/api/gases', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuari
 
 // 3. REGISTRAR COMPRA (ENTRADA DE CILINDROS CHEIOS)
 app.post('/api/gases/entrada', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { tipo_gas_id, bandwidth_cilindros, quantity_cilindros, valor_unitario_cilindro, tecnico_nome, observacao } = req.body;
+    const { tipo_gas_id, quantity_cilindros, quantidade_cilindros, valor_unitario_cilindro, tecnico_nome, observacao } = req.body;
+    const qtd_entrada = Number(quantidade_cilindros || quantity_cilindros || 0);
 
-    if (!tipo_gas_id || !quantity_cilindros || !valor_unitario_cilindro) {
+    if (!tipo_gas_id || !qtd_entrada || !valor_unitario_cilindro) {
         return res.status(400).json({ error: "Dados incompletos para registrar a compra de gases." });
     }
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // Atualiza a quantidade atual e registra o preço do último lote comprado
         const queryUpdate = `
             UPDATE gases_estoque 
-            SET quantity_atual = quantity_atual + ?, 
+            SET quantidade_atual = quantidade_atual + ?, 
                 valor_ultimo_cilindro = ? 
             WHERE id = ?
         `;
         
-        conn.query(queryUpdate, [Number(quantity_cilindros), Number(valor_unitario_cilindro), Number(tipo_gas_id)], (errUp) => {
+        conn.query(queryUpdate, [qtd_entrada, Number(valor_unitario_cilindro), Number(tipo_gas_id)], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-            // Insere o histórico de entrada (compra)
             const queryHist = `
                 INSERT INTO gases_movimentacoes 
-                (tipo_gas_id, tipo_movimentacao, quantity_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao) 
+                (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao) 
                 VALUES (?, 'Entrada', ?, ?, ?, ?)
             `;
             const valuesHist = [
                 Number(tipo_gas_id), 
-                Number(quantity_cilindros), 
+                qtd_entrada, 
                 Number(valor_unitario_cilindro), 
                 tecnico_nome || 'Sistema', 
                 observacao || "Entrada de lote de cilindros adquiridos."
@@ -2041,8 +2040,8 @@ app.post('/api/gases/entrada', permitirApenas(['admin', 'coordenador']), (req, r
 
 // 4. REGISTRAR CONSUMO (BAIXA DE CILINDRO SECO NA CENTRAL)
 app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
-    const { tipo_gas_id, quantity_cilindros, tecnico_nome, observacao } = req.body;
-    const qtd_baixa = Number(quantity_cilindros || 1);
+    const { tipo_gas_id, quantity_cilindros, quantidade_cilindros, tecnico_nome, observacao } = req.body;
+    const qtd_baixa = Number(quantidade_cilindros || quantity_cilindros || 1);
 
     if (!tipo_gas_id) {
         return res.status(400).json({ error: "O ID do gás de referência é obrigatório." });
@@ -2051,28 +2050,25 @@ app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico'
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // Verifica a quantidade física atual disponível
-        conn.query("SELECT quantity_atual, valor_ultimo_cilindro FROM gases_estoque WHERE id = ?", [Number(tipo_gas_id)], (errCheck, results) => {
+        conn.query("SELECT quantidade_atual, valor_ultimo_cilindro FROM gases_estoque WHERE id = ?", [Number(tipo_gas_id)], (errCheck, results) => {
             if (errCheck || results.length === 0) {
                 return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Tipo de gás não localizado." }); });
             }
 
             const estoque = results[0];
-            if (estoque.quantity_atual < qtd_baixa) {
+            if (estoque.quantidade_atual < qtd_baixa) {
                 return conn.rollback(() => { 
                     conn.release(); 
-                    res.status(400).json({ error: `Estoque insuficiente na central! Restam apenas ${estoque.quantity_atual} cilindros.` }); 
+                    res.status(400).json({ error: `Estoque insuficiente na central! Restam apenas ${estoque.quantidade_atual} cilindros.` }); 
                 });
             }
 
-            // Deduz os cilindros baixados do estoque
-            conn.query("UPDATE gases_estoque SET quantity_atual = quantity_atual - ? WHERE id = ?", [qtd_baixa, Number(tipo_gas_id)], (errUp) => {
+            conn.query("UPDATE gases_estoque SET quantidade_atual = quantidade_atual - ? WHERE id = ?", [qtd_baixa, Number(tipo_gas_id)], (errUp) => {
                 if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-                // Registra o log de saída herdando financeiramente o custo do Visual Lote adquirido
                 const queryHist = `
                     INSERT INTO gases_movimentacoes 
-                    (tipo_gas_id, tipo_movimentacao, quantity_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao) 
+                    (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao) 
                     VALUES (?, 'Saida', ?, ?, ?, ?)
                 `;
                 const valuesHist = [
@@ -2103,7 +2099,7 @@ app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico
 
     let query = `
         SELECT m.*, g.tipo_gas, g.capacidade_cilindro,
-               (m.quantity_cilindros * m.valor_unitario_cilindro) as cubic_total_movimentacao
+               (m.quantidade_cilindros * m.valor_unitario_cilindro) as cubic_total_movimentacao
         FROM gases_movimentacoes m
         JOIN gases_estoque g ON m.tipo_gas_id = g.id
         WHERE 1=1

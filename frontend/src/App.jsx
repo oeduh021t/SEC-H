@@ -25,6 +25,7 @@ import { RelatorioChamadosSetor } from './pages/RelatorioChamadosSetor';
 import Documentos from './pages/Documentos'; 
 import GestaoLocais from './pages/GestaoLocais';
 import { RelatorioEstoqueLocal } from './pages/RelatorioEstoqueLocal';
+import Gases from './pages/Gases'; // 🧪 Módulo de Controle de Gases
 
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
@@ -75,7 +76,7 @@ function App() {
     };
   }, [user]);
 
-  // Função para sair do system
+  // Função para sair do sistema
   const handleLogout = () => {
     localStorage.removeItem('user');
     setUser(null);
@@ -124,7 +125,7 @@ function App() {
                 element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><TratarChamado /></RotaProtegida>}
               />
 
-              {/* --- 🆕 NOVO MÓDULO: REPOSITÓRIO DE DOCUMENTOS AUDITÁVEIS --- */}
+              {/* --- REPOSITÓRIO DE DOCUMENTOS AUDITÁVEIS --- */}
               <Route 
                 path="/documentos" 
                 element={
@@ -147,14 +148,17 @@ function App() {
               <Route path="/filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><ControleFiltros /></RotaProtegida>} />
               <Route path="/relatorio-filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><RelatorioFiltros /></RotaProtegida>} />
 
-              {/* --- 6. RELATÓRIOS GERENCIAIS --- */}
+              {/* --- 🧪 6. MÓDULO CONTROLE DE GASES MEDICINAIS --- */}
+              <Route path="/gases" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Gases /></RotaProtegida>} />
+
+              {/* --- 7. RELATÓRIOS GERENCIAIS --- */}
               {/* Inventário e Custos por Setor: Apenas ADMIN e COORDENADOR acessam */}
               <Route path="/relatorios/inventario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><InventarioGeral /></RotaProtegida>} />
               <Route path="/relatorios/custos-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioCustosSetor /></RotaProtegida>} />
               <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>} />
               <Route path="/relatorios/estoque-local" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioEstoqueLocal /></RotaProtegida>} /> 
 
-              {/* --- 7. GERENCIAMENTO DE USUÁRIOS --- */}
+              {/* --- 8. GERENCIAMENTO DE USUÁRIOS --- */}
               {/* Criação e edição de operadores: Exclusivo ADMIN */}
               <Route path="/usuarios" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><Usuarios /></RotaProtegida>} />
 
