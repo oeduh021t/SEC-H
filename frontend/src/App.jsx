@@ -15,7 +15,7 @@ import InventarioGeral from './pages/InventarioGeral';
 import { RelatorioCustosSetor } from './pages/RelatorioCustosSetor';
 import { TratarChamado } from "./pages/TratarChamado";
 import Fornecedores from './pages/Fornecedores'; 
-import NotasFiscais from './pages/NotasFiscais'; // 🧾 Lançamento de Notas Fiscais e Boletos
+import NotasFiscais from './pages/NotasFiscais'; 
 import { ImprimirOS } from './pages/ImprimirOS'; 
 import { GestaoEstoque } from './pages/GestaoEstoque'; 
 import { GestaoSetores } from './pages/GestaoSetores';
@@ -26,7 +26,7 @@ import Documentos from './pages/Documentos';
 import GestaoLocais from './pages/GestaoLocais';
 import { RelatorioEstoqueLocal } from './pages/RelatorioEstoqueLocal';
 import Gases from './pages/Gases';
-import SolicitacaoCompras from './pages/SolicitacaoCompras'; // 🛒 Módulo de Requisições/Compras
+import SolicitacaoCompras from './pages/SolicitacaoCompras';
 
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
@@ -35,7 +35,6 @@ function RotaProtegida({ children, user, niveisPermitidos }) {
   
   const nivelLimpo = user.nivel?.toLowerCase().trim();
   if (!niveisPermitidos.includes(nivelLimpo)) {
-    // Se o usuário tentar forçar a barra digitando a URL direta, joga de volta pro Dashboard
     return <Navigate to="/" />;
   }
   return children;
@@ -47,13 +46,15 @@ function PrivateRoute({ children, user }) {
 
 // --- COMPONENTE PRINCIPAL ---
 function App() {
-  // Busca o usuário salvo no navegador (localStorage)
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  // INTERCEPTOR GLOBAL DE FETCH (Garante injetar x-usuario-nivel em todas as requisições automágico)
+  // Estado global do menu para ajustar a margem do conteúdo dinamicamente
+  const [sidebarAberta, setSidebarAberta] = useState(true);
+
+  // INTERCEPTOR GLOBAL DE FETCH
   useEffect(() => {
     if (!user) return;
 
@@ -61,44 +62,44 @@ function App() {
     window.fetch = async function (...args) {
       let [resource, config] = args;
       
-      // Se não houver configuração de objeto na requisição, inicializa uma
       if (!config) config = {};
       if (!config.headers) config.headers = {};
 
-      // Injeta dinamicamente o nível do operador do localStorage no cabeçalho
       config.headers['x-usuario-nivel'] = user.nivel || '';
 
       return originalFetch(resource, config);
     };
 
-    // Função de limpeza caso o usuário deslogue
     return () => {
       window.fetch = originalFetch;
     };
   }, [user]);
 
-  // Função para sair do sistema
   const handleLogout = () => {
     localStorage.removeItem('user');
     setUser(null);
   };
 
-  // Se não houver usuário logado, mostra apenas a tela de Login
   if (!user) {
     return <Login onLogin={setUser} />;
   }
 
   return (
     <Router>
-      <div className="flex min-h-screen bg-gray-100 shadow-slate-900">
-        {/* Passamos o usuário e a função de logout para a Sidebar */}
-        <Sidebar user={user} onLogout={handleLogout} />
+      <div className="min-h-screen bg-gray-100 flex overflow-x-hidden">
+        {/* Passamos o estado e função de toggle para a Sidebar */}
+        <Sidebar 
+          user={user} 
+          onLogout={handleLogout} 
+          sidebarAberta={sidebarAberta} 
+          setSidebarAberta={setSidebarAberta} 
+        />
 
-        <main className="flex-1 p-8 overflow-y-auto print:overflow-visible print:p-0 print:m-0">
-          <div className="max-w-7xl mx-auto">
+        {/* ÁREA PRINCIPAL: Ajusta a margem esquerda (ml) de acordo com o estado da Sidebar */}
+        <main className={`flex-1 p-4 md:p-6 transition-all duration-300 ease-in-out min-w-0 overflow-y-auto print:overflow-visible print:p-0 print:m-0 ${sidebarAberta ? 'md:ml-64' : 'md:ml-16'}`}>
+          <div className="w-full max-w-[1600px] mx-auto">
             <Routes>
               {/* --- 1. DASHBOARD --- */}
-              {/* Permitido apenas para quem gerencia ou atende (admin, coordenador, tecnico) */}
               <Route 
                 path="/" 
                 element={
@@ -107,20 +108,14 @@ function App() {
               />
 
               {/* --- 2. MÓDULO EQUIPAMENTOS & PREVENTIVAS --- */}
-              {/* Listagem e Prontuários liberados para Gestores e Técnicos */}
               <Route path="/equipamentos" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Equipamentos /></RotaProtegida>} />
               <Route path="/prontuario/:id" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Prontuario /></RotaProtegida>} />
               <Route path="/preventivas" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Preventivas /></RotaProtegida>} />
-              
-              {/* Cadastro de Novos Equipamentos restrito apenas para ADMIN e COORDENADOR */}
               <Route path="/equipamentos/novo" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NovoEquipamento /></RotaProtegida>} />
 
               {/* --- 3. MÓDULO CHAMADOS / OS --- */}
-              {/* Listagem e Abertura: Liberado para TODOS os níveis do hospital */}
               <Route path="/chamados" element={<Chamados user={user} />} />
               <Route path="/chamados/:id/imprimir" element={<PrivateRoute user={user}><ImprimirOS /></PrivateRoute>} />
-              
-              {/* Tratar Chamado: Restrito para ADMIN, COORDENADOR e TECNICO (O Solicitante/usuario não mexe) */}
               <Route
                 path="/chamados/:id/tratar"
                 element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><TratarChamado /></RotaProtegida>}
@@ -145,7 +140,6 @@ function App() {
               <Route path="/locais-estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoLocais /></RotaProtegida>} />
 
               {/* --- 5. MÓDULO FILTROS DE ÁGUA --- */}
-              {/* Controle e Relatório Financeiro de Filtros: Exclusivo ADMIN */}
               <Route path="/filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><ControleFiltros /></RotaProtegida>} />
               <Route path="/relatorio-filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><RelatorioFiltros /></RotaProtegida>} />
 
@@ -153,14 +147,12 @@ function App() {
               <Route path="/gases" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Gases /></RotaProtegida>} />
 
               {/* --- 7. RELATÓRIOS GERENCIAIS --- */}
-              {/* Inventário e Custos por Setor: Apenas ADMIN e COORDENADOR acessam */}
               <Route path="/relatorios/inventario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><InventarioGeral /></RotaProtegida>} />
               <Route path="/relatorios/custos-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioCustosSetor /></RotaProtegida>} />
               <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>} />
               <Route path="/relatorios/estoque-local" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioEstoqueLocal /></RotaProtegida>} /> 
 
               {/* --- 8. GERENCIAMENTO DE USUÁRIOS --- */}
-              {/* Criação e edição de operadores: Exclusivo ADMIN */}
               <Route path="/usuarios" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><Usuarios /></RotaProtegida>} />
 
               {/* Fallback */}

@@ -8,12 +8,29 @@ const Prontuario = () => {
     const [erroAutenticacao, setErroAutenticacao] = useState(false);
     const [imagemModal, setImagemModal] = useState(null); // Modal para zoom em foto
     
+    // 🚚 ESTADOS PARA SAÍDA DE MANUTENÇÃO EXTERNA
+    const [modalSaidaExterna, setModalSaidaExterna] = useState(false);
+    const [fornecedores, setFornecedores] = useState([]);
+    const [fornecedorId, setFornecedorId] = useState('');
+    const [descricaoMotivo, setDescricaoMotivo] = useState('');
+    const [previsaoRetorno, setPrevisaoRetorno] = useState('');
+    const [enviandoSaida, setEnviandoSaida] = useState(false);
+    const [guiaImpressao, setGuiaImpressao] = useState(null);
+
+    // 🖨️ CONTROLE DE TIPO DE IMPRESSÃO ('prontuario' OU 'guia')
+    const [modoImpressao, setModoImpressao] = useState('prontuario');
+
     const API_URL = 'http://192.168.5.101:3000/api';
     const BASE_URL = 'http://192.168.5.101:3000'; 
 
-    useEffect(() => {
-        const usuarioSalvo = localStorage.getItem('user');
-        const nivel = usuarioSalvo ? JSON.parse(usuarioSalvo).nivel : '';
+    const obterUsuario = () => {
+        const savedUser = localStorage.getItem('user');
+        return savedUser ? JSON.parse(savedUser) : null;
+    };
+
+    const carregarProntuario = () => {
+        const user = obterUsuario();
+        const nivel = user ? user.nivel : '';
 
         fetch(`${API_URL}/equipamentos/${id}/prontuario`, {
             method: 'GET',
@@ -33,6 +50,17 @@ const Prontuario = () => {
                 if (data) setDados(data);
             })
             .catch(err => console.error("Erro ao carregar prontuário:", err));
+    };
+
+    useEffect(() => {
+        carregarProntuario();
+        
+        fetch(`${API_URL}/fornecedores`, {
+            headers: { 'x-usuario-nivel': obterUsuario()?.nivel || '' }
+        })
+        .then(res => res.json())
+        .then(data => setFornecedores(data || []))
+        .catch(err => console.error("Erro ao carregar fornecedores:", err));
     }, [id]);
 
     const handleCriarChamadoContextualizado = () => {
@@ -47,27 +75,95 @@ const Prontuario = () => {
         });
     };
 
-    // 🕒 Formatação resiliente de data e hora (Lida com 'T' ou espaço vindo do MySQL com dateStrings: true)
-    const formatarDataHora = (dataStr) => {
-        if (!dataStr) return '---';
-        
-        const [dataPart, horaPart] = dataStr.replace('T', ' ').split(' ');
-        const partesData = dataPart.split('-');
+    // 🖨️ FUNÇÃO DE IMPRESSÃO DA FICHA TÉCNICA (PRONTUÁRIO)
+    const handleImprimirFicha = () => {
+        setModoImpressao('prontuario');
+        setTimeout(() => window.print(), 150);
+    };
 
-        if (partesData.length < 3) return dataStr;
+    // 🖨️ FUNÇÃO DE IMPRESSÃO DA GUIA DE SAÍDA EXTERNA
+    const handleImprimirGuiaSaida = () => {
+        if (!guiaImpressao) {
+            alert("Nenhuma guia de saída foi gerada recentemente nesta sessão.");
+            return;
+        }
+        setModoImpressao('guia');
+        setTimeout(() => window.print(), 150);
+    };
 
-        const [ano, mes, dia] = partesData;
-        const dataBR = `${dia}/${mes}/${ano}`;
-
-        if (horaPart) {
-            const horaLimpa = horaPart.substring(0, 5); // Pega apenas HH:MM
-            return `${dataBR} às ${horaLimpa}`;
+    // 🚚 PROCESSAR SAÍDA PARA MANUTENÇÃO EXTERNA
+    const handleConfirmarSaidaExterna = async (e) => {
+        e.preventDefault();
+        if (!fornecedorId || !descricaoMotivo) {
+            alert("Selecione o fornecedor e informe o motivo da saída.");
+            return;
         }
 
+        setEnviandoSaida(true);
+        const user = obterUsuario();
+
+        try {
+            const response = await fetch(`${API_URL}/equipamentos/${id}/saida-externa`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-usuario-nivel': user?.nivel || ''
+                },
+                body: JSON.stringify({
+                    fornecedor_id: fornecedorId,
+                    tecnico_nome: user?.nome || 'Técnico de Plantão',
+                    descricao_motivo: descricaoMotivo,
+                    data_previsao_retorno: previsaoRetorno || null
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                const fornSelecionado = fornecedores.find(f => String(f.id) === String(fornecedorId));
+                
+                const objetoGuia = {
+                    equipamento: dados.dados,
+                    fornecedor: fornSelecionado,
+                    motivo: descricaoMotivo,
+                    previsao: previsaoRetorno,
+                    dataSaida: new Date().toLocaleDateString('pt-BR')
+                };
+
+                setGuiaImpressao(objetoGuia);
+                setModalSaidaExterna(false);
+                setDescricaoMotivo('');
+                setPrevisaoRetorno('');
+                carregarProntuario();
+
+                // Alterna para o modo Guia e dispara a impressão automaticamente
+                setModoImpressao('guia');
+                setTimeout(() => window.print(), 300);
+
+            } else {
+                alert("❌ " + (result.error || "Erro ao processar saída externa."));
+            }
+        } catch (err) {
+            alert("❌ Erro de conexão ao tentar registrar saída.");
+        } finally {
+            setEnviandoSaida(false);
+        }
+    };
+
+    const formatarDataHora = (dataStr) => {
+        if (!dataStr) return '---';
+        const [dataPart, horaPart] = dataStr.replace('T', ' ').split(' ');
+        const partesData = dataPart.split('-');
+        if (partesData.length < 3) return dataStr;
+        const [ano, mes, dia] = partesData;
+        const dataBR = `${dia}/${mes}/${ano}`;
+        if (horaPart) {
+            const horaLimpa = horaPart.substring(0, 5);
+            return `${dataBR} às ${horaLimpa}`;
+        }
         return dataBR;
     };
 
-    // 🖼️ Verifica se o arquivo em anexo é uma imagem
     const isImagem = (url) => {
         if (!url) return false;
         const ext = url.toLowerCase().split('.').pop();
@@ -91,36 +187,60 @@ const Prontuario = () => {
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
             
-            {/* GATILHO CSS EXATO DOS RELATÓRIOS QUE EVITA TELA EM BRANCO */}
+            {/* CSS REFINADO DE IMPRESSÃO (ISOLA PRONTUÁRIO VS GUIA DE SAÍDA) */}
             <style>{`
                 @media print {
                     body * { 
-                        visibility: hidden; 
+                        visibility: hidden !important; 
                         background: white !important; 
-                    }
-                    .relatorio-container, .relatorio-container * { 
-                        visibility: visible; 
-                    }
-                    .relatorio-container { 
-                        position: absolute; 
-                        left: 0; 
-                        top: 0; 
-                        width: 100%; 
-                        padding: 0;
-                        margin: 0;
                     }
                     .hide-print { 
                         display: none !important; 
                     }
+                    
+                    /* SE MODO FOR PRONTUARIO, IMPRIME SÓ O PRONTUÁRIO */
+                    ${modoImpressao === 'prontuario' ? `
+                        .relatorio-container, .relatorio-container * { 
+                            visibility: visible !important; 
+                        }
+                        .relatorio-container { 
+                            position: absolute !important; 
+                            left: 0 !important; 
+                            top: 0 !important; 
+                            width: 100% !important; 
+                            padding: 0 !important;
+                            margin: 0 !important;
+                        }
+                        #guia-saida-impressao { display: none !important; }
+                    ` : ''}
+
+                    /* SE MODO FOR GUIA, IMPRIME SÓ A GUIA DE SAÍDA */
+                    ${modoImpressao === 'guia' ? `
+                        #guia-saida-impressao, #guia-saida-impressao * { 
+                            visibility: visible !important; 
+                        }
+                        #guia-saida-impressao { 
+                            display: block !important;
+                            position: absolute !important; 
+                            left: 0 !important; 
+                            top: 0 !important; 
+                            width: 100% !important; 
+                            padding: 10px !important;
+                            margin: 0 !important;
+                        }
+                        .relatorio-container { display: none !important; }
+                    ` : ''}
+
                     .impressao-grid {
                         display: grid !important;
                         grid-template-columns: 4fr 8fr !important;
                         gap: 20px !important;
                     }
+                    @page { size: A4; margin: 10mm; }
                 }
             `}</style>
 
-            {/* BOTÕES DE CONTROLE DA TELA (SOMEM NA IMPRESSÃO) */}
+            {/* BOTÕES DE CONTROLE DA TELA */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 hide-print">
                 <div className="flex items-center gap-3">
                     <span className="text-2xl bg-blue-100 p-2.5 rounded-xl">📋</span>
@@ -130,13 +250,36 @@ const Prontuario = () => {
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                    
+                    {/* IMPRIMIR PRONTUÁRIO COMPLETO */}
                     <button 
                         type="button"
-                        onClick={() => window.print()}
-                        className="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                        onClick={handleImprimirFicha}
+                        className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                     >
                         🖨️ IMPRIMIR FICHA
                     </button>
+
+                    {/* GUIA DE SAÍDA GERADA ANTERIORMENTE */}
+                    {guiaImpressao && (
+                        <button 
+                            type="button"
+                            onClick={handleImprimirGuiaSaida}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                        >
+                            🖨️ IMPRIMIR GUIA DE SAÍDA
+                        </button>
+                    )}
+                    
+                    {/* BOTÃO REGISTRAR SAÍDA EXTERNA */}
+                    <button 
+                        type="button"
+                        onClick={() => setModalSaidaExterna(true)}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-indigo-100 flex items-center gap-1.5"
+                    >
+                        🚚 SAÍDA EXTERNA
+                    </button>
+
                     <button 
                         type="button"
                         onClick={handleCriarChamadoContextualizado}
@@ -150,15 +293,15 @@ const Prontuario = () => {
                 </div>
             </div>
 
-            {/* CONTAINER ALVO DA IMPRESSÃO */}
+            {/* CONTAINER ALVO DA IMPRESSÃO DO PRONTUÁRIO */}
             <div className="relatorio-container space-y-6">
 
-                {/* CABEÇALHO EXCLUSIVO PARA IMPRESSÃO */}
+                {/* CABEÇALHO EXCLUSIVO PARA IMPRESSÃO DO PRONTUÁRIO */}
                 <div className="hidden print:block bg-white p-4 border-b border-slate-200 mb-4">
                     <div className="flex justify-between items-center">
                         <div>
-                            <h1 className="text-lg font-black text-slate-800 uppercase">SEC-H ENGENHARIA CLÍNICA — PRONTUÁRIO TÉCNICO</h1>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase">Relatório de Rastreabilidade e Manutenções do Ativo</p>
+                            <h1 className="text-lg font-black text-slate-800 uppercase">CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO</h1>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase">Ficha Técnica e Prontuário de Manutenções do Ativo</p>
                         </div>
                         <div className="text-right text-[9px] text-slate-400 font-mono">
                             Emissão: {new Date().toLocaleString('pt-BR')}
@@ -260,17 +403,11 @@ const Prontuario = () => {
                                     <tbody className="text-xs font-medium text-slate-600 divide-y divide-slate-100 print:divide-slate-200">
                                         {dados.timeline && dados.timeline.map((item, i) => (
                                             <tr key={i} className="hover:bg-slate-50/60 transition-colors print:text-[10px]">
-                                                
-                                                {/* DATA E HORA FORMATADAS */}
                                                 <td className="p-3.5 whitespace-nowrap font-bold text-slate-500 font-mono text-[11px]">
                                                     {formatarDataHora(item.data)}
                                                 </td>
-                                                
-                                                {/* EVENTO E PREVIEW DE ANEXOS */}
                                                 <td className="p-3.5">
                                                     <div className="font-bold text-slate-700">{item.evento}</div>
-
-                                                    {/* PREVIEW DO ANEXO SE HOUVER */}
                                                     {item.url_anexo && (
                                                         <div className="mt-2">
                                                             {isImagem(item.url_anexo) ? (
@@ -302,8 +439,6 @@ const Prontuario = () => {
                                                         </div>
                                                     )}
                                                 </td>
-
-                                                {/* TIPO DE EVENTO */}
                                                 <td className="p-3.5 whitespace-nowrap">
                                                     <span className={`px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-wider inline-block ${
                                                         item.tipo && item.tipo.includes('Abertura') ? 'bg-amber-500' :
@@ -313,36 +448,143 @@ const Prontuario = () => {
                                                         {item.tipo || 'Intervenção'}
                                                     </span>
                                                 </td>
-
-                                                {/* RESPONSÁVEL */}
                                                 <td className="p-3.5 italic text-slate-500 font-bold whitespace-nowrap">
                                                     {item.responsavel}
                                                 </td>
                                             </tr>
                                         ))}
-
-                                        {(!dados.timeline || dados.timeline.length === 0) && (
-                                            <tr>
-                                                <td colSpan="4" className="p-8 text-center text-slate-400 font-bold italic">
-                                                    Nenhum evento registrado no prontuário até o momento.
-                                                </td>
-                                            </tr>
-                                        )}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                {/* RODAPÉ EXCLUSIVO DA IMPRESSÃO */}
-                <div className="hidden print:block mt-8 pt-4 border-t border-slate-200 text-center text-[9px] text-slate-400 font-bold uppercase tracking-wider">
-                    Ficha Técnica de Equipamento emitida via SEC-H Engenharia Clínica
-                </div>
-
             </div>
 
-            {/* MODAL DE VISUALIZAÇÃO DE IMAGENS EM TAMANHO REAL */}
+            {/* 🚚 MODAL DE SAÍDA PARA MANUTENÇÃO EXTERNA */}
+            {modalSaidaExterna && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
+                    <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+                        <div className="bg-indigo-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+                            <span>🚚 Registrar Saída para Manutenção Externa</span>
+                            <button onClick={() => setModalSaidaExterna(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleConfirmarSaidaExterna} className="p-6 space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Assistência Técnica / Fornecedor *</label>
+                                <select 
+                                    required 
+                                    value={fornecedorId} 
+                                    onChange={e => setFornecedorId(e.target.value)}
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-indigo-500"
+                                >
+                                    <option value="">Selecione o Fornecedor de Destino...</option>
+                                    {fornecedores.map(f => (
+                                        <option key={f.id} value={f.id}>🚚 {f.nome_fantasia} {f.cnpj ? `(CNPJ: ${f.cnpj})` : ''}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Previsão Estimada de Retorno (Opcional)</label>
+                                <input 
+                                    type="date" 
+                                    value={previsaoRetorno} 
+                                    onChange={e => setPrevisaoRetorno(e.target.value)}
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-indigo-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Motivo / Defeito e Condições de Envio *</label>
+                                <textarea 
+                                    required 
+                                    rows={3} 
+                                    value={descricaoMotivo} 
+                                    onChange={e => setDescricaoMotivo(e.target.value)}
+                                    placeholder="Descreva a falha relatada, peças/acessórios enviados junto (ex: cabos, sensores)..."
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-indigo-500"
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-3">
+                                <button type="button" onClick={() => setModalSaidaExterna(false)} className="flex-1 bg-slate-100 py-3 rounded-xl font-black text-xs uppercase text-slate-500">Cancelar</button>
+                                <button type="submit" disabled={enviandoSaida} className="flex-[2] bg-indigo-600 text-white py-3 rounded-xl font-black text-xs uppercase shadow-lg shadow-indigo-100">
+                                    {enviandoSaida ? 'Gravando...' : 'Confirmar Saída & Imprimir Guia'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 🖨️ GUIA DE SAÍDA E REMESSA PARA IMPRESSÃO A4 (EXCLUSIVA) */}
+            {guiaImpressao && (
+                <div id="guia-saida-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-6">
+                    <div className="border-b-2 border-slate-900 pb-4 mb-4 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-lg font-black uppercase">CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO</h1>
+                            <p className="text-xs font-bold text-slate-600 uppercase">Engenharia Clínica & Gestão de Ativos — Guia de Remessa e Saída</p>
+                        </div>
+                        <div className="text-right">
+                            <span className="text-base font-mono font-black border border-slate-900 px-2 py-1 rounded">GUIA Nº #{new Date().getFullYear()}/{guiaImpressao.equipamento.id}</span>
+                            <p className="text-xs font-bold text-slate-500 mt-1">Data de Saída: {guiaImpressao.dataSaida}</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4 text-xs">
+                        <div className="border-2 border-slate-200 p-4 rounded-xl bg-slate-50/50">
+                            <h3 className="font-black uppercase text-xs mb-2 text-slate-700">1. Dados do Ativo / Equipamento</h3>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div><strong>Equipamento:</strong> {guiaImpressao.equipamento.nome}</div>
+                                <div><strong>Marca/Fabricante:</strong> {guiaImpressao.equipamento.fabricante || 'Não informado'}</div>
+                                <div><strong>Modelo:</strong> {guiaImpressao.equipamento.modelo || 'N/A'}</div>
+                                <div><strong>Patrimônio:</strong> {guiaImpressao.equipamento.patrimonio || 'S/P'}</div>
+                                <div><strong>Nº de Série:</strong> {guiaImpressao.equipamento.num_serie || 'N/A'}</div>
+                                <div><strong>Setor de Origem:</strong> {guiaImpressao.equipamento.setor_nome || 'Geral'}</div>
+                            </div>
+                        </div>
+
+                        <div className="border-2 border-slate-200 p-4 rounded-xl bg-slate-50/50">
+                            <h3 className="font-black uppercase text-xs mb-2 text-slate-700">2. Dados da Assistência / Destino</h3>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div><strong>Empresa / Fornecedor:</strong> {guiaImpressao.fornecedor?.nome_fantasia || 'Terceirizado'}</div>
+                                <div><strong>CNPJ:</strong> {guiaImpressao.fornecedor?.cnpj || 'Não cadastrado'}</div>
+                                <div><strong>Contato / Tel:</strong> {guiaImpressao.fornecedor?.telefone || guiaImpressao.fornecedor?.contato || '---'}</div>
+                                <div><strong>Previsão de Retorno:</strong> {guiaImpressao.previsao ? formatarDataHora(guiaImpressao.previsao) : 'A definir'}</div>
+                            </div>
+                        </div>
+
+                        <div className="border-2 border-slate-200 p-4 rounded-xl bg-slate-50/50">
+                            <h3 className="font-black uppercase text-xs mb-1 text-slate-700">3. Motivo da Saída / Condições de Envio</h3>
+                            <p className="font-medium text-slate-800">{guiaImpressao.motivo}</p>
+                        </div>
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 mt-6 italic">
+                        Declaramos que o equipamento acima discriminado foi retirado nesta data para fins de manutenção externa especializada e orçamento.
+                    </p>
+
+                    {/* ASSINATURA AJUSTADA COM LINHA EM BRANCO */}
+                    <div className="grid grid-cols-3 gap-6 text-center mt-20 pt-4">
+                        <div>
+                            <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">Responsável pela liberação interna</p>
+                        </div>
+                        <div>
+                            <p className="border-t-2 border-slate-800 pt-1 font-bold">Portador / Transportador</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">RG/CPF: _________________</p>
+                        </div>
+                        <div>
+                            <p className="border-t-2 border-slate-800 pt-1 font-bold">Recebedor (Assistência)</p>
+                            <p className="text-[10px] text-slate-500 uppercase font-bold">Data: ___/___/_______</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL DE VISUALIZAÇÃO DE IMAGENS */}
             {imagemModal && (
                 <div 
                     className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer animate-in fade-in duration-150 hide-print"

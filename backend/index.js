@@ -2128,18 +2128,20 @@ app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico
 // MÓDULO DE SOLICITAÇÃO DE COMPRAS UNIFICADO
 // -------------------------------------------------------------------------
 
-// 1. LISTAR TODAS AS SOLICITAÇÕES (Com JOIN de setor, equipamento e solicitante)
+// 1. LISTAR TODAS AS SOLICITAÇÕES (Inclui o JOIN com a tabela de fornecedores)
 app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT 
             sc.*, 
             s.nome AS setor_nome, 
+            f.nome_fantasia AS fornecedor_nome,
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio,
             u.nome AS solicitante_nome,
             (SELECT COUNT(*) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS total_itens,
             (SELECT IFNULL(SUM(sci.quantidade * sci.valor_estimado), 0) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS valor_total_calculado
         FROM solicitacoes_compra sc
         LEFT JOIN setores s ON sc.setor_id = s.id
+        LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
         LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
         LEFT JOIN usuarios u ON sc.solicitante_id = u.id
         ORDER BY sc.id DESC
@@ -2150,7 +2152,7 @@ app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tec
     });
 });
 
-// 2. BUSCAR UMA SOLICITAÇÃO ESPECÍFICA (Com itens para Impressão/Visualização)
+// 2. BUSCAR UMA SOLICITAÇÃO ESPECÍFICA (Para Impressão/Visualização)
 app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { id } = req.params;
 
@@ -2158,10 +2160,12 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
         SELECT 
             sc.*, 
             s.nome AS setor_nome, 
+            f.nome_fantasia AS fornecedor_nome, f.cnpj AS fornecedor_cnpj, f.telefone AS fornecedor_telefone,
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio, e.modelo AS equipamento_modelo,
             u.nome AS solicitante_nome
         FROM solicitacoes_compra sc
         LEFT JOIN setores s ON sc.setor_id = s.id
+        LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
         LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
         LEFT JOIN usuarios u ON sc.solicitante_id = u.id
         WHERE sc.id = ?
@@ -2182,12 +2186,12 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
     });
 });
 
-// 3. CRIAR NOVA SOLICITAÇÃO (TRANSAÇÃO: Cabeçalho + Múltiplos Itens)
+// 3. CRIAR NOVA SOLICITAÇÃO (Grava o fornecedor_id)
 app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    const { setor_id, equipamento_id, solicitante_id, urgencia, motivo, itens } = req.body;
+    const { setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, itens } = req.body;
 
     if (!solicitante_id || !motivo || !itens || itens.length === 0) {
-        return res.status(400).json({ error: "Preencha o motivo e adicione ao menos 1 item na solicitação." });
+        return res.status(400).json({ error: "Preencha a justificativa e adicione ao menos 1 item na solicitação." });
     }
 
     db.beginTransaction((err, conn) => {
@@ -2195,14 +2199,15 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
 
         const queryHeader = `
             INSERT INTO solicitacoes_compra 
-            (setor_id, equipamento_id, solicitante_id, urgencia, motivo, status, data_solicitacao) 
-            VALUES (?, ?, ?, ?, ?, 'Pendente', NOW())
+            (setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, status, data_solicitacao) 
+            VALUES (?, ?, ?, ?, ?, ?, 'Pendente', NOW())
         `;
 
         const v_setor = setor_id && setor_id !== "" ? Number(setor_id) : null;
+        const v_fornecedor = fornecedor_id && fornecedor_id !== "" ? Number(fornecedor_id) : null;
         const v_equip = equipamento_id && equipamento_id !== "" ? Number(equipamento_id) : null;
 
-        conn.query(queryHeader, [v_setor, v_equip, Number(solicitante_id), urgencia || 'Média', motivo], (errIns, resultIns) => {
+        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, Number(solicitante_id), urgencia || 'Média', motivo], (errIns, resultIns) => {
             if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
             const solicitacaoId = resultIns.insertId;
@@ -2222,7 +2227,7 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
                 conn.commit((errCommit) => {
                     if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                     conn.release();
-                    res.status(201).json({ message: "Solicitação de compra criada com sucesso!", id: solicitacaoId });
+                    res.status(201).json({ message: "Solicitação de compra gerada com sucesso!", id: solicitacaoId });
                 });
             });
         });
@@ -2251,6 +2256,53 @@ app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coord
     db.query(query, params, (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: `Status alterado para ${status} com sucesso!` });
+    });
+});
+
+// 🚚 ROTA DE SAÍDA PARA MANUTENÇÃO EXTERNA
+app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { fornecedor_id, tecnico_nome, descricao_motivo, data_previsao_retorno } = req.body;
+
+    if (!fornecedor_id || !descricao_motivo) {
+        return res.status(400).json({ error: "Selecione o fornecedor e informe o motivo da saída externa." });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Busca dados do Fornecedor para gravar no Log detalhado
+        conn.query("SELECT nome_fantasia FROM fornecedores WHERE id = ?", [fornecedor_id], (errForn, resForn) => {
+            if (errForn || resForn.length === 0) {
+                return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Fornecedor não localizado." }); });
+            }
+
+            const nomeFornecedor = resForn[0].nome_fantasia;
+            const logTexto = `[SAÍDA EXTERNA] Enviado para assistência técnica: ${nomeFornecedor}. Motivo: ${descricao_motivo}${data_previsao_retorno ? ` | Previsão Retorno: ${data_previsao_retorno}` : ''}`;
+
+            // 2. Atualiza o status do Equipamento para 'Em Manutenção'
+            conn.query("UPDATE equipamentos SET status = 'Em Manutenção' WHERE id = ?", [id], (errUp) => {
+                if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+                // 3. Grava no histórico geral de equipamentos
+                const queryHist = `
+                    INSERT INTO equipamentos_historico 
+                    (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
+                    SELECT id, status, 'Em Manutenção', ?, ?, NOW() 
+                    FROM equipamentos WHERE id = ?
+                `;
+
+                conn.query(queryHist, [logTexto, tecnico_nome || 'Técnico', id], (errHist) => {
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                        conn.release();
+                        res.json({ message: "Saída para manutenção externa registrada com sucesso!", fornecedor: nomeFornecedor });
+                    });
+                });
+            });
+        });
     });
 });
 

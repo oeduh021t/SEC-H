@@ -4,14 +4,14 @@ const SolicitacaoCompras = () => {
   const [solicitacoes, setSolicitacoes] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
-  const [fornecedores, setFornecedores] = useState([]); // 🆕 Lista de Fornecedores
+  const [fornecedores, setFornecedores] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
 
   // Modal de Nova Solicitação
   const [modalNova, setModalNova] = useState(false);
   const [setorId, setSetorId] = useState('');
-  const [fornecedorId, setFornecedorId] = useState(''); // 🆕 ID do Fornecedor selecionado
+  const [fornecedorId, setFornecedorId] = useState(''); 
   const [equipamentoId, setEquipamentoId] = useState('');
   const [urgencia, setUrgencia] = useState('Média');
   const [motivo, setMotivo] = useState('');
@@ -36,7 +36,7 @@ const SolicitacaoCompras = () => {
         fetch(`${API_URL}/solicitacoes-compra`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/setores`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/equipamentos`, { headers }).then(r => r.json()),
-        fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json()) // 🆕 Carrega Fornecedores
+        fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json()) 
       ]);
 
       setSolicitacoes(resSol || []);
@@ -74,7 +74,7 @@ const SolicitacaoCompras = () => {
     const payload = {
       solicitante_id: user?.id,
       setor_id: setorId || null,
-      fornecedor_id: fornecedorId || null, // 🆕 Envia o Fornecedor
+      fornecedor_id: fornecedorId || null, 
       equipamento_id: equipamentoId || null,
       urgencia,
       motivo,
@@ -247,7 +247,6 @@ const SolicitacaoCompras = () => {
                   </select>
                 </div>
 
-                {/* 🆕 SELEÇÃO DE FORNECEDOR */}
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor (Opcional)</label>
                   <select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50">
@@ -330,12 +329,11 @@ const SolicitacaoCompras = () => {
         </div>
       )}
 
-      {/* BLOCO PARA IMPRESSÃO A4 (NOME DO HOSPITAL E FORNECEDOR ATUALIZADOS) */}
+      {/* BLOCO PARA IMPRESSÃO A4 (APENAS GESTOR E FINANCEIRO/DIRETORIA) */}
       {solicitacaoImpressao && (
         <div id="documento-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-4">
           <div className="border-b-2 border-slate-900 pb-4 mb-4 flex justify-between items-center">
             <div>
-              {/* 🟢 NOME ATUALIZADO DO HOSPITAL */}
               <h1 className="text-lg font-black uppercase tracking-tight">CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO</h1>
               <p className="text-xs font-bold text-slate-600 uppercase">Setor de Engenharia Clínica & Infraestrutura — Requisição de Compras</p>
             </div>
@@ -348,7 +346,6 @@ const SolicitacaoCompras = () => {
           <div className="grid grid-cols-2 gap-3 text-xs mb-6 border-2 border-slate-200 p-4 rounded-xl bg-slate-50/50">
             <div><strong>Solicitante:</strong> {solicitacaoImpressao.solicitante_nome}</div>
             <div><strong>Setor Alvo:</strong> {solicitacaoImpressao.setor_nome || 'Geral'}</div>
-            {/* 🚚 FORNECEDOR IMPRESSO */}
             <div><strong>Fornecedor Sugerido:</strong> {solicitacaoImpressao.fornecedor_nome || 'A definir / Licitação'}</div>
             <div><strong>Urgência:</strong> <span className="uppercase font-bold">{solicitacaoImpressao.urgencia}</span></div>
             <div className="col-span-2"><strong>Ativo Vinculado:</strong> {solicitacaoImpressao.equipamento_nome ? `${solicitacaoImpressao.equipamento_nome} (PAT: ${solicitacaoImpressao.equipamento_patrimonio || 'S/P'})` : 'Nenhum'}</div>
@@ -377,19 +374,17 @@ const SolicitacaoCompras = () => {
             </tbody>
           </table>
 
-          {/* ASSINATURAS */}
-          <div className="grid grid-cols-3 gap-6 text-center mt-24 pt-4">
+          {/* ASSINATURA: APENAS GESTOR DA ÁREA E FINANCEIRO/DIRETORIA */}
+          <div className="grid grid-cols-2 gap-12 text-center mt-24 pt-4 max-w-2xl mx-auto">
             <div>
-              <p className="border-t-2 border-slate-800 pt-1 font-bold">{solicitacaoImpressao.solicitante_nome}</p>
-              <p className="text-[10px] text-slate-500 uppercase font-bold">Solicitante / Responsável</p>
+              <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
+              <p className="text-[10px] text-slate-500 uppercase font-bold">Gestor da Área / Coordenação</p>
+              <p className="text-[9px] text-slate-400">Visto de Aprovação</p>
             </div>
             <div>
-              <p className="border-t-2 border-slate-800 pt-1 font-bold">Gestor da Área / Coordenação</p>
-              <p className="text-[10px] text-slate-500 uppercase font-bold">Visto de Aprovação</p>
-            </div>
-            <div>
-              <p className="border-t-2 border-slate-800 pt-1 font-bold">Diretoria / Financeiro</p>
-              <p className="text-[10px] text-slate-500 uppercase font-bold">Autorização de Compra</p>
+              <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
+              <p className="text-[10px] text-slate-500 uppercase font-bold">Diretoria / Financeiro</p>
+              <p className="text-[9px] text-slate-400">Autorização de Compra</p>
             </div>
           </div>
         </div>
