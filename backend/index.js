@@ -611,7 +611,7 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
                         const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
 
                         conn.query(queryHist, [id, msgEstoque], (errHist) => {
-                            if (errHist) return conn.rollback(() => { res.status(500).json({ error: errHist.message }); });
+                            if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
                             
                             conn.commit((errCommit) => {
                                 if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
@@ -1060,36 +1060,42 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
 });
 
 
-// ⚙️ ROTA ATUALIZADA COM FILTRAGEM DINÂMICA DE STATUS (CORREÇÃO DE BUG)
+// ⚙️ ROTA ATUALIZADA COM FILTRAGEM DINÂMICA DE SETOR, STATUS E TIPO DE EQUIPAMENTO
 app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    // 🆕 Adicionado 'status' na desestruturação de query params
-    const { data_inicio, data_fim, setor_id, status } = req.query;
+    // 🆕 Adicionado 'tipo_id' e 'tipo_equipamento_id' na captura de parâmetros
+    const { data_inicio, data_fim, setor_id, status, tipo_id, tipo_equipamento_id } = req.query;
 
     const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
     const fim = data_fim ? data_fim + ' 23:59:59' : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
-    // Parâmetros estruturados para as subqueries financeiras (período inicial e final do cálculo de custos)
+    // 1º ao 4º '?' : Subqueries financeiras do cálculo de custos
     let queryParams = [inicio, fim, inicio, fim];
     let filtrosAdicionais = [];
 
     // Filtro Dinâmico de Setor
     if (setor_id && setor_id !== 'todos') {
         filtrosAdicionais.push('e.setor_id = ?');
-        queryParams.push(setor_id);
+        queryParams.push(Number(setor_id));
     }
 
-    // 🆕 Filtro Dinâmico de Status mapeado diretamente com o Enum da tabela 'equipamentos'
+    // Filtro Dinâmico de Status
     if (status && status !== 'todos') {
         filtrosAdicionais.push('e.status = ?');
         queryParams.push(status);
     }
 
-    // Monta a cláusula WHERE apenas se houver filtros aplicados além do período base
+    // 🆕 FILTRO DE TIPO DE EQUIPAMENTO (Corrige a busca de Ar Condicionado, Bebedouro, etc)
+    const tipoFiltro = tipo_id || tipo_equipamento_id;
+    if (tipoFiltro && tipoFiltro !== 'todos') {
+        filtrosAdicionais.push('(e.tipo_id = ? OR e.tipo_equipamento_id = ?)');
+        queryParams.push(Number(tipoFiltro), Number(tipoFiltro));
+    }
+
+    // Monta a cláusula WHERE
     const clausulaWhere = filtrosAdicionais.length > 0 
         ? `WHERE ${filtrosAdicionais.join(' AND ')}` 
         : '';
 
-    // 🛠️ SINTAXE RESTAURADA: Removida interpolação direta com template string que quebrava o parser do MySQL. Força concatenação tradicional estável.
     const query = `
         SELECT
             e.id, 
@@ -2300,6 +2306,81 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
                         conn.release();
                         res.json({ message: "Saída para manutenção externa registrada com sucesso!", fornecedor: nomeFornecedor });
                     });
+                });
+            });
+        });
+    });
+});
+
+// 🛬 ROTA DE REGISTRO DE RETORNO DE MANUTENÇÃO EXTERNA
+app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('laudo_tecnico'), (req, res) => {
+    const { id } = req.params;
+    const { numero_nf, valor_servico, observacao, tecnico_nome } = req.body;
+
+    // Se um arquivo laudo/comprovante foi enviado no multipart/form-data
+    const url_laudo = req.file ? `/uploads/${req.file.filename}` : null;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Busca status e setor atual do equipamento
+        conn.query("SELECT status, setor_id FROM equipamentos WHERE id = ?", [id], (errEquip, resEquip) => {
+            if (errEquip || resEquip.length === 0) {
+                return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Equipamento não localizado." }); });
+            }
+
+            const statusAnterior = resEquip[0].status;
+
+            // 2. Monta o texto do log para a timeline do prontuário
+            let logTexto = `[RETORNO MANUTENÇÃO EXTERNA] Equipamento reativado e testado.`;
+            if (numero_nf && numero_nf.trim() !== '') logTexto += ` NF/Recibo: ${numero_nf}.`;
+            if (valor_servico && Number(valor_servico) > 0) logTexto += ` Valor do Serviço: R$ ${Number(valor_servico).toFixed(2)}.`;
+            if (observacao && observacao.trim() !== '') logTexto += ` Parecer Técnico: ${observacao}`;
+
+            // 3. Atualiza o status do Equipamento de volta para 'Ativo'
+            conn.query("UPDATE equipamentos SET status = 'Ativo' WHERE id = ?", [id], (errUp) => {
+                if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+                // 4. Grava no histórico geral de movimentações e eventos do equipamento
+                const queryHist = `
+                    INSERT INTO equipamentos_historico 
+                    (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
+                    VALUES (?, ?, 'Ativo', ?, ?, NOW())
+                `;
+
+                conn.query(queryHist, [id, statusAnterior, logTexto, tecnico_nome || 'Técnico'], (errHist) => {
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                    // 5. Se foi anexado laudo técnico, vincula na tabela de documentos auditáveis
+                    if (url_laudo) {
+                        const queryDoc = `
+                            INSERT INTO documentos (nome_original, nome_armazenamento, url_arquivo, tipo_mimetype, equipamento_id, usuario_id) 
+                            VALUES (?, ?, ?, ?, ?, 1)
+                        `;
+                        const valuesDoc = [
+                            req.file.originalname,
+                            req.file.filename,
+                            url_laudo,
+                            req.file.mimetype,
+                            Number(id)
+                        ];
+
+                        conn.query(queryDoc, valuesDoc, (errDoc) => {
+                            if (errDoc) console.error("⚠️ Aviso: Não foi possível gravar o laudo na tabela de documentos:", errDoc.message);
+
+                            conn.commit((errCommit) => {
+                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                conn.release();
+                                return res.json({ message: "Retorno de manutenção externa registrado com sucesso!" });
+                            });
+                        });
+                    } else {
+                        conn.commit((errCommit) => {
+                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                            conn.release();
+                            return res.json({ message: "Retorno de manutenção externa registrado com sucesso!" });
+                        });
+                    }
                 });
             });
         });

@@ -3,27 +3,29 @@ import { useEffect, useState } from 'react';
 const InventarioGeral = () => {
     const [equipamentos, setEquipamentos] = useState([]);
     const [setores, setSetores] = useState([]);
+    const [tiposEquipamentos, setTiposEquipamentos] = useState([]); // 🆕 Lista de tipos de equipamentos
     const [loading, setLoading] = useState(true);
 
-    // Estados dos novos filtros dinâmicos
+    // Estados dos filtros dinâmicos
     const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
     const [setorSelecionado, setSetorSelecionado] = useState("todos");
-    const [statusSelecionado, setStatusSelecionado] = useState("todos"); // 🆕 Filtro de status unificado com o banco
+    const [statusSelecionado, setStatusSelecionado] = useState("todos");
+    const [tipoSelecionado, setTipoSelecionado] = useState("todos"); // 🆕 Filtro por tipo de equipamento
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
-    // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
+    // AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
     const obterNivelUsuario = () => {
         const savedUser = localStorage.getItem('user');
         return savedUser ? JSON.parse(savedUser).nivel : '';
     };
 
-    // Busca a lista de setores cadastrados para alimentar o filtro select
+    // Busca a lista de setores cadastrados
     const carregarSetores = async () => {
         try {
             const res = await fetch(`${API_URL}/setores`, {
-                headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+                headers: { "x-usuario-nivel": obterNivelUsuario() }
             }).then(res => res.json());
             setSetores(res || []);
         } catch (err) {
@@ -31,15 +33,27 @@ const InventarioGeral = () => {
         }
     };
 
+    // 🆕 Busca a lista de tipos de equipamentos cadastrados
+    const carregarTiposEquipamentos = async () => {
+        try {
+            const res = await fetch(`${API_URL}/tipos-equipamentos`, { // Ajuste para a sua rota de tipos de equipamentos, se necessário
+                headers: { "x-usuario-nivel": obterNivelUsuario() }
+            }).then(res => res.json());
+            setTiposEquipamentos(res || []);
+        } catch (err) {
+            console.error("Erro ao carregar tipos de equipamentos:", err);
+        }
+    };
+
     // Puxa os dados refinados do inventário aplicando as query strings de filtro
     const carregarInventarioFiltrado = async () => {
         setLoading(true);
         try {
-            // 🆕 URL de requisição atualizada contendo o status
-            const url = `${API_URL}/relatorios/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}&status=${statusSelecionado}`;
+            // 🆕 URL atualizada contendo o parametro 'tipo_id'
+            const url = `${API_URL}/relatorios/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}&status=${statusSelecionado}&tipo_id=${tipoSelecionado}`;
             
             const res = await fetch(url, {
-                headers: { "x-usuario-nivel": obterNivelUsuario() } // 🔑 Header de segurança injetado
+                headers: { "x-usuario-nivel": obterNivelUsuario() }
             }).then(res => res.json());
             setEquipamentos(res || []);
         } catch (err) {
@@ -49,10 +63,15 @@ const InventarioGeral = () => {
         }
     };
 
-    useEffect(() => { carregarSetores(); }, []);
+    useEffect(() => { 
+        carregarSetores(); 
+        carregarTiposEquipamentos(); // 🆕 Carrega os tipos ao iniciar
+    }, []);
     
-    // ⚙️ O useEffect agora reage imediatamente ao mudar o status selecionado
-    useEffect(() => { carregarInventarioFiltrado(); }, [dataInicio, dataFim, setorSelecionado, statusSelecionado]);
+    // ⚙️ O useEffect agora reage imediatamente ao mudar qualquer um dos 5 filtros
+    useEffect(() => { 
+        carregarInventarioFiltrado(); 
+    }, [dataInicio, dataFim, setorSelecionado, statusSelecionado, tipoSelecionado]);
 
     const investimentoTotal = equipamentos.reduce((acc, curr) => {
         const valor = parseFloat(curr.total_gasto) || 0;
@@ -74,7 +93,7 @@ const InventarioGeral = () => {
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800 print:bg-white print:p-0">
             
-            {/* AMARRAÇÃO DEFINITIVA DE IMPRESSÃO (ESTILO FOLHA DE OS VITORIOSO) */}
+            {/* AMARRAÇÃO DEFINITIVA DE IMPRESSÃO */}
             <style>{`
                 @media print {
                     body * { visibility: hidden; background: white !important; }
@@ -93,12 +112,12 @@ const InventarioGeral = () => {
                 }
             `}</style>
 
-            {/* BARRA DE FERRAMENTAS E FILTROS (Ocultada por completo no PDF) */}
+            {/* BARRA DE FERRAMENTAS E FILTROS */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4 mb-6 hide-print">
                 <div className="flex justify-between items-center border-b border-slate-50 pb-3">
                     <div>
                         <h3 className="text-sm font-black uppercase text-slate-700 tracking-wider">Filtros de Auditoria</h3>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Refine os custos aplicados por intervalo de tempo, localidade ou status</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Refine os custos aplicados por intervalo de tempo, localidade, tipo ou status</p>
                     </div>
                     <button 
                         onClick={() => window.print()} 
@@ -108,8 +127,8 @@ const InventarioGeral = () => {
                     </button>
                 </div>
 
-                {/* Grid adaptado para 4 colunas (md:grid-cols-4) para acomodar perfeitamente o novo campo */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {/* Grid adaptado para 5 colunas em telas maiores (lg:grid-cols-5) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Inicial</label>
                         <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
@@ -125,7 +144,22 @@ const InventarioGeral = () => {
                             {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                         </select>
                     </div>
-                    {/* 🆕 NOVO SELECT: Alinhado 100% com o enum da tabela 'equipamentos' */}
+
+                    {/* 🆕 NOVO SELECT: Tipo de Equipamento */}
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Tipo de Equipamento</label>
+                        <select 
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" 
+                            value={tipoSelecionado} 
+                            onChange={e => setTipoSelecionado(e.target.value)}
+                        >
+                            <option value="todos">⭐ Todos os Tipos</option>
+                            {tiposEquipamentos.map(t => (
+                                <option key={t.id} value={t.id}>{t.nome}</option>
+                            ))}
+                        </select>
+                    </div>
+
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Status do Ativo</label>
                         <select 
@@ -198,7 +232,6 @@ const InventarioGeral = () => {
                                         <td className="p-3 text-right font-black text-red-600 tabular-nums bg-slate-50/20 rounded-lg">
                                             R$ {(parseFloat(e.total_gasto) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </td>
-                                        {/* 🆕 COLUNA STATUS: Badge adaptada com cores dinâmicas e efeito pulsante na Manutenção */}
                                         <td className="p-3 text-center hide-print">
                                             <span className={`px-2 py-1 rounded-md font-black text-[9px] uppercase tracking-tighter border ${
                                                 e.status === 'Ativo' 
@@ -207,7 +240,7 @@ const InventarioGeral = () => {
                                                     ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse'
                                                     : e.status === 'Reserva'
                                                     ? 'bg-blue-100 text-blue-700 border-blue-200'
-                                                    : 'bg-red-100 text-red-700 border-red-200' // 'Baixado/Quebrado'
+                                                    : 'bg-red-100 text-red-700 border-red-200'
                                             }`}>
                                                 {e.status}
                                             </span>
@@ -225,7 +258,7 @@ const InventarioGeral = () => {
                     </table>
                 </main>
 
-                {/* ASSINATURAS PARA AUDITORIA (APARECE APENAS NA IMPRESSÃO) */}
+                {/* ASSINATURAS PARA AUDITORIA */}
                 <footer className="hidden print:block mt-24">
                     <div className="flex justify-between px-16 text-center text-[9px] font-black uppercase tracking-wider">
                         <div className="flex flex-col gap-1">

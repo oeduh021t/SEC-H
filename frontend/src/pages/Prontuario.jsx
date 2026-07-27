@@ -17,6 +17,14 @@ const Prontuario = () => {
     const [enviandoSaida, setEnviandoSaida] = useState(false);
     const [guiaImpressao, setGuiaImpressao] = useState(null);
 
+    // 🛬 ESTADOS PARA RETORNO DE MANUTENÇÃO EXTERNA
+    const [modalRetorno, setModalRetorno] = useState(false);
+    const [numeroNF, setNumeroNF] = useState('');
+    const [valorServico, setValorServico] = useState('');
+    const [observacaoRetorno, setObservacaoRetorno] = useState('');
+    const [arquivoLaudo, setArquivoLaudo] = useState(null);
+    const [enviandoRetorno, setEnviandoRetorno] = useState(false);
+
     // 🖨️ CONTROLE DE TIPO DE IMPRESSÃO ('prontuario' OU 'guia')
     const [modoImpressao, setModoImpressao] = useState('prontuario');
 
@@ -136,7 +144,6 @@ const Prontuario = () => {
                 setPrevisaoRetorno('');
                 carregarProntuario();
 
-                // Alterna para o modo Guia e dispara a impressão automaticamente
                 setModoImpressao('guia');
                 setTimeout(() => window.print(), 300);
 
@@ -147,6 +154,50 @@ const Prontuario = () => {
             alert("❌ Erro de conexão ao tentar registrar saída.");
         } finally {
             setEnviandoSaida(false);
+        }
+    };
+
+    // 🛬 PROCESSAR RETORNO DE MANUTENÇÃO EXTERNA
+    const handleConfirmarRetorno = async (e) => {
+        e.preventDefault();
+        setEnviandoRetorno(true);
+        const user = obterUsuario();
+
+        const formData = new FormData();
+        formData.append('numero_nf', numeroNF);
+        formData.append('valor_servico', valorServico || 0);
+        formData.append('observacao', observacaoRetorno);
+        formData.append('tecnico_nome', user?.nome || 'Técnico de Recebimento');
+        if (arquivoLaudo) {
+            formData.append('laudo_tecnico', arquivoLaudo);
+        }
+
+        try {
+            const response = await fetch(`${API_URL}/equipamentos/${id}/retorno-externo`, {
+                method: 'POST',
+                headers: {
+                    'x-usuario-nivel': user?.nivel || ''
+                },
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert("✅ Retorno registrado com sucesso! O equipamento voltou ao status Ativo.");
+                setModalRetorno(false);
+                setNumeroNF('');
+                setValorServico('');
+                setObservacaoRetorno('');
+                setArquivoLaudo(null);
+                carregarProntuario(); // Atualiza a timeline e o status do ativo!
+            } else {
+                alert("❌ " + (result.error || "Erro ao registrar retorno do equipamento."));
+            }
+        } catch (err) {
+            alert("❌ Erro de conexão ao processar retorno.");
+        } finally {
+            setEnviandoRetorno(false);
         }
     };
 
@@ -187,7 +238,7 @@ const Prontuario = () => {
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
             
-            {/* CSS REFINADO DE IMPRESSÃO (ISOLA PRONTUÁRIO VS GUIA DE SAÍDA) */}
+            {/* CSS DE IMPRESSÃO */}
             <style>{`
                 @media print {
                     body * { 
@@ -198,7 +249,6 @@ const Prontuario = () => {
                         display: none !important; 
                     }
                     
-                    /* SE MODO FOR PRONTUARIO, IMPRIME SÓ O PRONTUÁRIO */
                     ${modoImpressao === 'prontuario' ? `
                         .relatorio-container, .relatorio-container * { 
                             visibility: visible !important; 
@@ -214,7 +264,6 @@ const Prontuario = () => {
                         #guia-saida-impressao { display: none !important; }
                     ` : ''}
 
-                    /* SE MODO FOR GUIA, IMPRIME SÓ A GUIA DE SAÍDA */
                     ${modoImpressao === 'guia' ? `
                         #guia-saida-impressao, #guia-saida-impressao * { 
                             visibility: visible !important; 
@@ -271,14 +320,27 @@ const Prontuario = () => {
                         </button>
                     )}
                     
-                    {/* BOTÃO REGISTRAR SAÍDA EXTERNA */}
-                    <button 
-                        type="button"
-                        onClick={() => setModalSaidaExterna(true)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-indigo-100 flex items-center gap-1.5"
-                    >
-                        🚚 SAÍDA EXTERNA
-                    </button>
+                    {/* BOTÃO REGISTRAR RETORNO (Só aparece se estiver em Manutenção) */}
+                    {equip.status === 'Em Manutenção' && (
+                        <button 
+                            type="button"
+                            onClick={() => setModalRetorno(true)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-emerald-100 flex items-center gap-1.5"
+                        >
+                            🛬 DAR ENTRADA / RETORNO
+                        </button>
+                    )}
+
+                    {/* BOTÃO REGISTRAR SAÍDA EXTERNA (Aparece se estiver Ativo ou Reserva) */}
+                    {equip.status !== 'Em Manutenção' && (
+                        <button 
+                            type="button"
+                            onClick={() => setModalSaidaExterna(true)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-indigo-100 flex items-center gap-1.5"
+                        >
+                            🚚 SAÍDA EXTERNA
+                        </button>
+                    )}
 
                     <button 
                         type="button"
@@ -296,7 +358,7 @@ const Prontuario = () => {
             {/* CONTAINER ALVO DA IMPRESSÃO DO PRONTUÁRIO */}
             <div className="relatorio-container space-y-6">
 
-                {/* CABEÇALHO EXCLUSIVO PARA IMPRESSÃO DO PRONTUÁRIO */}
+                {/* CABEÇALHO IMPRESSÃO PRONTUÁRIO */}
                 <div className="hidden print:block bg-white p-4 border-b border-slate-200 mb-4">
                     <div className="flex justify-between items-center">
                         <div>
@@ -311,12 +373,11 @@ const Prontuario = () => {
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 impressao-grid">
                     
-                    {/* LADO ESQUERDO: IDENTIDADE E FICHA TÉCNICA */}
+                    {/* LADO ESQUERDO: FICHA TÉCNICA */}
                     <div className="lg:col-span-4 space-y-6">
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:border print:border-slate-200">
                             <div className="p-6 text-center">
                                 
-                                {/* FOTO DO ATIVO */}
                                 <div className="bg-slate-50 w-full h-48 rounded-2xl mb-4 flex items-center justify-center text-slate-300 overflow-hidden border border-slate-200">
                                     {equip.foto_equipamento ? (
                                         <img 
@@ -333,7 +394,6 @@ const Prontuario = () => {
                                 <h2 className="font-black text-slate-800 text-xl uppercase leading-tight">{equip.nome}</h2>
                                 <p className="text-slate-400 font-bold text-[11px] mt-1 tracking-widest uppercase">{equip.modelo || 'Modelo não cadastrado'}</p>
                                 
-                                {/* STATUS OPERACIONAL */}
                                 <div className="mt-3">
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                         equip.status === 'Ativo' ? 'bg-green-100 text-green-700' :
@@ -345,7 +405,6 @@ const Prontuario = () => {
                                 </div>
                             </div>
 
-                            {/* DETALHES TÉCNICOS */}
                             <div className="border-t border-slate-100 p-5 space-y-3 bg-slate-50/50">
                                 <div className="flex justify-between text-xs">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Localização:</span>
@@ -364,7 +423,6 @@ const Prontuario = () => {
                                     <span className="font-bold text-slate-700">{equip.fabricante || 'Não informado'}</span>
                                 </div>
 
-                                {/* CUSTO ACUMULADO */}
                                 <div className="flex justify-between items-center p-3.5 bg-red-50 rounded-2xl border border-red-100 mt-4 print:bg-none print:border-slate-200">
                                     <div>
                                         <span className="text-red-400 font-black text-[9px] uppercase block tracking-wider print:text-slate-600">Custo Total em Manutenção</span>
@@ -378,7 +436,7 @@ const Prontuario = () => {
                         </div>
                     </div>
 
-                    {/* LADO DIREITO: CRONOLOGIA DE INTERVENÇÕES */}
+                    {/* LADO DIREITO: TIMELINE */}
                     <div className="lg:col-span-8 space-y-6">
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:border print:border-slate-200">
                             <div className="p-5 border-b border-slate-100 flex justify-between items-center">
@@ -443,6 +501,7 @@ const Prontuario = () => {
                                                     <span className={`px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-wider inline-block ${
                                                         item.tipo && item.tipo.includes('Abertura') ? 'bg-amber-500' :
                                                         item.tipo && item.tipo.includes('Preventiva') ? 'bg-emerald-600' :
+                                                        item.tipo && item.tipo.includes('Retorno') ? 'bg-emerald-500' :
                                                         item.tipo && item.tipo.includes('Movimentação') ? 'bg-purple-600' : 'bg-blue-600'
                                                     }`}>
                                                         {item.tipo || 'Intervenção'}
@@ -461,7 +520,7 @@ const Prontuario = () => {
                 </div>
             </div>
 
-            {/* 🚚 MODAL DE SAÍDA PARA MANUTENÇÃO EXTERNA */}
+            {/* 🚚 MODAL DE SAÍDA EXTERNA */}
             {modalSaidaExterna && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
                     <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -503,7 +562,7 @@ const Prontuario = () => {
                                     rows={3} 
                                     value={descricaoMotivo} 
                                     onChange={e => setDescricaoMotivo(e.target.value)}
-                                    placeholder="Descreva a falha relatada, peças/acessórios enviados junto (ex: cabos, sensores)..."
+                                    placeholder="Descreva a falha relatada, peças/acessórios enviados junto..."
                                     className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-indigo-500"
                                 />
                             </div>
@@ -519,7 +578,73 @@ const Prontuario = () => {
                 </div>
             )}
 
-            {/* 🖨️ GUIA DE SAÍDA E REMESSA PARA IMPRESSÃO A4 (EXCLUSIVA) */}
+            {/* 🛬 MODAL DE REGISTRO DE RETORNO / ENTRADA */}
+            {modalRetorno && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
+                    <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+                        <div className="bg-emerald-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+                            <span>🛬 Registrar Retorno de Manutenção Externa</span>
+                            <button onClick={() => setModalRetorno(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleConfirmarRetorno} className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Nº Nota Fiscal / Recibo</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Ex: NF 00123"
+                                        value={numeroNF} 
+                                        onChange={e => setNumeroNF(e.target.value)}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-emerald-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Custo do Serviço (R$)</label>
+                                    <input 
+                                        type="number" 
+                                        step="0.01" 
+                                        placeholder="0.00"
+                                        value={valorServico} 
+                                        onChange={e => setValorServico(e.target.value)}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-emerald-500"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Anexar Laudo Técnico / Relatório (PDF ou Foto)</label>
+                                <input 
+                                    type="file" 
+                                    accept="image/*,application/pdf"
+                                    onChange={e => setArquivoLaudo(e.target.files[0])}
+                                    className="w-full p-2 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-500 bg-slate-50"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Parecer Técnico / Testes de Recebimento</label>
+                                <textarea 
+                                    rows={3} 
+                                    value={observacaoRetorno} 
+                                    onChange={e => setObservacaoRetorno(e.target.value)}
+                                    placeholder="Descreva o que foi corrigido pela assistência e o resultado do teste de inicialização..."
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-emerald-500"
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-3">
+                                <button type="button" onClick={() => setModalRetorno(false)} className="flex-1 bg-slate-100 py-3 rounded-xl font-black text-xs uppercase text-slate-500">Cancelar</button>
+                                <button type="submit" disabled={enviandoRetorno} className="flex-[2] bg-emerald-600 text-white py-3 rounded-xl font-black text-xs uppercase shadow-lg shadow-emerald-100">
+                                    {enviandoRetorno ? 'Salvando...' : 'Confirmar Retorno & Ativar Equipamento'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* GUIA DE SAÍDA IMPRESSÃO A4 */}
             {guiaImpressao && (
                 <div id="guia-saida-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-6">
                     <div className="border-b-2 border-slate-900 pb-4 mb-4 flex justify-between items-center">
@@ -566,7 +691,6 @@ const Prontuario = () => {
                         Declaramos que o equipamento acima discriminado foi retirado nesta data para fins de manutenção externa especializada e orçamento.
                     </p>
 
-                    {/* ASSINATURA AJUSTADA COM LINHA EM BRANCO */}
                     <div className="grid grid-cols-3 gap-6 text-center mt-20 pt-4">
                         <div>
                             <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
