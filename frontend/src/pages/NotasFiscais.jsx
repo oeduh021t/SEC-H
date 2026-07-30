@@ -29,13 +29,13 @@ export default function NotasFiscais() {
 
   const API_URL = 'http://192.168.5.101:3000/api';
 
-  // Auxiliar para obter o nível (Garante o correto funcionamento caso o interceptor falhe em chamadas simultâneas)
+  // Auxiliar para obter o nível do usuário no localStorage
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser).nivel : '';
   };
 
-  // --- BUSCA DE DADOS (Correção de Cabeçalho Aplicada) ---
+  // --- BUSCA DE DADOS ---
   const carregarDados = async () => {
     setLoading(true);
     try {
@@ -130,6 +130,7 @@ export default function NotasFiscais() {
         setNovoBoleto({ parcela: '1/1', codigo_barras: '', linha_digitavel: '', valor_boleto: '', data_vencimento: '' });
         setArquivoBoleto(null);
         verBoletos(notaSelecionada);
+        carregarDados();
       }
     } catch (err) {
       alert('Erro ao anexar boleto.');
@@ -151,6 +152,7 @@ export default function NotasFiscais() {
         alert('Boleto pago com sucesso!');
         setComprovanteBoleto(null);
         verBoletos(notaSelecionada);
+        carregarDados();
       }
     } catch (err) {
       alert('Erro ao dar baixa no pagamento.');
@@ -173,8 +175,42 @@ export default function NotasFiscais() {
     }
   };
 
+  // 🧮 INDICADORES GERAIS DE VENCIMENTO DO PAINEL
+  const totalAtrasados = notas.reduce((acc, n) => acc + Number(n.boletos_atrasados || 0), 0);
+  const totalBreve = notas.reduce((acc, n) => acc + Number(n.boletos_vencendo_breve || 0), 0);
+
+  // 🏷️ RENDERIZA O BADGE DE ALERTA DE VENCIMENTO NA TABELA
+  const renderizarBadgeAlerta = (nota) => {
+    if (Number(nota.total_boletos) === 0) {
+      return <span className="px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold uppercase">Sem Boletos</span>;
+    }
+    if (Number(nota.boletos_atrasados) > 0) {
+      return (
+        <span className="px-2.5 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 animate-pulse border border-red-200">
+          🚨 {nota.boletos_atrasados} Atrasado(s)
+        </span>
+      );
+    }
+    if (Number(nota.boletos_vencendo_breve) > 0) {
+      return (
+        <span className="px-2.5 py-1 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 border border-amber-200">
+          ⏰ Vencendo Breve
+        </span>
+      );
+    }
+    if (nota.proximo_vencimento) {
+      return (
+        <span className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold uppercase border border-blue-100">
+          🗓️ Próx: {new Date(nota.proximo_vencimento).toLocaleDateString('pt-BR')}
+        </span>
+      );
+    }
+    return <span className="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-black uppercase">✓ Quitado</span>;
+  };
+
   return (
     <div className="p-4 font-sans text-slate-800">
+      
       {/* HEADER DA TELA */}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
@@ -196,6 +232,33 @@ export default function NotasFiscais() {
         </div>
       </div>
 
+      {/* 📊 CARDS DE MONITORAMENTO DE VENCIMENTOS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Boletos Vencidos</span>
+            <span className="text-2xl font-black text-red-600">{totalAtrasados} Pendentes</span>
+          </div>
+          <span className="text-3xl bg-red-50 p-2.5 rounded-2xl text-red-500">🚨</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Vencem nos Próximos 5 Dias</span>
+            <span className="text-2xl font-black text-amber-600">{totalBreve} Parcela(s)</span>
+          </div>
+          <span className="text-3xl bg-amber-50 p-2.5 rounded-2xl text-amber-500">⏳</span>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+          <div>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Notas Cadastradas</span>
+            <span className="text-2xl font-black text-slate-800">{notas.length} Documentos</span>
+          </div>
+          <span className="text-3xl bg-blue-50 p-2.5 rounded-2xl text-blue-500">📑</span>
+        </div>
+      </div>
+
       {/* LISTAGEM PRINCIPAL */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         {loading ? (
@@ -210,6 +273,7 @@ export default function NotasFiscais() {
                 <th className="p-5">Fornecedor</th>
                 <th className="p-5">Emissão</th>
                 <th className="p-5">Valor Total</th>
+                <th className="p-5">Status dos Boletos</th>
                 <th className="p-5">Arquivos</th>
                 <th className="p-5 text-center">Ações</th>
               </tr>
@@ -225,6 +289,9 @@ export default function NotasFiscais() {
                     <td className="p-5 text-sm font-medium text-slate-600 uppercase">{nota.fornecedor_nome}</td>
                     <td className="p-5 text-xs font-mono">{new Date(nota.data_emissao).toLocaleDateString('pt-BR')}</td>
                     <td className="p-5 font-bold text-slate-700 text-sm">R$ {Number(nota.valor_total).toFixed(2)}</td>
+                    <td className="p-5">
+                      {renderizarBadgeAlerta(nota)}
+                    </td>
                     <td className="p-5 space-x-2">
                       {nota.url_xml && <a href={`${API_URL.replace('/api', '')}${nota.url_xml}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded uppercase hover:bg-blue-600 hover:text-white transition-all">XML</a>}
                       {nota.url_danfe && <a href={`${API_URL.replace('/api', '')}${nota.url_danfe}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded uppercase hover:bg-purple-600 hover:text-white transition-all">DANFE</a>}
@@ -232,7 +299,7 @@ export default function NotasFiscais() {
                     <td className="p-5">
                       <div className="flex justify-center gap-2">
                         <button onClick={() => verBoletos(nota)} className="px-4 py-2 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm border border-green-100 text-xs font-black uppercase tracking-wider">
-                          📁 Boletos
+                          📁 Boletos ({nota.total_boletos || 0})
                         </button>
                         <button onClick={() => handleExcluirNota(nota.id)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100" title="Remover Nota">
                           <span className="text-sm">🗑️</span>
@@ -292,7 +359,6 @@ export default function NotasFiscais() {
                 <input type="file" accept=".pdf" className="w-full text-xs font-mono p-1" onChange={e => setArquivosNota({...arquivosNota, danfe: e.target.files[0]})} />
               </div>
 
-              {/* RODAPÉ DO FORMULÁRIO */}
               <div className="col-span-2 flex justify-end gap-3 border-t border-slate-50 pt-6 mt-4">
                 <button type="button" onClick={() => setModalNotaAberto(false)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
                 <button type="submit" className="px-8 py-3 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl transition-all active:scale-95 bg-blue-600 shadow-blue-100">
@@ -314,7 +380,6 @@ export default function NotasFiscais() {
             </div>
 
             <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
-              {/* FORMULÁRIO DE ANEXAR NOVO BOLETO */}
               <form onSubmit={handleAnexarBoleto} className="bg-slate-50 p-5 rounded-2xl border border-slate-100 grid grid-cols-4 gap-4 items-end">
                 <div className="col-span-4 font-black text-[10px] text-slate-400 uppercase tracking-widest">Vincular Nova Parcela</div>
                 <div>
@@ -340,7 +405,6 @@ export default function NotasFiscais() {
                 </div>
               </form>
 
-              {/* LISTA DE COBRANÇAS */}
               <div className="space-y-3">
                 <h3 className="font-black text-xs text-slate-400 uppercase tracking-widest">Duplicatas do Documento</h3>
                 {boletosNota.length === 0 ? (

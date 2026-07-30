@@ -1,22 +1,23 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FiMenu, FiX, FiTrash2, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiMenu, FiTrash2, FiChevronLeft, FiChevronDown } from 'react-icons/fi';
 
-// 🔄 1. Recebe o estado global do App.jsx via props
 const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
-  // Estados de Controle de Submenus e Modais
-  const [menuEquipAberto, setMenuEquipAberto] = useState(false);
+  // Estados de Controle de Submenus
+  const [menuAtivosAberto, setMenuAtivosAberto] = useState(false);
+  const [menuSuprimentosAberto, setMenuSuprimentosAberto] = useState(false);
+  const [menuUtilidadesAberto, setMenuUtilidadesAberto] = useState(false);
   const [menuRelatAberto, setMenuRelatAberto] = useState(false);
+
+  // Modais
   const [modalConfigAberta, setModalConfigAberta] = useState(false);
-  
-  // Estados para o Gerenciamento de Tipos de Equipamentos
   const [modalTipoEquipAberto, setModalTipoEquipAberto] = useState(false);
   const [tiposEquipamentos, setTiposEquipamentos] = useState([]);
   const [nomeNovoTipo, setNomeNovoTipo] = useState('');
   const [carregandoTipos, setCarregandoTipos] = useState(false);
   const [salvandoTipo, setSalvandoTipo] = useState(false);
 
-  // Estados para troca de senha
+  // Senhas
   const [senhaAtual, setSenhaAtual] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
   const [confirmaSenha, setConfirmaSenha] = useState('');
@@ -25,9 +26,9 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const API_URL = 'http://192.168.5.101:3000/api';
 
   const isActive = (path) => location.pathname === path;
-
   const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
 
+  // Permissões
   const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerEquipamentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
@@ -35,10 +36,14 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeVerFiltrosAgua = nivelUsuario === 'admin';
   const podeVerGases = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
+  const podeVerEpis = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerRelatorios = ['admin', 'coordenador'].includes(nivelUsuario);
   const podeGerenciarUsuarios = nivelUsuario === 'admin';
 
-  const isEquipActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas');
+  // Verificadores de submenus ativos
+  const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
+  const isSuprimentosActive = location.pathname.includes('estoque') || location.pathname.includes('compras') || location.pathname.includes('fornecedores') || location.pathname.includes('notas-fiscais') || location.pathname.includes('locais-estoque');
+  const isUtilidadesActive = location.pathname.includes('filtros') || location.pathname.includes('gases') || location.pathname.includes('controle-epi');
   const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
 
   const carregarTiposEquipamentos = async () => {
@@ -57,9 +62,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   };
 
   useEffect(() => {
-    if (modalTipoEquipAberto) {
-      carregarTiposEquipamentos();
-    }
+    if (modalTipoEquipAberto) carregarTiposEquipamentos();
   }, [modalTipoEquipAberto]);
 
   const handleMudarSenha = async (e) => {
@@ -68,26 +71,17 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
       alert("❌ As novas senhas não coincidem!");
       return;
     }
-
     try {
       const response = await fetch(`${API_URL}/usuarios/alterar-senha`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: user.id,
-          senhaAtual: senhaAtual,
-          novaSenha: novaSenha
-        })
+        body: JSON.stringify({ id: user.id, senhaAtual, novaSenha })
       });
-
       const data = await response.json();
-
       if (response.ok) {
         alert("✅ " + data.message);
         setModalConfigAberta(false);
-        setSenhaAtual('');
-        setNovaSenha('');
-        setConfirmaSenha('');
+        setSenhaAtual(''); setNovaSenha(''); setConfirmaSenha('');
       } else {
         alert("❌ " + (data.error || "Erro ao mudar senha"));
       }
@@ -98,11 +92,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
 
   const handleCadastrarTipoEquipamento = async (e) => {
     e.preventDefault();
-    if (!nomeNovoTipo.trim()) {
-      alert("❌ Por favor, insira o nome do tipo.");
-      return;
-    }
-
+    if (!nomeNovoTipo.trim()) return;
     setSalvandoTipo(true);
     try {
       const response = await fetch(`${API_URL}/tipos-equipamentos`, {
@@ -110,17 +100,13 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nome: nomeNovoTipo })
       });
-
       if (response.ok) {
         alert("✅ Tipo cadastrado com sucesso!");
         setNomeNovoTipo('');
         carregarTiposEquipamentos();
-      } else {
-        const data = await response.json();
-        alert("❌ " + (data.error || "Erro ao cadastrar tipo."));
       }
     } catch (err) {
-      alert("❌ Erro de conexão ao salvar.");
+      alert("❌ Erro de conexão.");
     } finally {
       setSalvandoTipo(false);
     }
@@ -128,18 +114,11 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
 
   const handleDeletarTipoEquipamento = async (id, nome) => {
     if (!window.confirm(`⚠️ Deseja excluir o tipo "${nome}"?`)) return;
-
     try {
-      const response = await fetch(`${API_URL}/tipos-equipamentos/${id}`, {
-        method: 'DELETE'
-      });
-
+      const response = await fetch(`${API_URL}/tipos-equipamentos/${id}`, { method: 'DELETE' });
       if (response.ok) {
         alert("✅ Tipo excluído com sucesso!");
         carregarTiposEquipamentos();
-      } else {
-        const data = await response.json();
-        alert("❌ " + (data.error || "Erro ao excluir tipo."));
       }
     } catch (err) {
       alert("❌ Erro de conexão.");
@@ -148,19 +127,14 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
 
   return (
     <>
-      {/* Overlay escuro em dispositivos móveis */}
       {sidebarAberta && (
-        <div 
-          onClick={() => setSidebarAberta(false)} 
-          className="fixed inset-0 bg-black/50 z-[40] md:hidden"
-        />
+        <div onClick={() => setSidebarAberta(false)} className="fixed inset-0 bg-black/50 z-[40] md:hidden" />
       )}
 
-      {/* SIDEBAR */}
       <div className={`bg-slate-900 h-screen text-slate-300 p-3 flex flex-col shrink-0 border-r border-slate-800 fixed left-0 top-0 z-50 transition-all duration-300 ease-in-out print:hidden ${sidebarAberta ? 'w-64' : 'w-16'}`}>
 
-        {/* CABEÇALHO DA SIDEBAR COM BOTÃO DE TOGGLE */}
-        <div className="flex items-center justify-between mb-6 pt-2 shrink-0">
+        {/* LOGO */}
+        <div className="flex items-center justify-between mb-4 pt-2 shrink-0">
           {sidebarAberta ? (
             <div className="pl-2">
               <h2 className="text-xl font-black text-white tracking-tighter italic">SEC-H</h2>
@@ -172,185 +146,168 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             </div>
           )}
 
-          {/* Botão de abrir/fechar dentro do fluxo do cabeçalho */}
           <button 
             onClick={() => setSidebarAberta(!sidebarAberta)}
             className={`bg-slate-800 text-white p-2 rounded-xl hover:bg-slate-700 transition-all border border-slate-700 ${!sidebarAberta ? 'mx-auto' : ''}`}
-            title={sidebarAberta ? "Recolher Menu" : "Expandir Menu"}
           >
             {sidebarAberta ? <FiChevronLeft size={18} /> : <FiMenu size={18} />}
           </button>
         </div>
 
-        {/* NAVEGAÇÃO PRINCIPAL */}
-        <nav className="space-y-1.5 flex-1 overflow-y-auto pr-1 custom-scrollbar overflow-x-hidden">
+        {/* NAVEGAÇÃO REORGANIZADA POR GRUPOS */}
+        <nav className="space-y-1 flex-1 overflow-y-auto pr-1 custom-scrollbar overflow-x-hidden">
 
-          {/* DASHBOARD */}
+          {/* --- GRUPO 1: PRINCIPAL --- */}
           {podeVerDashboard && (
-            <Link to="/" title="Dashboard" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
+            <Link to="/" title="Dashboard" className={`flex items-center gap-3 p-2.5 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               <span className="text-base shrink-0">🏠</span>
               {sidebarAberta && <span className="truncate">Dashboard</span>}
             </Link>
           )}
 
-          {/* EQUIPAMENTOS */}
+          <Link to="/chamados" title="Chamados / OS" className={`flex items-center gap-3 p-2.5 rounded-xl font-bold text-sm transition-all ${isActive('/chamados') ? 'bg-amber-500 text-white shadow-lg shadow-amber-900/50' : 'hover:bg-slate-800'}`}>
+            <span className="text-base shrink-0">🎫</span>
+            {sidebarAberta && <span className="truncate">Chamados / OS</span>}
+          </Link>
+
+          {/* DIVISOR 1 */}
+          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gestão Técnica</div>}
+
+          {/* --- GRUPO 2: ATIVOS & INFRA (DROPDOWN) --- */}
           {podeVerEquipamentos && (
             <div>
               <button
                 onClick={() => {
                   if(!sidebarAberta) setSidebarAberta(true);
-                  setMenuEquipAberto(!menuEquipAberto);
+                  setMenuAtivosAberto(!menuAtivosAberto);
                 }}
-                title="Equipamentos"
-                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isEquipActive ? 'text-blue-400' : ''}`}
+                className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isAtivosActive ? 'text-blue-400' : ''}`}
               >
                 <div className="flex items-center gap-3">
                   <span className="text-base shrink-0">🛠️</span>
-                  {sidebarAberta && <span className="truncate">Equipamentos</span>}
+                  {sidebarAberta && <span className="truncate">Ativos & Infra</span>}
                 </div>
-                {sidebarAberta && <span className={`text-[10px] transition-transform duration-300 ${menuEquipAberto || isEquipActive ? 'rotate-180' : ''}`}>▼</span>}
+                {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuAtivosAberto || isAtivosActive ? 'rotate-180' : ''}`} size={14} />}
               </button>
 
-              {sidebarAberta && (
-                <div className={`ml-4 mt-1 space-y-1 overflow-hidden transition-all duration-300 ${menuEquipAberto || isEquipActive ? 'max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <Link to="/equipamentos" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/equipamentos') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">Listar Ativos</span>
+              {sidebarAberta && (menuAtivosAberto || isAtivosActive) && (
+                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                  <Link to="/equipamentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Listar Ativos</span>
                   </Link>
-                  <Link to="/preventivas" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/preventivas') ? 'bg-green-500' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">Preventivas / PMOC</span>
+                  <Link to="/preventivas" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Preventivas PMOC</span>
                   </Link>
+                  <Link to="/setores" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/setores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Setores e Áreas</span>
+                  </Link>
+                  {podeVerDocumentos && (
+                    <Link to="/documentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/documentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                      <span>• Repositório Docs</span>
+                    </Link>
+                  )}
                   {['admin', 'coordenador'].includes(nivelUsuario) && (
-                    <>
-                      <Link to="/equipamentos/novo" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/equipamentos/novo') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/equipamentos/novo') ? 'bg-amber-500' : 'bg-slate-600'}`}></span>
-                        <span className="truncate">Novo Cadastro</span>
-                      </Link>
-
-                      <button 
-                        type="button"
-                        onClick={() => setModalTipoEquipAberto(true)}
-                        className="w-full flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider text-slate-500 hover:text-white hover:bg-slate-800/50 transition-all text-left"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0"></span>
-                        <span className="truncate">Gerenciar Tipos</span>
-                      </button>
-                    </>
+                    <button onClick={() => setModalTipoEquipAberto(true)} className="w-full text-left p-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white">
+                      <span>• Gerenciar Tipos</span>
+                    </button>
                   )}
                 </div>
               )}
             </div>
           )}
 
-          {/* CHAMADOS */}
-          <Link to="/chamados" title="Chamados / OS" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/chamados') ? 'bg-amber-500 text-white shadow-lg shadow-amber-900/50' : 'hover:bg-slate-800'}`}>
-            <span className="text-base shrink-0">🎫</span>
-            {sidebarAberta && <span className="truncate">Chamados / OS</span>}
+          {/* DIVISOR 2 */}
+          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Suprimentos</div>}
+
+          {/* --- GRUPO 3: SUPRIMENTOS & FINANÇAS (DROPDOWN) --- */}
+{(podeSolicitarCompras || podeGerenciarInfraestoque) && (
+  <div>
+    <button
+      onClick={() => {
+        if(!sidebarAberta) setSidebarAberta(true);
+        setMenuSuprimentosAberto(!menuSuprimentosAberto);
+      }}
+      className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isSuprimentosActive ? 'text-blue-400' : ''}`}
+    >
+      <div className="flex items-center gap-2.5 min-w-0 pr-1">
+        <span className="text-base shrink-0">📦</span>
+        {sidebarAberta && (
+          <span className="truncate text-xs font-black uppercase tracking-tight">
+            Almoxarifado / Compras
+          </span>
+        )}
+      </div>
+      {sidebarAberta && (
+        <FiChevronDown 
+          className={`shrink-0 transition-transform duration-200 ${menuSuprimentosAberto || isSuprimentosActive ? 'rotate-180' : ''}`} 
+          size={14} 
+        />
+      )}
+    </button>
+
+    {sidebarAberta && (menuSuprimentosAberto || isSuprimentosActive) && (
+      <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+        {podeSolicitarCompras && (
+          <Link to="/solicitacoes-compra" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/solicitacoes-compra') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+            <span>• Solicitações / Compras</span>
           </Link>
-
-          {/* DOCUMENTOS */}
-          {podeVerDocumentos && (
-            <Link to="/documentos" title="Documentos" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/documentos') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-              <span className="text-base shrink-0">📁</span>
-              {sidebarAberta && <span className="truncate">Documentos</span>}
+        )}
+        {podeGerenciarInfraestoque && (
+          <>
+            <Link to="/estoque" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/estoque') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+              <span>• Estoque Insumos</span>
             </Link>
-          )}
-
-          {/* SOLICITAÇÃO DE COMPRAS */}
-          {podeSolicitarCompras && (
-            <Link to="/solicitacoes-compra" title="Solicitação de Compras" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/solicitacoes-compra') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-              <span className="text-base shrink-0">🛒</span>
-              {sidebarAberta && <span className="truncate">Compras</span>}
+            <Link to="/locais-estoque" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/locais-estoque') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+              <span>• Locais de Estoque</span>
             </Link>
-          )}
-
-          {/* LOGÍSTICA / INFRAESTRUTURA */}
-          {podeGerenciarInfraestoque && (
-            <>
-              <Link to="/fornecedores" title="Fornecedores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/fornecedores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-                <span className="text-base shrink-0">🚚</span>
-                {sidebarAberta && <span className="truncate">Fornecedores</span>}
-              </Link>
-
-              <Link to="/notas-fiscais" title="Notas Fiscais / Boletos" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/notas-fiscais') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-                <span className="text-base shrink-0">🧾</span>
-                {sidebarAberta && <span className="truncate">Notas Fiscais</span>}
-              </Link>
-
-              <Link to="/estoque" title="Gestão de Estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-                <span className="text-base shrink-0">📦</span>
-                {sidebarAberta && <span className="truncate">Estoque</span>}
-              </Link>
-
-              <Link to="/locais-estoque" title="Locais de Estoque" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/locais-estoque') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-                <span className="text-base shrink-0">🏢</span>
-                {sidebarAberta && <span className="truncate">Locais de Estoque</span>}
-              </Link>
-
-              <Link to="/setores" title="Cadastro de Setores" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/setores') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-                <span className="text-base shrink-0">🏥</span>
-                {sidebarAberta && <span className="truncate">Setores</span>}
-              </Link>
-            </>
-          )}
-
-          {/* FILTROS DE ÁGUA */}
-          {podeVerFiltrosAgua && (
-            <Link to="/filtros" title="Controle de Filtros" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/filtros') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-              <span className="text-base shrink-0">🚰</span>
-              {sidebarAberta && <span className="truncate">Filtros de Água</span>}
+            <Link to="/notas-fiscais" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/notas-fiscais') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+              <span>• Notas & Boletos</span>
             </Link>
-          )}
-
-          {/* CONTROLE DE GASES */}
-          {podeVerGases && (
-            <Link to="/gases" title="Controle de Gases" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/gases') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
-              <span className="text-base shrink-0">🧪</span>
-              {sidebarAberta && <span className="truncate">Gases Medicinais</span>}
+            <Link to="/fornecedores" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/fornecedores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+              <span>• Fornecedores</span>
             </Link>
-          )}
+          </>
+        )}
+      </div>
+    )}
+  </div>
+)}
 
-          {/* RELATÓRIOS GERAIS */}
-          {podeVerRelatorios && (
+          {/* DIVISOR 3 */}
+          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Segurança & Utilidades</div>}
+
+          {/* --- GRUPO 4: UTILIDADES & SST (DROPDOWN) --- */}
+          {(podeVerEpis || podeVerGases || podeVerFiltrosAgua) && (
             <div>
               <button
                 onClick={() => {
                   if(!sidebarAberta) setSidebarAberta(true);
-                  setMenuRelatAberto(!menuRelatAberto);
+                  setMenuUtilidadesAberto(!menuUtilidadesAberto);
                 }}
-                title="Relatórios"
-                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isRelatActive ? 'text-blue-400' : ''}`}
+                className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isUtilidadesActive ? 'text-blue-400' : ''}`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-base shrink-0">📊</span>
-                  {sidebarAberta && <span className="truncate">Relatórios</span>}
+                  <span className="text-base shrink-0">🥽</span>
+                  {sidebarAberta && <span className="truncate">Utilidades & SST</span>}
                 </div>
-                {sidebarAberta && <span className={`text-[10px] transition-transform duration-300 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`}>▼</span>}
+                {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuUtilidadesAberto || isUtilidadesActive ? 'rotate-180' : ''}`} size={14} />}
               </button>
 
-              {sidebarAberta && (
-                <div className={`ml-4 mt-1 space-y-1 overflow-hidden transition-all duration-300 ${menuRelatAberto || isRelatActive ? 'max-h-72 opacity-100' : 'max-h-0 opacity-0'}`}>
-                  <Link to="/relatorios/inventario" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/relatorios/inventario') ? 'bg-blue-500' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">Inventário Geral</span>
-                  </Link>
-                  <Link to="/relatorios/custos-setor" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/relatorios/custos-setor') ? 'bg-red-500' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">Custos por Setor</span>
-                  </Link>
-                  <Link to="/relatorios/estoque-local" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/estoque-local') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/relatorios/estoque-local') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">Balanço Estoque</span>
-                  </Link>
-                  <Link to="/relatorios/chamados-setor" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorios/chamados-setor') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/relatorios/chamados-setor') ? 'bg-yellow-500' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">Chamados Setor</span>
-                  </Link>
-                  {nivelUsuario === 'admin' && (
-                    <Link to="/relatorio-filtros" className={`flex items-center gap-3 p-2 rounded-lg text-xs font-black uppercase tracking-wider transition-colors ${isActive('/relatorio-filtros') ? 'text-white bg-slate-800' : 'text-slate-500 hover:text-white'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive('/relatorio-filtros') ? 'bg-emerald-500' : 'bg-slate-600'}`}></span>
-                      <span className="truncate">Histórico Filtros</span>
+              {sidebarAberta && (menuUtilidadesAberto || isUtilidadesActive) && (
+                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                  {podeVerEpis && (
+                    <Link to="/controle-epi" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/controle-epi') ? 'text-white bg-emerald-600' : 'text-slate-400 hover:text-white'}`}>
+                      <span>• Entrega de EPIs</span>
+                    </Link>
+                  )}
+                  {podeVerGases && (
+                    <Link to="/gases" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/gases') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                      <span>• Gases Medicinais</span>
+                    </Link>
+                  )}
+                  {podeVerFiltrosAgua && (
+                    <Link to="/filtros" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/filtros') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                      <span>• Filtros de Água</span>
                     </Link>
                   )}
                 </div>
@@ -358,23 +315,62 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             </div>
           )}
 
+          {/* DIVISOR 4 */}
+          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gerencial</div>}
+
+          {/* --- GRUPO 5: RELATÓRIOS (DROPDOWN) --- */}
+          {podeVerRelatorios && (
+            <div>
+              <button
+                onClick={() => {
+                  if(!sidebarAberta) setSidebarAberta(true);
+                  setMenuRelatAberto(!menuRelatAberto);
+                }}
+                className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isRelatActive ? 'text-blue-400' : ''}`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-base shrink-0">📊</span>
+                  {sidebarAberta && <span className="truncate">Relatórios</span>}
+                </div>
+                {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`} size={14} />}
+              </button>
+
+              {sidebarAberta && (menuRelatAberto || isRelatActive) && (
+                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                  <Link to="/relatorios/inventario" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Inventário Geral</span>
+                  </Link>
+                  <Link to="/relatorios/custos-setor" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Custos por Setor</span>
+                  </Link>
+                  <Link to="/relatorios/estoque-local" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/estoque-local') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Balanço Estoque</span>
+                  </Link>
+                  <Link to="/relatorios/chamados-setor" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/chamados-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                    <span>• Chamados por Setor</span>
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* USUÁRIOS */}
           {podeGerenciarUsuarios && (
-            <Link to="/usuarios" title="Usuários" className={`flex items-center gap-3 p-3 rounded-xl font-bold text-sm transition-all ${isActive('/usuarios') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800'}`}>
+            <Link to="/usuarios" title="Usuários" className={`flex items-center gap-3 p-2.5 rounded-xl font-bold text-sm transition-all ${isActive('/usuarios') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800'}`}>
               <span className="text-base shrink-0">👥</span>
               {sidebarAberta && <span className="truncate">Usuários</span>}
             </Link>
           )}
         </nav>
 
-        {/* RODAPÉ */}
-        <div className="mt-auto pt-4 shrink-0 overflow-hidden">
-          <div className="bg-slate-800/40 p-2.5 rounded-2xl border border-slate-800/50">
+        {/* RODAPÉ OPERADOR */}
+        <div className="mt-auto pt-3 shrink-0 overflow-hidden border-t border-slate-800">
+          <div className="bg-slate-800/40 p-2 rounded-2xl border border-slate-800/50">
             {sidebarAberta ? (
               <div className="text-center">
                 <p className="text-[9px] font-black text-slate-500 uppercase mb-0.5 tracking-widest">Operador Logado</p>
                 <p className="text-xs font-bold text-white truncate px-1">{user?.nome}</p>
-                <span className="text-[8px] font-black bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded uppercase mt-1 inline-block border border-blue-500/20">{user?.nivel}</span>
+                <span className="text-[8px] font-black bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded uppercase mt-0.5 inline-block border border-blue-500/20">{user?.nivel}</span>
               </div>
             ) : (
               <div className="text-center text-xs font-black text-blue-400 uppercase">
@@ -382,7 +378,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
               </div>
             )}
             
-            <div className={`mt-3 pt-2 border-t border-slate-700/50 flex ${sidebarAberta ? 'justify-around' : 'flex-col gap-2'} items-center`}>
+            <div className={`mt-2 pt-2 border-t border-slate-700/50 flex ${sidebarAberta ? 'justify-around' : 'flex-col gap-2'} items-center`}>
               <button onClick={() => setModalConfigAberta(true)} title="Configurações" className="text-slate-500 hover:text-blue-400 transition-colors text-base">⚙️</button>
               <button onClick={onLogout} title="Sair" className="text-[10px] font-black text-red-400 hover:text-red-300 uppercase tracking-tighter transition-all">
                 {sidebarAberta ? 'SAIR 🚀' : '🚀'}

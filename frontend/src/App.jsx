@@ -27,7 +27,8 @@ import GestaoLocais from './pages/GestaoLocais';
 import { RelatorioEstoqueLocal } from './pages/RelatorioEstoqueLocal';
 import Gases from './pages/Gases';
 import SolicitacaoCompras from './pages/SolicitacaoCompras';
-
+import ProntuarioSetor from './pages/ProntuarioSetor';
+import ControleEpi from './pages/ControleEpi';
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
 function RotaProtegida({ children, user, niveisPermitidos }) {
@@ -137,7 +138,11 @@ function App() {
               <Route path="/notas-fiscais" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NotasFiscais /></RotaProtegida>} />
               <Route path="/estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoEstoque /></RotaProtegida>} />
               <Route path="/setores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoSetores /></RotaProtegida>} />
+              <Route path="/setores/:id/prontuario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><ProntuarioSetor /></RotaProtegida>} />
               <Route path="/locais-estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoLocais /></RotaProtegida>} />
+
+              {/* 🆕 MÓDULO DE ENTREGAS DE EPI */}
+              <Route path="/controle-epi" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><ControleEpi /></RotaProtegida>} />
 
               {/* --- 5. MÓDULO FILTROS DE ÁGUA --- */}
               <Route path="/filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><ControleFiltros /></RotaProtegida>} />

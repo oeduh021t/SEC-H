@@ -8,8 +8,9 @@ const SolicitacaoCompras = () => {
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
 
-  // Modal de Nova Solicitação
+  // Modal de Nova / Editar Solicitação
   const [modalNova, setModalNova] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
   const [setorId, setSetorId] = useState('');
   const [fornecedorId, setFornecedorId] = useState(''); 
   const [equipamentoId, setEquipamentoId] = useState('');
@@ -52,6 +53,36 @@ const SolicitacaoCompras = () => {
 
   useEffect(() => { carregarDados(); }, []);
 
+  const handleAbrirNova = () => {
+    setEditandoId(null);
+    setSetorId('');
+    setFornecedorId('');
+    setEquipamentoId('');
+    setUrgencia('Média');
+    setMotivo('');
+    setItens([{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
+    setModalNova(true);
+  };
+
+  const handleAbrirEdicao = async (solicitacao) => {
+    try {
+      const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
+      const res = await fetch(`${API_URL}/solicitacoes-compra/${solicitacao.id}`, { headers });
+      const data = await res.json();
+
+      setEditandoId(data.id);
+      setSetorId(data.setor_id || '');
+      setFornecedorId(data.fornecedor_id || '');
+      setEquipamentoId(data.equipamento_id || '');
+      setUrgencia(data.urgencia || 'Média');
+      setMotivo(data.motivo || '');
+      setItens(data.itens && data.itens.length > 0 ? data.itens : [{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
+      setModalNova(true);
+    } catch (err) {
+      alert("Erro ao carregar dados para edição.");
+    }
+  };
+
   const handleAdicionarItem = () => {
     setItens([...itens, { descricao: '', quantidade: 1, valor_estimado: 0 }]);
   };
@@ -81,9 +112,15 @@ const SolicitacaoCompras = () => {
       itens
     };
 
+    const url = editandoId 
+      ? `${API_URL}/solicitacoes-compra/${editandoId}` 
+      : `${API_URL}/solicitacoes-compra`;
+
+    const method = editandoId ? 'PUT' : 'POST';
+
     try {
-      const res = await fetch(`${API_URL}/solicitacoes-compra`, {
-        method: 'POST',
+      const res = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           'x-usuario-nivel': user?.nivel || ''
@@ -92,14 +129,56 @@ const SolicitacaoCompras = () => {
       });
 
       if (res.ok) {
-        alert("Solicitação de compra gerada com sucesso! 🛒📋");
+        alert(editandoId ? "Solicitação atualizada com sucesso! 🛒✏️" : "Solicitação gerada com sucesso! 🛒📋");
         setModalNova(false);
-        setSetorId(''); setFornecedorId(''); setEquipamentoId(''); setMotivo('');
-        setItens([{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
         carregarDados();
+      } else {
+        const err = await res.json();
+        alert("Erro: " + (err.error || "Falha ao salvar."));
       }
     } catch (err) {
       console.error(err);
+      alert("Erro de conexão ao salvar solicitação.");
+    }
+  };
+
+  const handleAlterarStatus = async (id, novoStatus) => {
+    const user = obterUsuario();
+    try {
+      const res = await fetch(`${API_URL}/solicitacoes-compra/${id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-usuario-nivel': user?.nivel || ''
+        },
+        body: JSON.stringify({ status: novoStatus, usuario_id: user?.id })
+      });
+
+      if (res.ok) {
+        carregarDados();
+      } else {
+        alert("Não foi possível alterar o status.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleExcluir = async (id) => {
+    if (!window.confirm("🚨 Deseja cancelar/excluir esta solicitação de compra permanentemente?")) return;
+
+    try {
+      const res = await fetch(`${API_URL}/solicitacoes-compra/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-usuario-nivel': obterUsuario()?.nivel || '' }
+      });
+
+      if (res.ok) {
+        alert("Solicitação removida com sucesso.");
+        carregarDados();
+      }
+    } catch (err) {
+      alert("Erro ao excluir solicitação.");
     }
   };
 
@@ -122,6 +201,9 @@ const SolicitacaoCompras = () => {
       (s.motivo && s.motivo.toLowerCase().includes(t))
     );
   });
+
+  const totalGeralEstimado = solicitacoes.reduce((acc, s) => acc + Number(s.valor_total_calculado || 0), 0);
+  const totalPendentes = solicitacoes.filter(s => s.status === 'Pendente').length;
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-400">Carregando solicitações de compras...</div>;
 
@@ -155,11 +237,27 @@ const SolicitacaoCompras = () => {
             onChange={e => setBusca(e.target.value)}
           />
           <button
-            onClick={() => setModalNova(true)}
+            onClick={handleAbrirNova}
             className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-xs uppercase"
           >
             + Nova Solicitação
           </button>
+        </div>
+      </div>
+
+      {/* PAINEL DE MÉTRICAS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total de Pedidos</span>
+          <span className="text-2xl font-black text-slate-800">{solicitacoes.length} Solicitações</span>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Pendentes de Aprovação</span>
+          <span className="text-2xl font-black text-amber-600">{totalPendentes} Pedidos</span>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Investimento Estimado</span>
+          <span className="text-2xl font-black text-emerald-600">R$ {totalGeralEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>
 
@@ -171,9 +269,9 @@ const SolicitacaoCompras = () => {
               <th className="p-5">Nº / Data</th>
               <th className="p-5">Solicitante / Setor</th>
               <th className="p-5">Fornecedor Sugerido</th>
-              <th className="p-5">Ativo Vinculado</th>
+              <th className="p-5">Valor Estimado</th>
               <th className="p-5">Urgência</th>
-              <th className="p-5">Status</th>
+              <th className="p-5">Status (Dar Baixa)</th>
               <th className="p-5 text-center">Ações</th>
             </tr>
           </thead>
@@ -192,9 +290,11 @@ const SolicitacaoCompras = () => {
                 </td>
                 <td className="p-5 font-bold text-slate-700">
                   {s.fornecedor_nome ? `🚚 ${s.fornecedor_nome}` : '---'}
+                  {s.equipamento_nome && <div className="text-[10px] text-slate-400 font-normal">⚙️ {s.equipamento_nome}</div>}
                 </td>
-                <td className="p-5 font-bold text-slate-600">
-                  {s.equipamento_nome ? `⚙️ ${s.equipamento_nome} (${s.equipamento_patrimonio || 'S/P'})` : '---'}
+                <td className="p-5 font-black text-slate-800">
+                  R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <div className="text-[10px] text-slate-400 font-normal">{s.total_itens} item(ns)</div>
                 </td>
                 <td className="p-5">
                   <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase ${
@@ -204,23 +304,50 @@ const SolicitacaoCompras = () => {
                     {s.urgencia}
                   </span>
                 </td>
+                
+                {/* SELECT DINÂMICO PARA BAIXA E MUDANÇA DE STATUS */}
                 <td className="p-5">
-                  <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase ${
-                    s.status === 'Aprovado' ? 'bg-green-100 text-green-700' :
-                    s.status === 'Comprado' ? 'bg-blue-100 text-blue-700' :
-                    s.status === 'Negado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {s.status}
-                  </span>
-                </td>
-                <td className="p-5 text-center">
-                  <button
-                    onClick={() => handleImprimir(s.id)}
-                    className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
-                    title="Imprimir Requisição"
+                  <select
+                    value={s.status}
+                    onChange={e => handleAlterarStatus(s.id, e.target.value)}
+                    className={`p-1.5 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer ${
+                      s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-green-100 text-green-800 border-green-200' :
+                      s.status === 'Aprovado' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                      s.status === 'Negado' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-amber-100 text-amber-800 border-amber-200'
+                    }`}
                   >
-                    🖨️ Imprimir
-                  </button>
+                    <option value="Pendente">🟡 Pendente</option>
+                    <option value="Aprovado">🔵 Aprovado</option>
+                    <option value="Comprado">📦 Comprado</option>
+                    <option value="Entregue">🟢 Entregue / Baixado</option>
+                    <option value="Negado">🔴 Negado / Cancelado</option>
+                  </select>
+                </td>
+
+                <td className="p-5 text-center">
+                  <div className="flex justify-center gap-1.5">
+                    <button
+                      onClick={() => handleAbrirEdicao(s)}
+                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
+                      title="Editar Solicitação"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={() => handleImprimir(s.id)}
+                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
+                      title="Imprimir Requisição"
+                    >
+                      🖨️
+                    </button>
+                    <button
+                      onClick={() => handleExcluir(s.id)}
+                      className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xs"
+                      title="Excluir Solicitação"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -228,12 +355,12 @@ const SolicitacaoCompras = () => {
         </table>
       </div>
 
-      {/* MODAL DE NOVA SOLICITAÇÃO */}
+      {/* MODAL DE NOVA / EDITAR SOLICITAÇÃO */}
       {modalNova && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
-              <span>🛒 Nova Solicitação de Compra</span>
+              <span>{editandoId ? `✏️ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
               <button onClick={() => setModalNova(false)}>✕</button>
             </div>
 
@@ -241,7 +368,7 @@ const SolicitacaoCompras = () => {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Setor Destino</label>
-                  <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50">
+                  <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
                     <option value="">Selecione o Setor...</option>
                     {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                   </select>
@@ -249,7 +376,7 @@ const SolicitacaoCompras = () => {
 
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor (Opcional)</label>
-                  <select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50">
+                  <select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
                     <option value="">Nenhum / A definir</option>
                     {fornecedores.map(f => <option key={f.id} value={f.id}>🚚 {f.nome_fantasia}</option>)}
                   </select>
@@ -257,7 +384,7 @@ const SolicitacaoCompras = () => {
 
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Equipamento (Opcional)</label>
-                  <select value={equipamentoId} onChange={e => setEquipamentoId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50">
+                  <select value={equipamentoId} onChange={e => setEquipamentoId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
                     <option value="">Nenhum ativo específico</option>
                     {equipamentos.map(eq => <option key={eq.id} value={eq.id}>{eq.nome} (PAT: {eq.patrimonio || 'S/P'})</option>)}
                   </select>
@@ -265,7 +392,7 @@ const SolicitacaoCompras = () => {
 
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Urgência</label>
-                  <select value={urgencia} onChange={e => setUrgencia(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50">
+                  <select value={urgencia} onChange={e => setUrgencia(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
                     <option value="Baixa">🟢 Baixa</option>
                     <option value="Média">🟡 Média</option>
                     <option value="Alta">🟠 Alta</option>
@@ -276,7 +403,7 @@ const SolicitacaoCompras = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Justificativa / Motivo da Compra *</label>
-                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium" placeholder="Ex: Detergente Zenit para higienização de ar-condicionado..." />
+                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-black" placeholder="Ex: Detergente Zenit para higienização de ar-condicionado..." />
               </div>
 
               {/* LISTA DE ITENS SOLICITADOS */}
@@ -292,7 +419,7 @@ const SolicitacaoCompras = () => {
                       type="text"
                       required
                       placeholder="Descrição do item ou equipamento..."
-                      className="flex-[3] p-2.5 border-2 rounded-xl text-xs font-bold bg-white"
+                      className="flex-[3] p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-black"
                       value={item.descricao}
                       onChange={e => handleItemChange(index, 'descricao', e.target.value)}
                     />
@@ -301,7 +428,7 @@ const SolicitacaoCompras = () => {
                       min="1"
                       required
                       placeholder="Qtd"
-                      className="w-20 p-2.5 border-2 rounded-xl text-xs font-bold text-center bg-white"
+                      className="w-20 p-2.5 border-2 rounded-xl text-xs font-bold text-center bg-white text-black"
                       value={item.quantidade}
                       onChange={e => handleItemChange(index, 'quantidade', e.target.value)}
                     />
@@ -309,7 +436,7 @@ const SolicitacaoCompras = () => {
                       type="number"
                       step="0.01"
                       placeholder="Val. Est. R$"
-                      className="w-28 p-2.5 border-2 rounded-xl text-xs font-bold bg-white"
+                      className="w-28 p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-black"
                       value={item.valor_estimado}
                       onChange={e => handleItemChange(index, 'valor_estimado', e.target.value)}
                     />
@@ -321,15 +448,17 @@ const SolicitacaoCompras = () => {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setModalNova(false)} className="flex-1 bg-slate-100 py-3 rounded-xl font-black text-xs uppercase">Cancelar</button>
-                <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-black text-xs uppercase shadow-lg shadow-blue-100">Gerar Solicitação</button>
+                <button type="button" onClick={() => setModalNova(false)} className="flex-1 bg-slate-100 py-3 rounded-xl font-black text-xs uppercase text-slate-600">Cancelar</button>
+                <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-black text-xs uppercase shadow-lg shadow-blue-100">
+                  {editandoId ? 'Atualizar Solicitação' : 'Gerar Solicitação'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* BLOCO PARA IMPRESSÃO A4 (APENAS GESTOR E FINANCEIRO/DIRETORIA) */}
+      {/* BLOCO PARA IMPRESSÃO A4 */}
       {solicitacaoImpressao && (
         <div id="documento-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-4">
           <div className="border-b-2 border-slate-900 pb-4 mb-4 flex justify-between items-center">
@@ -374,7 +503,6 @@ const SolicitacaoCompras = () => {
             </tbody>
           </table>
 
-          {/* ASSINATURA: APENAS GESTOR DA ÁREA E FINANCEIRO/DIRETORIA */}
           <div className="grid grid-cols-2 gap-12 text-center mt-24 pt-4 max-w-2xl mx-auto">
             <div>
               <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>

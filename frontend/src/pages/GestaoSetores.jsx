@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 export function GestaoSetores() {
   const [setores, setSetores] = useState([]);
@@ -141,7 +142,7 @@ export function GestaoSetores() {
           </form>
         </div>
 
-        {/* TABELA DE VISUALIZAÇÃO HIERÁRQUICA */}
+        {/* TABELA DE VISUALIZAÇÃO HIERÁRQUICA COM BOTÃO DE PRONTUÁRIO */}
         <div className="lg:col-span-8 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Estrutura de Setores Cadastrados</h3>
           
@@ -151,6 +152,7 @@ export function GestaoSetores() {
                 <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   <th className="pb-3">ID</th>
                   <th className="pb-3">Árvore de Localização Completa</th>
+                  <th className="pb-3 text-right">Ação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -170,11 +172,20 @@ export function GestaoSetores() {
                         ))}
                       </div>
                     </td>
+                    <td className="py-3.5 text-right">
+                      {/* 📋 BOTÃO DE ACESSO AO PRONTUÁRIO DO SETOR */}
+                      <Link
+                        to={`/setores/${setor.id}/prontuario`}
+                        className="inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all border border-blue-100 active:scale-95 shadow-sm"
+                      >
+                        📋 Prontuário
+                      </Link>
+                    </td>
                   </tr>
                 ))}
                 {setoresFiltrados.length === 0 && (
                   <tr>
-                    <td colSpan="2" className="text-center py-8 text-xs font-bold text-slate-400 italic">Nenhum setor ou subsetor localizado.</td>
+                    <td colSpan="3" className="text-center py-8 text-xs font-bold text-slate-400 italic">Nenhum setor ou subsetor localizado.</td>
                   </tr>
                 )}
               </tbody>

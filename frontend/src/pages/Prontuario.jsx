@@ -6,7 +6,7 @@ const Prontuario = () => {
     const navigate = useNavigate();
     const [dados, setDados] = useState(null);
     const [erroAutenticacao, setErroAutenticacao] = useState(false);
-    const [imagemModal, setImagemModal] = useState(null); // Modal para zoom em foto
+    const [imagemModal, setImagemModal] = useState(null);
     
     // 🚚 ESTADOS PARA SAÍDA DE MANUTENÇÃO EXTERNA
     const [modalSaidaExterna, setModalSaidaExterna] = useState(false);
@@ -184,13 +184,13 @@ const Prontuario = () => {
             const result = await response.json();
 
             if (response.ok) {
-                alert("✅ Retorno registrado com sucesso! O equipamento voltou ao status Ativo.");
+                alert("✅ Retorno registrado com sucesso! O equipamento foi reativado.");
                 setModalRetorno(false);
                 setNumeroNF('');
                 setValorServico('');
                 setObservacaoRetorno('');
                 setArquivoLaudo(null);
-                carregarProntuario(); // Atualiza a timeline e o status do ativo!
+                carregarProntuario();
             } else {
                 alert("❌ " + (result.error || "Erro ao registrar retorno do equipamento."));
             }
@@ -320,8 +320,8 @@ const Prontuario = () => {
                         </button>
                     )}
                     
-                    {/* BOTÃO REGISTRAR RETORNO (Só aparece se estiver em Manutenção) */}
-                    {equip.status === 'Em Manutenção' && (
+                    {/* 🟢 BOTÃO REGISTRAR RETORNO (Aparece se estiver Em Manutenção ou Manutenção Externa) */}
+                    {(equip.status === 'Em Manutenção Externa' || equip.status === 'Em Manutenção') && (
                         <button 
                             type="button"
                             onClick={() => setModalRetorno(true)}
@@ -331,8 +331,8 @@ const Prontuario = () => {
                         </button>
                     )}
 
-                    {/* BOTÃO REGISTRAR SAÍDA EXTERNA (Aparece se estiver Ativo ou Reserva) */}
-                    {equip.status !== 'Em Manutenção' && (
+                    {/* 🟢 BOTÃO REGISTRAR SAÍDA EXTERNA (Aparece para Ativo, Reserva ou Inoperante) */}
+                    {equip.status !== 'Em Manutenção Externa' && (
                         <button 
                             type="button"
                             onClick={() => setModalSaidaExterna(true)}
@@ -397,7 +397,8 @@ const Prontuario = () => {
                                 <div className="mt-3">
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                         equip.status === 'Ativo' ? 'bg-green-100 text-green-700' :
-                                        equip.status === 'Em Manutenção' ? 'bg-red-100 text-red-700' :
+                                        equip.status === 'Em Manutenção Externa' ? 'bg-purple-100 text-purple-700' :
+                                        equip.status === 'Inoperante' || equip.status === 'Em Manutenção' ? 'bg-red-100 text-red-700' :
                                         equip.status === 'Reserva' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                                     }`}>
                                         ● {equip.status || 'Ativo'}
@@ -536,7 +537,7 @@ const Prontuario = () => {
                                     required 
                                     value={fornecedorId} 
                                     onChange={e => setFornecedorId(e.target.value)}
-                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-indigo-500"
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-indigo-500 text-black"
                                 >
                                     <option value="">Selecione o Fornecedor de Destino...</option>
                                     {fornecedores.map(f => (
@@ -551,7 +552,7 @@ const Prontuario = () => {
                                     type="date" 
                                     value={previsaoRetorno} 
                                     onChange={e => setPrevisaoRetorno(e.target.value)}
-                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-indigo-500"
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-indigo-500 text-black"
                                 />
                             </div>
 
@@ -563,7 +564,7 @@ const Prontuario = () => {
                                     value={descricaoMotivo} 
                                     onChange={e => setDescricaoMotivo(e.target.value)}
                                     placeholder="Descreva a falha relatada, peças/acessórios enviados junto..."
-                                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-indigo-500"
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-indigo-500 text-black"
                                 />
                             </div>
 
@@ -596,7 +597,7 @@ const Prontuario = () => {
                                         placeholder="Ex: NF 00123"
                                         value={numeroNF} 
                                         onChange={e => setNumeroNF(e.target.value)}
-                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-emerald-500"
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-emerald-500 text-black"
                                     />
                                 </div>
                                 <div>
@@ -607,7 +608,7 @@ const Prontuario = () => {
                                         placeholder="0.00"
                                         value={valorServico} 
                                         onChange={e => setValorServico(e.target.value)}
-                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-emerald-500"
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-emerald-500 text-black"
                                     />
                                 </div>
                             </div>
@@ -629,7 +630,7 @@ const Prontuario = () => {
                                     value={observacaoRetorno} 
                                     onChange={e => setObservacaoRetorno(e.target.value)}
                                     placeholder="Descreva o que foi corrigido pela assistência e o resultado do teste de inicialização..."
-                                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-emerald-500"
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-emerald-500 text-black"
                                 />
                             </div>
 
