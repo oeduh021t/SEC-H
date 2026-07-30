@@ -135,14 +135,27 @@ app.get('/api/testar-horario', (req, res) => {
 
 
 // -------------------------------------------------------------------------
-// DASHBOARD - INCLUSÃO DE MÉTRICAS DE CONTROLE DE GASTOS (100% CORRIGIDO)
+// DASHBOARD - MÉTRICAS COM SUPORTE A FILTRO DE DATA
 // -------------------------------------------------------------------------
 app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { data_inicio, data_fim } = req.query;
+
+    // Filtros de data para injetar nas queries SQL quando fornecidos
+    let filtroChamadosData = '';
+    let filtroAberturaData = '';
+    let paramsData = [];
+
+    if (data_inicio && data_fim) {
+        filtroChamadosData = ` AND data_abertura BETWEEN ? AND ?`;
+        filtroAberturaData = ` WHERE data_abertura BETWEEN ? AND ?`;
+        paramsData = [`${data_inicio} 00:00:00`, `${data_fim} 23:59:59`];
+    }
+
     const queries = {
         totalEquipamentos: "SELECT COUNT(*) as total FROM equipamentos",
-        chamadosAbertos: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Aberto'",
-        chamadosAndamento: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'",
-        chamadosConcluidos: "SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'",
+        chamadosAbertos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Aberto'${filtroChamadosData}`,
+        chamadosAndamento: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'${filtroChamadosData}`,
+        chamadosConcluidos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'${filtroChamadosData}`,
         preventivasAtrasadas: `
             SELECT COUNT(*) as total FROM equipamentos
             WHERE periodicidade_preventiva > 0
@@ -154,6 +167,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             SELECT e.nome, COUNT(c.id) as total
             FROM chamados c 
             JOIN equipamentos e ON c.equipamento_id = e.id
+            ${filtroAberturaData}
             GROUP BY e.id 
             ORDER BY total DESC 
             LIMIT 5`,
@@ -161,72 +175,59 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         porTecnico: `
             SELECT tecnico_responsavel as nome, COUNT(*) as total
             FROM chamados WHERE tecnico_responsavel IS NOT NULL AND tecnico_responsavel != ''
+            ${filtroChamadosData}
             GROUP BY tecnico_responsavel ORDER BY total DESC`,
-        recentes: "SELECT id, titulo, status, data_abertura FROM chamados ORDER BY id DESC LIMIT 6",
 
-        // 1. Gasto total com Filtros (Fazendo JOIN correto com itens_estoque)
-        gastoFiltros: `
-           SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
-           FROM chamados_itens ci
-           JOIN itens_estoque i ON ci.item_id = i.id
-           WHERE i.tipo = 'Filtro'`,
+        recentes: `SELECT id, titulo, status, data_abertura FROM chamados${filtroAberturaData} ORDER BY id DESC LIMIT 6`,
 
-        // 2. Gasto com Insumos Gerais (Tudo que não contiver a palavra Filtro)
+        // Gasto com Insumos / Peças no período
         gastoInsumosGerais: `
             SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
             FROM chamados_itens ci
+            JOIN chamados c ON ci.chamado_id = c.id
             JOIN itens_estoque i ON ci.item_id = i.id
-            WHERE i.tipo != 'Filtro'`,
+            WHERE i.tipo != 'Filtro'${filtroChamadosData.replace('data_abertura', 'c.data_abertura')}`,
 
-        // 3. Gasto Total em Equipamentos (Soma de peças utilizadas + custos de serviço de chamados vinculados a equipamentos + VALOR DE AQUISIÇÃO DOS EQUIPAMENTOS)
+        // Total em Equipamentos (Patrimônio)
         gastoTotalEquipamentos: `
             SELECT (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
                 FROM chamados_itens ci
                 JOIN chamados c ON ci.chamado_id = c.id
-                WHERE c.equipamento_id IS NOT NULL
+                WHERE c.equipamento_id IS NOT NULL${filtroChamadosData.replace('data_abertura', 'c.data_abertura')}
             ) + (
                 SELECT IFNULL(SUM(custo_servico), 0)
                 FROM chamados
-                WHERE equipamento_id IS NOT NULL
+                WHERE equipamento_id IS NOT NULL${filtroChamadosData}
             ) + (
                 SELECT IFNULL(SUM(valor), 0)
                 FROM equipamentos
             ) as total`,
 
-        // 4. 🛠️ CORRIGIDOConceitualmente: Gasto Total em Estrutura (Soma peças + serviços terceirizados onde NÃO há equipamento atrelado)
+        // Gasto em Estrutura / Predial no período
         gastoTotalEstrutura: `
             SELECT (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
                 FROM chamados_itens ci
                 JOIN chamados c ON ci.chamado_id = c.id
-                WHERE c.equipamento_id IS NULL
+                WHERE c.equipamento_id IS NULL${filtroChamadosData.replace('data_abertura', 'c.data_abertura')}
             ) + (
                 SELECT IFNULL(SUM(custo_servico), 0)
                 FROM chamados
-                WHERE equipamento_id IS NULL
+                WHERE equipamento_id IS NULL${filtroChamadosData}
             ) as total`,
 
-        // Boletos que vencem hoje e estão abertos
-        boletosVencendoHoje: `
-            SELECT COUNT(*) as total FROM boletos 
-            WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'`,
-
-        // Boletos que já passaram do vencimento e não foram pagos
-        boletosAtrasados: `
-            SELECT COUNT(*) as total FROM boletos 
-            WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'`,
-
-        // Fluxo de caixa de boletos previstos para os próximos 7 dias
-        boletosVencendoSemana: `
-            SELECT COUNT(*) as total FROM boletos 
-            WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) 
-            AND status_pagamento != 'Pago'`
+        boletosVencendoHoje: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'`,
+        boletosAtrasados: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'`,
+        boletosVencendoSemana: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND status_pagamento != 'Pago'`
     };
 
     const promises = Object.keys(queries).map(key => {
         return new Promise((resolve) => {
-            db.query(queries[key], (err, results) => {
+            const requerData = ['chamadosAbertos', 'chamadosAndamento', 'chamadosConcluidos', 'porEquipamento', 'porTecnico', 'recentes', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura'].includes(key);
+            const queryParams = (requerData && paramsData.length > 0) ? (key === 'gastoTotalEquipamentos' ? [...paramsData, ...paramsData] : paramsData) : [];
+
+            db.query(queries[key], queryParams, (err, results) => {
                 if (err) {
                     console.error(`⚠️ Erro silencioso na query [${key}]:`, err.message);
                     resolve({ key, data: [{ total: 0 }] });
@@ -241,7 +242,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                if (['gastoFiltros', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana'].includes(r.key)) {
+                if (['gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana'].includes(r.key)) {
                     stats[r.key] = r.data[0]?.total || 0;
                 } else {
                     stats[r.key] = r.data; 
