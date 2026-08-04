@@ -2707,5 +2707,31 @@ app.get('/api/estoque/:id/historico-entradas', permitirApenas(['admin', 'coorden
     });
 });
 
+// 🔄 EDICAO DE ITEM DO ESTOQUE
+app.put('/api/estoque/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { nome, referencia, descricao, valor_unitario, estoque_minimo, local_estoque_id } = req.body;
+
+    const query = `
+        UPDATE itens_estoque 
+        SET nome = ?, referencia = ?, descricao = ?, valor_unitario = ?, estoque_minimo = ?, local_estoque_id = ?, data_atualizacao = NOW()
+        WHERE id = ?
+    `;
+    const values = [
+        nome.trim(), 
+        referencia ? referencia.trim() : null, 
+        descricao || null, 
+        Number(valor_unitario || 0), 
+        Number(estoque_minimo || 0), 
+        local_estoque_id ? Number(local_estoque_id) : null, 
+        id
+    ];
+
+    db.query(query, values, (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Insumo atualizado com sucesso! 📦" });
+    });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
