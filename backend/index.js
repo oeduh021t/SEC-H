@@ -2578,5 +2578,134 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
     });
 });
 
+// -------------------------------------------------------------------------
+// INTEGRAÇÃO: NOTAS FISCAIS ➔ ENTRADA DE ESTOQUE
+// -------------------------------------------------------------------------
+
+// 1. LANÇAR ITEM DA NOTA FISCAL (E CADASTRAR O INSUMO SE ELE NÃO EXISTIR)
+app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params; // ID da Nota Fiscal
+    const { item_id, nome, referencia, descricao, local_estoque_id, quantidade, valor_unitario } = req.body;
+
+    const qtd_entrada = Number(quantidade || 0);
+    const v_unitario = Number(valor_unitario || 0);
+
+    if (!id || qtd_entrada <= 0) {
+        return res.status(400).json({ error: "Informe a Nota Fiscal e uma quantidade válida maior que zero." });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // A. Busca o número da Nota Fiscal para auditoria
+        conn.query("SELECT numero_nf FROM notas_fiscais WHERE id = ?", [id], (errNf, resNf) => {
+            if (errNf || resNf.length === 0) {
+                return conn.rollback(() => { 
+                    conn.release(); 
+                    res.status(404).json({ error: "Nota Fiscal não localizada no sistema." }); 
+                });
+            }
+
+            const num_nota = resNf[0].numero_nf;
+
+            // Função auxiliar para registrar no histórico de entradas
+            const registrarEntradaEstoque = (idItemFinal) => {
+                const queryHistEntrada = `
+                    INSERT INTO itens_estoque_entradas 
+                    (item_id, nota_fiscal_id, quantidade, valor_unitario, num_nota, data_entrada)
+                    VALUES (?, ?, ?, ?, ?, NOW())
+                `;
+
+                conn.query(queryHistEntrada, [idItemFinal, id, qtd_entrada, v_unitario, num_nota], (errHist) => {
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                        conn.release();
+                        res.json({ message: "Item e entrada no estoque lançados com sucesso! 📦🧾", item_id: idItemFinal });
+                    });
+                });
+            };
+
+            // B. Se o item_id foi informado, apenas incrementa o estoque existente
+            if (item_id && item_id !== "" && item_id !== "null") {
+                const queryUpdateEstoque = `
+                    UPDATE itens_estoque 
+                    SET quantidade = quantidade + ?, 
+                        valor_unitario = ?,
+                        data_atualizacao = NOW()
+                    WHERE id = ?
+                `;
+
+                conn.query(queryUpdateEstoque, [qtd_entrada, v_unitario, Number(item_id)], (errUp) => {
+                    if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+                    registrarEntradaEstoque(Number(item_id));
+                });
+            } else {
+                // C. Se o item_id não foi informado, cadastra o novo insumo no estoque automaticamente
+                if (!nome || nome.trim() === "") {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(400).json({ error: "Informe o nome do novo insumo para cadastrá-lo no estoque." });
+                    });
+                }
+
+                const ref_limpa = referencia && referencia.trim() !== "" ? referencia.trim() : null;
+                const v_local_estoque = local_estoque_id && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
+
+                const queryNovoItem = `
+                    INSERT INTO itens_estoque 
+                    (nome, referencia, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao, local_estoque_id) 
+                    VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?)
+                `;
+
+                conn.query(queryNovoItem, [nome.trim(), ref_limpa, descricao || null, qtd_entrada, v_unitario, v_local_estoque], (errNovo, resNovo) => {
+                    if (errNovo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errNovo.message }); });
+                    
+                    const novoIdCriado = resNovo.insertId;
+                    registrarEntradaEstoque(novoIdCriado);
+                });
+            }
+        });
+    });
+});
+
+// 2. LISTAR OS ITENS COMPRADOS/LANÇADOS EM UMA NOTA FISCAL ESPECÍFICA
+app.get('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const query = `
+        SELECT e.id, e.item_id, e.quantidade, e.valor_unitario, e.data_entrada, e.num_nota,
+               i.nome as item_nome, i.referencia, (e.quantidade * e.valor_unitario) as valor_total_item
+        FROM itens_estoque_entradas e
+        JOIN itens_estoque i ON e.item_id = i.id
+        WHERE e.nota_fiscal_id = ?
+        ORDER BY e.data_entrada DESC
+    `;
+
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results || []);
+    });
+});
+
+// 3. CONSULTAR O HISTÓRICO DE ENTRADAS POR NOTA FISCAL DE UM ITEM DO ESTOQUE
+app.get('/api/estoque/:id/historico-entradas', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const query = `
+        SELECT e.id, e.quantidade, e.valor_unitario, e.num_nota, e.data_entrada,
+               nf.id as nota_id, nf.numero_nf, f.nome_fantasia as fornecedor_nome
+        FROM itens_estoque_entradas e
+        LEFT JOIN notas_fiscais nf ON e.nota_fiscal_id = nf.id
+        LEFT JOIN fornecedores f ON nf.fornecedor_id = f.id
+        WHERE e.item_id = ?
+        ORDER BY e.data_entrada DESC
+    `;
+
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results || []);
+    });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
