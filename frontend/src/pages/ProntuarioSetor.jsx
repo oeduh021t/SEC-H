@@ -8,6 +8,7 @@ const ProntuarioSetor = () => {
     const [setor, setSetor] = useState(null);
     const [chamados, setChamados] = useState([]);
     const [equipamentosSetor, setEquipamentosSetor] = useState([]);
+    const [custosResumo, setCustosResumo] = useState({ total_custo_servico: 0, total_custo_pecas: 0 });
     const [loading, setLoading] = useState(true);
     const [erroAutenticacao, setErroAutenticacao] = useState(false);
 
@@ -56,6 +57,23 @@ const ProntuarioSetor = () => {
                 setEquipamentosSetor(equipDoSetor || []);
             }
 
+            // 4. Busca os custos consolidados (Serviços + Peças) específicos deste setor
+            // Definimos um range amplo ou geral para capturar o histórico acumulado do setor
+            const dataInicioPadrao = '2020-01-01 00:00:00';
+            const dataFimPadrao = '2099-12-31 23:59:59';
+            const resCustos = await fetch(`${API_URL}/relatorios/custos-setor?data_inicio=${dataInicioPadrao}&data_fim=${dataFimPadrao}&setor_id=${id}`, {
+                headers: { 'x-usuario-nivel': nivel }
+            });
+            if (resCustos.ok) {
+                const dadosCustos = await resCustos.json();
+                if (Array.isArray(dadosCustos) && dadosCustos.length > 0) {
+                    setCustosResumo({
+                        total_custo_servico: Number(dadosCustos[0].total_custo_servico || 0),
+                        total_custo_pecas: Number(dadosCustos[0].total_custo_pecas || 0)
+                    });
+                }
+            }
+
         } catch (err) {
             console.error("Erro ao carregar prontuário do setor:", err);
         } finally {
@@ -67,7 +85,6 @@ const ProntuarioSetor = () => {
         carregarDadosSetor();
     }, [carregarDadosSetor]);
 
-    // Redireciona para abertura de OS já pré-selecionando o setor
     const handleCriarChamadoSetor = () => {
         navigate('/chamados', {
             state: {
@@ -95,11 +112,6 @@ const ProntuarioSetor = () => {
         return dataBR;
     };
 
-    // Cálculo do Custo Acumulado Total em Chamados do Setor
-    const calcularCustoTotalSetor = () => {
-        return chamados.reduce((acc, c) => acc + (Number(c.custo_servico) || 0), 0);
-    };
-
     if (erroAutenticacao) {
         return (
             <div className="p-10 text-center font-bold text-red-500 uppercase text-xs tracking-widest">
@@ -115,7 +127,6 @@ const ProntuarioSetor = () => {
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
 
-            {/* REGRAS DE IMPRESSÃO A4 */}
             <style>{`
                 @media print {
                     body * { 
@@ -180,7 +191,6 @@ const ProntuarioSetor = () => {
             {/* CONTAINER ALVO DA IMPRESSÃO */}
             <div className="relatorio-container space-y-6">
 
-                {/* CABEÇALHO DE IMPRESSÃO */}
                 <div className="hidden print:block bg-white p-4 border-b border-slate-200 mb-4">
                     <div className="flex justify-between items-center">
                         <div>
@@ -225,16 +235,31 @@ const ProntuarioSetor = () => {
                                     <span className="font-black text-blue-600 font-mono">{equipamentosSetor.length} Equipamentos</span>
                                 </div>
 
-                                {/* CUSTO TOTAL DE MANUTENÇÃO NO SETOR */}
-                                <div className="flex justify-between items-center p-3.5 bg-red-50 rounded-2xl border border-red-100 mt-4 print:bg-none print:border-slate-200">
-                                    <div>
-                                        <span className="text-red-400 font-black text-[9px] uppercase block tracking-wider print:text-slate-600">Custo Total de Serviços</span>
-                                        <span className="text-[9px] text-red-300 font-bold block print:text-slate-400">(Soma dos Serviços na Área)</span>
+                                {/* 🎯 BLOCOS SEPARADOS DE CUSTOS: SERVIÇOS E PEÇAS */}
+                                <div className="grid grid-cols-1 gap-2.5 mt-4">
+                                    {/* Custo de Serviços */}
+                                    <div className="flex justify-between items-center p-3.5 bg-amber-50 rounded-2xl border border-amber-100 print:bg-none print:border-slate-200">
+                                        <div>
+                                            <span className="text-amber-600 font-black text-[9px] uppercase block tracking-wider">Custo de Serviços</span>
+                                            <span className="text-[9px] text-amber-500 font-bold block">(Mão de Obra)</span>
+                                        </div>
+                                        <span className="text-amber-700 font-black text-base font-mono">
+                                            R$ {custosResumo.total_custo_servico.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
                                     </div>
-                                    <span className="text-red-600 font-black text-lg font-mono print:text-slate-900">
-                                        R$ {calcularCustoTotalSetor().toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </span>
+
+                                    {/* Custo de Insumos / Peças */}
+                                    <div className="flex justify-between items-center p-3.5 bg-blue-50 rounded-2xl border border-blue-100 print:bg-none print:border-slate-200">
+                                        <div>
+                                            <span className="text-blue-600 font-black text-[9px] uppercase block tracking-wider">Custo de Insumos</span>
+                                            <span className="text-[9px] text-blue-400 font-bold block">(Peças Aplicadas)</span>
+                                        </div>
+                                        <span className="text-blue-700 font-black text-base font-mono">
+                                            R$ {custosResumo.total_custo_pecas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
                                 </div>
+
                             </div>
                         </div>
 

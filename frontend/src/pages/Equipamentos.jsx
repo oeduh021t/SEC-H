@@ -22,7 +22,7 @@ const Equipamentos = () => {
   // Filtros dinâmicos da barra superior
   const [filtroSetor, setFiltroSetor] = useState('todos')
   const [filtroStatus, setFiltroStatus] = useState('todos')
-  const [filtroTipo, setFiltroTipo] = useState('todos') // 🆕 Filtro por categoria/tipo
+  const [filtroTipo, setFiltroTipo] = useState('todos')
 
   const estadoInicial = {
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
@@ -31,6 +31,7 @@ const Equipamentos = () => {
   const [form, setForm] = useState(estadoInicial)
 
   const API_URL = 'http://192.168.5.101:3000/api';
+  const BASE_URL = 'http://192.168.5.101:3000';
 
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');
@@ -143,7 +144,6 @@ const Equipamentos = () => {
     return matchesBusca && matchesSetor && matchesStatus && matchesTipo;
   });
 
-  // 🆕 MÉTRICAS/KPIs RÁPIDOS
   const kpis = {
     total: equipamentosFiltrados.length,
     ativos: equipamentosFiltrados.filter(e => e.status === 'Ativo').length,
@@ -183,7 +183,7 @@ const Equipamentos = () => {
           </button>
         </div>
 
-        {/* 🆕 CARDS DE METRICAS (KPIs) */}
+        {/* CARDS DE METRICAS (KPIs) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
           <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 flex items-center justify-between">
             <div>
@@ -225,28 +225,28 @@ const Equipamentos = () => {
             <input
               type="text"
               placeholder="🔍 Nome, patrimônio, série..."
-              className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-500 transition-all text-xs font-bold bg-slate-50"
+              className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-500 transition-all text-xs font-bold bg-slate-50 text-black"
               value={busca}
               onChange={e => setBusca(e.target.value)}
             />
           </div>
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Isolar Localização</label>
-            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroSetor} onChange={e => setFiltroSetor(e.target.value)}>
+            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs text-black" value={filtroSetor} onChange={e => setFiltroSetor(e.target.value)}>
               <option value="todos">⭐ Todos os Setores</option>
               {(setores || []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
           </div>
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Filtrar Categoria</label>
-            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs text-black" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
               <option value="todos">⭐ Todas as Categorias</option>
               {(tipos || []).map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
             </select>
           </div>
           <div>
             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Filtrar Status</label>
-            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+            <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none bg-slate-50 font-bold text-xs text-black" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
               <option value="todos">⭐ Todos os Status</option>
               <option value="Ativo">🟢 Ativo</option>
               <option value="Reserva">🔵 Reserva</option>
@@ -271,23 +271,59 @@ const Equipamentos = () => {
           </thead>
           <tbody className="divide-y divide-slate-50 text-xs">
             {equipamentosFiltrados.map(e => (
-              <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group group text-dark">
-                <td className="p-5">
-                  <div className="flex items-center gap-3">
-                    {/* 🆕 MINIATURA DA FOTO DO ATIVO (SE HOUVER) */}
+              <tr key={e.id} className="hover:bg-slate-50/50 transition-colors group text-dark">
+                
+                {/* COLUNA COM O TOOLTIP FLUTUANTE */}
+                <td className="p-5 relative">
+                  <div className="relative group/tooltip flex items-center gap-3 w-fit cursor-pointer">
+                    
+                    {/* Miniatura da Foto */}
                     {e.foto_equipamento ? (
-                      <img src={`http://192.168.5.101:3000${e.foto_equipamento}`} alt="Ativo" className="w-9 h-9 rounded-xl object-cover border border-slate-200" />
+                      <img src={`${BASE_URL}${e.foto_equipamento}`} alt="Ativo" className="w-9 h-9 rounded-xl object-cover border border-slate-200 shrink-0" />
                     ) : (
-                      <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xs border border-slate-200">
+                      <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-black text-xs border border-slate-200 shrink-0">
                         {e.nome ? e.nome.substring(0,2).toUpperCase() : 'EQ'}
                       </div>
                     )}
+                    
                     <div>
-                      <div className="font-black text-slate-700 uppercase tracking-tight">{e.nome}</div>
+                      <div className="font-black text-slate-700 uppercase tracking-tight hover:text-blue-600 transition-colors">{e.nome}</div>
                       <div className="text-[10px] text-blue-600 font-bold uppercase tracking-wide mt-0.5">{e.setor_nome || 'Setor não definido'}</div>
                     </div>
+
+                    {/* 🎈 BALÃO FLUTUANTE (TOOLTIP) AO PASSAR O MOUSE */}
+                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover/tooltip:block w-72 bg-slate-900 text-white p-4 rounded-2xl shadow-2xl z-50 text-xs space-y-2 pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <span className="font-black text-[10px] text-blue-400 uppercase tracking-widest">Ficha Rápida</span>
+                        <span className="font-mono text-[10px] text-slate-400">PAT: {e.patrimonio || 'S/P'}</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div>
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Fabricante:</span>
+                          <span className="font-bold text-slate-200">{e.fabricante || 'Não informado'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Série:</span>
+                          <span className="font-mono text-slate-200">{e.num_serie || 'N/A'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Valor Ativo:</span>
+                          <span className="font-mono text-green-400 font-bold">R$ {Number(e.valor || 0).toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Última Preventiva:</span>
+                          <span className="font-mono text-slate-200">{e.data_ultima_preventiva ? new Date(e.data_ultima_preventiva).toLocaleDateString('pt-BR') : 'Pendente'}</span>
+                        </div>
+                      </div>
+
+                      {/* Seta do Balão */}
+                      <div className="absolute left-6 top-full w-0 h-0 border-x-8 border-x-transparent border-t-8 border-t-slate-900"></div>
+                    </div>
+
                   </div>
                 </td>
+
                 <td className="p-5">
                   <div className="text-[11px] font-mono font-black text-slate-600 bg-slate-100 inline-block px-2 py-0.5 rounded uppercase">{e.patrimonio || 'S/P'}</div>
                   <div className="text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tighter">Série: {e.num_serie || '---'}</div>

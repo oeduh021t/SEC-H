@@ -871,7 +871,7 @@ export default function NotasFiscais() {
                               {b.status_pagamento}
                             </span>
                           </div>
-                          <div className="text-xs text-slate-400 font-medium">Vencimento: <span className="font-mono text-slate-500">{new Date(b.data_vencimento).toLocaleDateString('pt-BR')}</span></div>
+                          <div className="text-xs text-slate-400 font-medium">Vencimento: <span className="font-mono text-slate-500">{new Date(b.data_vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span></div>
                           <div className="flex gap-2 pt-1">
                             {b.url_boleto_pdf && <a href={`${API_URL.replace('/api', '')}${b.url_boleto_pdf}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-blue-500 hover:underline">📄 Ver Duplicata</a>}
                             {b.url_comprovante_pdf && <a href={`${API_URL.replace('/api', '')}${b.url_comprovante_pdf}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-green-600 hover:underline">🧾 Ver Recibo/Comprovante</a>}

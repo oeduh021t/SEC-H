@@ -2454,7 +2454,7 @@ app.delete('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador
     });
 });
 
-// 🚚 ROTA DE SAÍDA PARA MANUTENÇÃO EXTERNA
+// 🚚 1. REGISTRAR SAÍDA PARA MANUTENÇÃO EXTERNA (Atualiza para 'Em Manutenção')
 app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { fornecedor_id, tecnico_nome, descricao_motivo, data_previsao_retorno } = req.body;
@@ -2466,24 +2466,24 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 1. Busca dados do Fornecedor para gravar no Log detalhado
+        // Busca o nome do fornecedor para um log limpo e legível
         conn.query("SELECT nome_fantasia FROM fornecedores WHERE id = ?", [fornecedor_id], (errForn, resForn) => {
             if (errForn || resForn.length === 0) {
                 return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Fornecedor não localizado." }); });
             }
 
             const nomeFornecedor = resForn[0].nome_fantasia;
-            const logTexto = `[SAÍDA EXTERNA] Enviado para assistência técnica: ${nomeFornecedor}. Motivo: ${descricao_motivo}${data_previsao_retorno ? ` | Previsão Retorno: ${data_previsao_retorno}` : ''}`;
+            const logTexto = `[SAÍDA EXTERNA] Enviado para ${nomeFornecedor}. Motivo: ${descricao_motivo}${data_previsao_retorno ? ` | Previsão Retorno: ${data_previsao_retorno}` : ''}`;
 
-            // 2. Atualiza o status do Equipamento para 'Em Manutenção Externa'
-            conn.query("UPDATE equipamentos SET status = 'Em Manutenção Externa' WHERE id = ?", [id], (errUp) => {
+            // Atualiza o status do equipamento para 'Em Manutenção' (Unificado)
+            conn.query("UPDATE equipamentos SET status = 'Em Manutenção' WHERE id = ?", [id], (errUp) => {
                 if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-                // 3. Grava no histórico geral de equipamentos
+                // Grava no histórico geral de equipamentos
                 const queryHist = `
                     INSERT INTO equipamentos_historico 
                     (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
-                    SELECT id, status, 'Em Manutenção Externa', ?, ?, NOW() 
+                    SELECT id, status, 'Em Manutenção', ?, ?, NOW() 
                     FROM equipamentos WHERE id = ?
                 `;
 
@@ -2501,18 +2501,16 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
     });
 });
 
-// 🛬 ROTA DE REGISTRO DE RETORNO DE MANUTENÇÃO EXTERNA
+// 🛬 2. ROTA DE REGISTRO DE RETORNO DE MANUTENÇÃO EXTERNA (Retorna para Ativo ou Reserva)
 app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('laudo_tecnico'), (req, res) => {
     const { id } = req.params;
     const { numero_nf, valor_servico, observacao, tecnico_nome } = req.body;
 
-    // Se um arquivo laudo/comprovante foi enviado no multipart/form-data
     const url_laudo = req.file ? `/uploads/${req.file.filename}` : null;
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 1. Busca status e setor atual do equipamento
         conn.query("SELECT status, setor_id FROM equipamentos WHERE id = ?", [id], (errEquip, resEquip) => {
             if (errEquip || resEquip.length === 0) {
                 return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Equipamento não localizado." }); });
@@ -2522,17 +2520,15 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
             const setorAtual = resEquip[0].setor_id;
             const novoStatus = setorAtual ? 'Ativo' : 'Reserva';
 
-            // 2. Monta o texto do log para a timeline do prontuário
-            let logTexto = `[RETORNO MANUTENÇÃO EXTERNA] Equipamento reativado e testado. Status: ${novoStatus}.`;
+            let logTexto = `[RETORNO MANUTENÇÃO EXTERNA] Equipamento reativado. Status: ${novoStatus}.`;
             if (numero_nf && numero_nf.trim() !== '') logTexto += ` NF/Recibo: ${numero_nf}.`;
             if (valor_servico && Number(valor_servico) > 0) logTexto += ` Valor do Serviço: R$ ${Number(valor_servico).toFixed(2)}.`;
             if (observacao && observacao.trim() !== '') logTexto += ` Parecer Técnico: ${observacao}`;
 
-            // 3. Atualiza o status do Equipamento
+            // Retorna o status do equipamento para Ativo/Reserva
             conn.query("UPDATE equipamentos SET status = ? WHERE id = ?", [novoStatus, id], (errUp) => {
                 if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-                // 4. Grava no histórico geral de movimentações e eventos do equipamento
                 const queryHist = `
                     INSERT INTO equipamentos_historico 
                     (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
@@ -2542,7 +2538,6 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
                 conn.query(queryHist, [id, statusAnterior, novoStatus, logTexto, tecnico_nome || 'Técnico'], (errHist) => {
                     if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
-                    // 5. Se foi anexado laudo técnico, vincula na tabela de documentos auditáveis
                     if (url_laudo) {
                         const queryDoc = `
                             INSERT INTO documentos (nome_original, nome_armazenamento, url_arquivo, tipo_mimetype, equipamento_id, usuario_id) 
@@ -2557,7 +2552,7 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
                         ];
 
                         conn.query(queryDoc, valuesDoc, (errDoc) => {
-                            if (errDoc) console.error("⚠️ Aviso: Não foi possível gravar o laudo na tabela de documentos:", errDoc.message);
+                            if (errDoc) console.error("⚠️ Aviso: Falha ao gravar laudo na tabela de documentos:", errDoc.message);
 
                             conn.commit((errCommit) => {
                                 if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });

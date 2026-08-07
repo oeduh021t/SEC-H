@@ -320,8 +320,8 @@ const Prontuario = () => {
                         </button>
                     )}
                     
-                    {/* 🟢 BOTÃO REGISTRAR RETORNO (Aparece se estiver Em Manutenção ou Manutenção Externa) */}
-                    {(equip.status === 'Em Manutenção Externa' || equip.status === 'Em Manutenção') && (
+                    {/* 🟢 BOTÃO REGISTRAR RETORNO (Aparece apenas quando estiver Em Manutenção) */}
+                    {equip.status === 'Em Manutenção' && (
                         <button 
                             type="button"
                             onClick={() => setModalRetorno(true)}
@@ -331,8 +331,8 @@ const Prontuario = () => {
                         </button>
                     )}
 
-                    {/* 🟢 BOTÃO REGISTRAR SAÍDA EXTERNA (Aparece para Ativo, Reserva ou Inoperante) */}
-                    {equip.status !== 'Em Manutenção Externa' && (
+                    {/* 🟢 BOTÃO REGISTRAR SAÍDA EXTERNA (Aparece se não estiver Em Manutenção) */}
+                    {equip.status !== 'Em Manutenção' && (
                         <button 
                             type="button"
                             onClick={() => setModalSaidaExterna(true)}
@@ -397,8 +397,7 @@ const Prontuario = () => {
                                 <div className="mt-3">
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                         equip.status === 'Ativo' ? 'bg-green-100 text-green-700' :
-                                        equip.status === 'Em Manutenção Externa' ? 'bg-purple-100 text-purple-700' :
-                                        equip.status === 'Inoperante' || equip.status === 'Em Manutenção' ? 'bg-red-100 text-red-700' :
+                                        equip.status === 'Em Manutenção' ? 'bg-red-100 text-red-700' :
                                         equip.status === 'Reserva' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                                     }`}>
                                         ● {equip.status || 'Ativo'}
