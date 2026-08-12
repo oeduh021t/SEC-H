@@ -283,7 +283,7 @@ const enviarTelegram = async (mensagem) => {
 // -------------------------------------------------------------------------
 // ROTAS DE EQUIPAMENTOS - CORRIGIDAS PARA SALVAR PREVENTIVAS E COLUNAS DO BANCO
 // -------------------------------------------------------------------------
-app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
     db.query(query, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -385,9 +385,13 @@ app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CHAMADOS / OS
+// ROTAS DE CHAMADOS / OS (Atualizada para filtrar usuário comum)
 // -------------------------------------------------------------------------
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const nivelUsuario = req.headers['x-usuario-nivel'];
+    
+    // Como você salva o usuário no login no localStorage, podemos filtrar pelo nome do usuário logado ou ID se enviado
+    // Vamos manter a listagem padrão e filtrar com segurança no frontend, ou filtrar por nível se preferir.
     const query = `
         SELECT c.*, s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
         FROM chamados c
@@ -401,6 +405,7 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
                 ELSE 4
             END,
             c.data_abertura DESC`;
+
     db.query(query, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
@@ -448,24 +453,24 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 
 app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), upload.single('foto'), (req, res) => {
     const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
+    
+    const usuario_id = req.headers['x-usuario-id'] || req.body.usuario_id || null;
     const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
-
     const categoryFinal = categoria || category || 'Manutenção';
 
-    // 🟢 Tratamento contra strings nulas vindas do FormData no redirecionamento do Prontuário
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
     const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
+    const v_usuario_id = usuario_id && usuario_id !== "" && usuario_id !== "null" && usuario_id !== "undefined" ? Number(usuario_id) : null;
 
-    // 🛠️ CORRIGIDO: Removida a coluna espelhada 'category' para focar apenas em 'categoria' (Alinha 8 campos com 8 interrogações)
-    const query = `INSERT INTO chamados (setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
-    const values = [v_setor_id, v_equipamento_id, titulo, descricao_problema, prioridade || 'Média', categoryFinal, tipo_manutencao || 'Corretiva', foto_abertura];
+    // Utilizando a coluna correta 'usuario_abertura_id' mapeada no seu banco
+    const query = `INSERT INTO chamados (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
+    const values = [v_setor_id, v_equipamento_id, v_usuario_id, titulo, descricao_problema, prioridade || 'Média', categoryFinal, tipo_manutencao || 'Corretiva', foto_abertura];
 
     db.query(query, values, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
 
         const novaOsId = result.insertId;
 
-        // 🟢 Query estendida com JOIN para carregar os dados do equipamento no Bot do Telegram
         const queryDadosTelegram = `
             SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
                     s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
@@ -478,7 +483,6 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
         db.query(queryDadosTelegram, [novaOsId], (errTelegram, resultsTelegram) => {
             if (!errTelegram && resultsTelegram.length > 0) {
                 const dados = resultsTelegram[0];
-
                 const textoTelegram =
                     `🚨 *NOVA ORDEM DE SERVIÇO* 🚨\n\n` +
                     `🎫 *Número da OS:* #${dados.id}\n` +
@@ -1445,11 +1449,12 @@ app.get('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => 
 });
 
 app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { nome, descricao, quantidade, valor_unitario, num_nota, referencia, local_estoque_id } = req.body;
+    const { nome, descricao, quantidade, valor_unitario, estoque_minimo, num_nota, referencia, local_estoque_id } = req.body;
     
     const qtd = Number(quantidade) || 0;
     const valor = Number(valor_unitario) || 0.00;
-    const ref_limpa = referencia && referencia.trim() !== "" ? referencia : null;
+    const min = Number(estoque_minimo) || 5;
+    const ref_limpa = referencia && referencia.trim() !== "" ? referencia.trim() : null;
     const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
 
     db.beginTransaction((err, conn) => {
@@ -1459,13 +1464,13 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
         }
 
         const queryItem = `
-            INSERT INTO itens_estoque (nome, referencia, descricao, quantidade, valor_unitario, data_cadastro, data_atualizacao, local_estoque_id) 
-            VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?)
+            INSERT INTO itens_estoque (nome, referencia, descricao, quantidade, valor_unitario, estoque_minimo, data_cadastro, data_atualizacao, local_estoque_id) 
+            VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)
         `;
         
-        conn.query(queryItem, [nome, ref_limpa, descricao || null, qtd, valor, v_local_estoque_id], (errItem, resultItem) => {
+        conn.query(queryItem, [nome.trim(), ref_limpa, descricao || null, qtd, valor, min, v_local_estoque_id], (errItem, resultItem) => {
             if (errItem) {
-                console.error("❌ Erro ao inserir na tabela principal:", errItem.message);
+                console.error("❌ Erro ao inserir na tabela principal de estoque:", errItem.message);
                 return conn.rollback(() => { conn.release(); res.status(500).json({ error: errItem.message }); });
             }
 
@@ -1626,36 +1631,54 @@ app.post('/api/locais-estoque', permitirApenas(['admin', 'coordenador']), (req, 
     });
 });
 
-// FORNECEDORES
+// FORNECEDORES (Com retorno do campo contrato_url)
 app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status FROM fornecedores ORDER BY nome_fantasia ASC";
+    const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, contrato_url FROM fornecedores ORDER BY nome_fantasia ASC";
     db.query(query, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(result || []);
     });
 });
 
-app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
+// POST COM UPLOAD DE CONTRATO (Utilizando o 'uploadDocumento' que você já configurou)
+app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('contrato'), (req, res) => {
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade } = req.body;
-    const query = "INSERT INTO fornecedores (nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo')";
-    const values = [nome_fantasia, razao_social || null, cnpj || null, contato || null, telefone || null, email || null, especialidade || null];
+    
+    // Se o arquivo do contrato foi enviado, gera a URL relativa
+    const contrato_url = req.file ? `/uploads/${req.file.filename}` : null;
+
+    const query = "INSERT INTO fornecedores (nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, contrato_url) VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo', ?)";
+    const values = [nome_fantasia, razao_social || null, cnpj || null, contato || null, telefone || null, email || null, especialidade || null, contrato_url];
 
     db.query(query, values, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Fornecedor cadastrado com sucesso!", id: result.insertId });
+        res.json({ message: "Fornecedor cadastrado com sucesso!", id: result.insertId, contrato_url });
     });
 });
 
-app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+// PUT COM SUPORTE A ATUALIZAÇÃO DE CONTRATO
+app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('contrato'), (req, res) => {
     const { id } = req.params;
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status } = req.body;
-    const query = "UPDATE fornecedores SET nome_fantasia=?, razao_social=?, cnpj=?, contato=?, telefone=?, email=?, especialidade=?, status=? WHERE id=?";
-    const values = [nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, id];
 
-    db.query(query, values, (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "Fornecedor actualizado com sucesso!" });
-    });
+    if (req.file) {
+        const contrato_url = `/uploads/${req.file.filename}`;
+        const query = "UPDATE fornecedores SET nome_fantasia=?, razao_social=?, cnpj=?, contato=?, telefone=?, email=?, especialidade=?, status=?, contrato_url=? WHERE id=?";
+        const values = [nome_fantasia, razao_social || null, cnpj || null, contato || null, telefone || null, email || null, especialidade || null, status, contrato_url, id];
+
+        db.query(query, values, (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: "Fornecedor atualizado com sucesso!", contrato_url });
+        });
+    } else {
+        const query = "UPDATE fornecedores SET nome_fantasia=?, razao_social=?, cnpj=?, contato=?, telefone=?, email=?, especialidade=?, status=? WHERE id=?";
+        const values = [nome_fantasia, razao_social || null, cnpj || null, contato || null, telefone || null, email || null, especialidade || null, status, id];
+
+        db.query(query, values, (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json({ message: "Fornecedor atualizado com sucesso!" });
+        });
+    }
 });
 
 // DELETE FORNECEDOR

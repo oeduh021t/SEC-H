@@ -17,6 +17,7 @@ const Fornecedores = () => {
     status: 'Ativo' 
   }
   const [form, setForm] = useState(estadoInicial)
+  const [arquivoContrato, setArquivoContrato] = useState(null)
 
   const API_URL = 'http://192.168.5.101:3000/api'
 
@@ -55,11 +56,12 @@ const Fornecedores = () => {
       razao_social: f.razao_social || '',
       cnpj: f.cnpj || '',
       contato: f.contato || '',
-      telefone: f.telefone || f.telephone || '', // Compatibilidade caso o banco envie telephone
+      telefone: f.telefone || f.telephone || '', 
       email: f.email || '',
       especialidade: f.especialidade || '',
       status: f.status || 'Ativo'
     })
+    setArquivoContrato(null) // Reseta o input do arquivo ao abrir
     setModalAberta(true)
   }
 
@@ -81,18 +83,26 @@ const Fornecedores = () => {
     }
   }
 
-  // Salva (Post) ou Atualiza (Put) os dados no banco injetando o cabeçalho de validação
+  // Salva (Post) ou Atualiza (Put) usando FormData para suportar o PDF do contrato
   const salvar = (e) => {
     e.preventDefault()
     const url = editandoId ? `${API_URL}/fornecedores/${editandoId}` : `${API_URL}/fornecedores`
 
+    const formData = new FormData();
+    Object.keys(form).forEach(key => {
+      formData.append(key, form[key]);
+    });
+
+    if (arquivoContrato) {
+      formData.append('contrato', arquivoContrato);
+    }
+
     fetch(url, {
       method: editandoId ? 'PUT' : 'POST',
       headers: { 
-        'Content-Type': 'application/json',
-        'x-usuario-nivel': obterNivelUsuario()
+        'x-usuario-nivel': obterNivelUsuario() 
       },
-      body: JSON.stringify(form)
+      body: formData
     })
     .then(res => {
       if (res.ok) {
@@ -100,6 +110,7 @@ const Fornecedores = () => {
         setModalAberta(false)
         setEditandoId(null)
         setForm(estadoInicial)
+        setArquivoContrato(null)
       } else {
         alert("Erro ao salvar os dados do fornecedor. Verifique suas permissões de acesso.")
       }
@@ -122,7 +133,7 @@ const Fornecedores = () => {
             onChange={e => setBusca(e.target.value)}
           />
           <button
-            onClick={() => { setEditandoId(null); setForm(estadoInicial); setModalAberta(true); }}
+            onClick={() => { setEditandoId(null); setForm(estadoInicial); setArquivoContrato(null); setModalAberta(true); }}
             className="bg-blue-600 text-white px-6 py-2 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-sm uppercase tracking-wider"
           >
             + Novo Fornecedor
@@ -138,7 +149,7 @@ const Fornecedores = () => {
               <th className="p-5">Empresa / Status</th>
               <th className="p-5">CNPJ / Especialidade</th>
               <th className="p-5">Contato / E-mail</th>
-              <th className="p-5 text-center">Ações</th>
+              <th className="p-5 text-center">Ações & Contrato</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -168,7 +179,24 @@ const Fornecedores = () => {
                   <div className="text-[10px] text-slate-400 font-bold mt-1">📞 {f.telefone || '---'}</div>
                 </td>
                 <td className="p-5">
-                  <div className="flex justify-center gap-2">
+                  <div className="flex justify-center items-center gap-2">
+                    {/* 📄 BOTÃO DE CONTRATO (Se houver link/caminho salvo no backend) */}
+                    {f.contrato_url ? (
+                      <a
+                        href={`${API_URL.replace('/api', '')}${f.contrato_url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm border border-blue-100"
+                        title="Ver Contrato em PDF"
+                      >
+                        <span className="text-sm">📄</span>
+                      </a>
+                    ) : (
+                      <span className="p-2 bg-slate-50 text-slate-300 rounded-xl border border-slate-100 cursor-not-allowed" title="Sem contrato anexado">
+                        <span className="text-sm">📄</span>
+                      </span>
+                    )}
+
                     <button
                       onClick={() => prepararEdicao(f)}
                       className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-sm border border-amber-100"
@@ -250,6 +278,17 @@ const Fornecedores = () => {
                     <option value="Inativo">🔴 Inativo</option>
                   </select>
                 </div>
+              </div>
+
+              {/* 📄 NOVO CAMPO: UPLOAD DE CONTRATO EM PDF */}
+              <div className="col-span-2 bg-slate-50 p-4 rounded-2xl border-2 border-dashed border-slate-200 mt-2">
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Anexar Contrato (PDF / Imagem)</label>
+                <input 
+                  type="file" 
+                  accept="application/pdf,image/*" 
+                  className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-white hover:file:bg-slate-900 file:cursor-pointer"
+                  onChange={e => setArquivoContrato(e.target.files[0])}
+                />
               </div>
 
               {/* RODAPÉ DO FORMULÁRIO */}

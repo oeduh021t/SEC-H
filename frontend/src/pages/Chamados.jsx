@@ -43,10 +43,10 @@ const Chamados = ({ user: userProp }) => {
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
 
-  // Auxiliar para resgatar o nível do operador ativo
+  // Auxiliar para resgatar o nível do operador ativo (usando apenas o cabeçalho original liberado no CORS)
   const obterNivelUsuario = () => user?.nivel || '';
 
-  // Carrega os dados do backend injetando o cabeçalho de validação obrigatório
+  // Carrega os dados do backend
   const carregarDados = () => {
     const headers = {
       'Content-Type': 'application/json',
@@ -62,11 +62,10 @@ const Chamados = ({ user: userProp }) => {
     carregarDados(); 
   }, []);
 
-  // 🎯 CAPTURA O ID DA OS VINDO DE OUTRAS TELAS (EX: RELATÓRIO DE CUSTOS / DRILL-DOWN)
+  // 🎯 CAPTURA O ID DA OS VINDO DE OUTRAS TELAS
   useEffect(() => {
     if (location.state?.buscaId) {
       setBusca(String(location.state.buscaId));
-      // Limpa o estado da rota para o filtro não ficar preso em futuros reloads da tela
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, navigate, location.pathname]);
@@ -80,8 +79,6 @@ const Chamados = ({ user: userProp }) => {
         equipamento_id: location.state.equipamento_id || ''
       }));
       setModalAberta(true);
-
-      // Limpa o estado da rota para o modal não abrir sozinho em futuros F5
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, navigate, location.pathname]);
@@ -98,7 +95,6 @@ const Chamados = ({ user: userProp }) => {
         setChamadoSelecionado(data);
         setModalDetalhesAberta(true);
         
-        // Carrega os documentos vinculados ao chamado para auditoria
         fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
           .then(res => res.json())
           .then(setListaDocumentos)
@@ -116,6 +112,7 @@ const Chamados = ({ user: userProp }) => {
     formData.append('descricao_problema', form.descricao_problema);
     formData.append('prioridade', form.prioridade);
     formData.append('categoria', form.categoria);
+    formData.append('usuario_id', user?.id || ''); 
     if (fotoAbertura) formData.append('foto', fotoAbertura);
 
     fetch(`${API_URL}/chamados`, {
@@ -195,11 +192,20 @@ const Chamados = ({ user: userProp }) => {
     }).catch(err => console.error("Erro ao salvar observação:", err));
   };
 
+  // 🔍 FILTRAGEM DE SEGURANÇA NA TELA:
+  // Se for nível 'usuario', exibe apenas os chamados abertos por ele (baseado no usuario_abertura_id ou criado por ele)
   const filtrados = chamados.filter(c => {
+    const isUsuarioComum = user?.nivel?.toLowerCase() === 'usuario';
+    if (isUsuarioComum) {
+      // Compara o ID do usuário logado com o campo gravado no banco
+      const pertenceAoUsuario = String(c.usuario_abertura_id) === String(user?.id);
+      if (!pertenceAoUsuario) return false;
+    }
+
     const bateStatus = filtroStatus === 'Todos' || c.status === filtroStatus;
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
-                      c.id?.toString().includes(busca) ||
-                      c.setor_nome?.toLowerCase().includes(busca.toLowerCase());
+                     c.id?.toString().includes(busca) ||
+                     c.setor_nome?.toLowerCase().includes(busca.toLowerCase());
     return bateStatus && bateBusca;
   });
 
@@ -251,10 +257,13 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               )}
 
+              {/* BARRA DE AÇÕES DOS CARDS */}
               <div className="flex flex-wrap gap-2 mb-6 shrink-0">
+                {/* 1. Botão DETALHES: Disponível para TODOS */}
                 <button onClick={() => abrirDetalhes(c.id)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-200">DETALHES</button>
 
-                {c.status !== 'Concluído' && (
+                {/* 2. Botão ATENDER: Oculto para o perfil 'usuario' */}
+                {c.status !== 'Concluído' && user?.nivel?.toLowerCase() !== 'usuario' && (
                   <button
                     onClick={() => navigate(`/chamados/${c.id}/tratar`)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black shadow-md transition-transform active:scale-95"
@@ -263,15 +272,19 @@ const Chamados = ({ user: userProp }) => {
                   </button>
                 )}
 
-                <Link
-                  to={`/chamados/${c.id}/imprimir`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95 flex items-center justify-center"
-                >
-                  🖨️ IMPRIMIR OS
-                </Link>
+                {/* 3. Botão IMPRIMIR OS: Oculto para o perfil 'usuario' */}
+                {user?.nivel?.toLowerCase() !== 'usuario' && (
+                  <Link
+                    to={`/chamados/${c.id}/imprimir`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95 flex items-center justify-center"
+                  >
+                    🖨️ IMPRIMIR OS
+                  </Link>
+                )}
 
+                {/* 4. Botão OBS. COORDENAÇÃO: Apenas Admin/Coordenador */}
                 {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
                   <button onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} className="px-4 py-2 bg-cyan-500 text-white rounded-xl text-[11px] font-black shadow-md italic">OBS. COORDENAÇÃO</button>
                 )}
