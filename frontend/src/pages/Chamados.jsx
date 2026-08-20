@@ -9,6 +9,9 @@ const Chamados = ({ user: userProp }) => {
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
 
+  // Gatilho de tempo para atualizar os cronômetros a cada minuto em tempo real
+  const [agora, setAgora] = useState(new Date());
+
   // --- RESGATE DE USUÁRIO ---
   const [user] = useState(() => {
     if (userProp) return userProp;
@@ -43,8 +46,43 @@ const Chamados = ({ user: userProp }) => {
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
 
-  // Auxiliar para resgatar o nível do operador ativo (usando apenas o cabeçalho original liberado no CORS)
   const obterNivelUsuario = () => user?.nivel || '';
+
+  // Atualiza o relógio interno para o cronômetro contar minuto a minuto na tela
+  useEffect(() => {
+    const timer = setInterval(() => setAgora(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // ⏱️ CÁLCULO DINÂMICO DE TEMPO DECORRIDO / SLA
+  const calcularTempoSLA = (dataInicioStr, dataFimStr, prioridade = 'Média') => {
+    if (!dataInicioStr) {
+      return { texto: '---', horasDecorridas: 0, percentual: 0, atrasado: false, metaHoras: 24 };
+    }
+
+    const metasHoras = { Urgente: 2, Alta: 6, 'Média': 24, Baixa: 48 };
+    const metaHoras = metasHoras[prioridade] || 24;
+
+    const inicio = new Date(dataInicioStr);
+    const fim = dataFimStr ? new Date(dataFimStr) : agora;
+
+    const diffMs = fim - inicio;
+    const minutosTotais = Math.max(0, Math.floor(diffMs / (1000 * 60)));
+    const horasDecorridas = minutosTotais / 60;
+    const dias = Math.floor(minutosTotais / 1440);
+    const horas = Math.floor((minutosTotais % 1440) / 60);
+    const minutos = minutosTotais % 60;
+
+    let texto = '';
+    if (dias > 0) texto = `${dias}d ${horas}h ${minutos}m`;
+    else if (horas > 0) texto = `${horas}h ${minutos}m`;
+    else texto = `${minutos}m`;
+
+    const percentual = Math.min(100, Math.round((horasDecorridas / metaHoras) * 100));
+    const atrasado = horasDecorridas > metaHoras;
+
+    return { texto, horasDecorridas, percentual, atrasado, metaHoras };
+  };
 
   // Carrega os dados do backend
   const carregarDados = () => {
@@ -165,8 +203,8 @@ const Chamados = ({ user: userProp }) => {
     e.preventDefault();
     const nivel = user?.nivel?.toLowerCase();
     if (nivel !== 'admin' && nivel !== 'coordenador') {
-        alert("Acesso negado.");
-        return;
+      alert("Acesso negado.");
+      return;
     }
 
     fetch(`${API_URL}/chamados/${chamadoSelecionado.id}/observacao`, {
@@ -192,20 +230,18 @@ const Chamados = ({ user: userProp }) => {
     }).catch(err => console.error("Erro ao salvar observação:", err));
   };
 
-  // 🔍 FILTRAGEM DE SEGURANÇA NA TELA:
-  // Se for nível 'usuario', exibe apenas os chamados abertos por ele (baseado no usuario_abertura_id ou criado por ele)
+  // 🔍 FILTRAGEM
   const filtrados = chamados.filter(c => {
     const isUsuarioComum = user?.nivel?.toLowerCase() === 'usuario';
     if (isUsuarioComum) {
-      // Compara o ID do usuário logado com o campo gravado no banco
       const pertenceAoUsuario = String(c.usuario_abertura_id) === String(user?.id);
       if (!pertenceAoUsuario) return false;
     }
 
     const bateStatus = filtroStatus === 'Todos' || c.status === filtroStatus;
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
-                     c.id?.toString().includes(busca) ||
-                     c.setor_nome?.toLowerCase().includes(busca.toLowerCase());
+                      c.id?.toString().includes(busca) ||
+                      c.setor_nome?.toLowerCase().includes(busca.toLowerCase());
     return bateStatus && bateBusca;
   });
 
@@ -239,173 +275,237 @@ const Chamados = ({ user: userProp }) => {
 
       {/* GRID CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {filtrados.map(c => (
-          <div key={c.id} className={`bg-white rounded-3xl shadow-sm border-l-[12px] flex flex-col h-[480px] overflow-hidden transition-all hover:shadow-xl ${c.status === 'Aberto' ? 'border-red-500' : c.status === 'Em Atendimento' ? 'border-amber-400' : 'border-green-500'}`}>
-            <div className="p-6 flex-1 flex flex-col overflow-hidden text-dark">
-              <div className="flex justify-between items-start mb-4">
-                <div className="w-3/4">
-                    <h3 className="font-black text-slate-800 text-lg uppercase truncate">{c.titulo}</h3>
-                    <div className="text-[11px] text-slate-400 font-black mt-1">#{c.id} • {c.setor_nome?.toUpperCase()}</div>
+        {filtrados.map(c => {
+          const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
+          const isConcluido = c.status === 'Concluído';
+
+          return (
+            <div key={c.id} className={`bg-white rounded-3xl shadow-sm border-l-[12px] flex flex-col h-[520px] overflow-hidden transition-all hover:shadow-xl ${c.status === 'Aberto' ? 'border-red-500' : c.status === 'Em Atendimento' ? 'border-amber-400' : 'border-green-500'}`}>
+              <div className="p-6 flex-1 flex flex-col overflow-hidden text-dark">
+                
+                {/* CABEÇALHO DO CARD COM STATUS, DATAS E SLA */}
+                <div className="flex justify-between items-start mb-3">
+                  <div className="w-7/12">
+                    <h3 className="font-black text-slate-800 text-lg uppercase truncate" title={c.titulo}>{c.titulo}</h3>
+                    <div className="text-[11px] text-slate-400 font-black mt-0.5">#{c.id} • {c.setor_nome?.toUpperCase()}</div>
+                    <div className="text-[10px] text-slate-500 font-bold mt-1">
+                      📅 Aberto: {c.data_abertura ? new Date(c.data_abertura).toLocaleString('pt-BR') : '---'}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1.5 w-5/12">
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black text-white uppercase ${c.status === 'Aberto' ? 'bg-red-500' : c.status === 'Em Atendimento' ? 'bg-amber-400' : 'bg-green-500'}`}>
+                      {c.status}
+                    </span>
+
+                    {/* CONTADOR / CRONÔMETRO DE SLA */}
+                    <div className={`px-2.5 py-1 rounded-xl text-[10px] font-black flex flex-col items-end border w-full text-right ${
+                      isConcluido
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : sla.atrasado
+                          ? 'bg-red-50 text-red-700 border-red-200 animate-pulse'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}>
+                      <div className="flex items-center gap-1 justify-end">
+                        <span>⏱️</span>
+                        <span>{isConcluido ? `Resolvido em: ${sla.texto}` : `Tempo decorrido: ${sla.texto}`}</span>
+                      </div>
+                      <div className="text-[9px] font-medium opacity-80 mt-0.5">
+                        Meta ({c.prioridade || 'Média'}): {sla.metaHoras}h {sla.atrasado ? '⚠️ (Estourou SLA)' : ''}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-[10px] font-black text-white uppercase ${c.status === 'Aberto' ? 'bg-red-500' : c.status === 'Em Atendimento' ? 'bg-amber-400' : 'bg-green-500'}`}>{c.status}</span>
-              </div>
 
-              {c.equip_nome && (
-                <div className="mb-4 p-2 bg-blue-50 rounded-lg border-l-4 border-blue-400 shrink-0">
-                  <span className="text-[10px] font-black text-blue-600 uppercase block">Equipamento:</span>
-                  <span className="text-xs font-bold text-slate-700">[{c.equip_pat}] {c.equip_nome}</span>
+                {/* BARRA DE PROGRESSO DO SLA */}
+                <div className="w-full bg-slate-100 rounded-full h-1.5 mb-3 overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      isConcluido 
+                        ? 'bg-emerald-500' 
+                        : sla.atrasado 
+                          ? 'bg-red-500' 
+                          : sla.percentual > 75 
+                            ? 'bg-amber-500' 
+                            : 'bg-blue-500'
+                    }`}
+                    style={{ width: `${sla.percentual}%` }}
+                  />
                 </div>
-              )}
 
-              {/* BARRA DE AÇÕES DOS CARDS */}
-              <div className="flex flex-wrap gap-2 mb-6 shrink-0">
-                {/* 1. Botão DETALHES: Disponível para TODOS */}
-                <button onClick={() => abrirDetalhes(c.id)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-200">DETALHES</button>
-
-                {/* 2. Botão ATENDER: Oculto para o perfil 'usuario' */}
-                {c.status !== 'Concluído' && user?.nivel?.toLowerCase() !== 'usuario' && (
-                  <button
-                    onClick={() => navigate(`/chamados/${c.id}/tratar`)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black shadow-md transition-transform active:scale-95"
-                  >
-                    ATENDER
-                  </button>
+                {c.equip_nome && (
+                  <div className="mb-3 p-2 bg-blue-50 rounded-lg border-l-4 border-blue-400 shrink-0">
+                    <span className="text-[10px] font-black text-blue-600 uppercase block">Equipamento:</span>
+                    <span className="text-xs font-bold text-slate-700">[{c.equip_pat}] {c.equip_nome}</span>
+                  </div>
                 )}
 
-                {/* 3. Botão IMPRIMIR OS: Oculto para o perfil 'usuario' */}
-                {user?.nivel?.toLowerCase() !== 'usuario' && (
-                  <Link
-                    to={`/chamados/${c.id}/imprimir`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95 flex items-center justify-center"
-                  >
-                    🖨️ IMPRIMIR OS
-                  </Link>
-                )}
+                {/* BARRA DE AÇÕES DOS CARDS */}
+                <div className="flex flex-wrap gap-2 mb-4 shrink-0">
+                  <button onClick={() => abrirDetalhes(c.id)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[11px] font-black hover:bg-slate-200">DETALHES</button>
 
-                {/* 4. Botão OBS. COORDENAÇÃO: Apenas Admin/Coordenador */}
-                {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
-                  <button onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} className="px-4 py-2 bg-cyan-500 text-white rounded-xl text-[11px] font-black shadow-md italic">OBS. COORDENAÇÃO</button>
-                )}
-              </div>
+                  {c.status !== 'Concluído' && user?.nivel?.toLowerCase() !== 'usuario' && (
+                    <button
+                      onClick={() => navigate(`/chamados/${c.id}/tratar`)}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black shadow-md transition-transform active:scale-95"
+                    >
+                      ATENDER
+                    </button>
+                  )}
 
-              <div className="bg-slate-50 rounded-2xl border-2 border-slate-100 flex flex-col shadow-inner overflow-hidden flex-1">
-                <div className="bg-slate-200/50 px-4 py-1.5 text-[9px] font-black text-slate-500 uppercase tracking-widest border-b shrink-0">Histórico da Coordenação:</div>
-                <div className="p-4 text-xs font-medium text-slate-600 overflow-y-auto italic whitespace-pre-wrap leading-relaxed flex-1">
-                    {c.observacao_coordenador || "Nenhuma observação registrada."}
+                  {user?.nivel?.toLowerCase() !== 'usuario' && (
+                    <Link
+                      to={`/chamados/${c.id}/imprimir`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-slate-800 text-white rounded-xl text-[11px] font-black shadow-md hover:bg-slate-950 transition-all active:scale-95 flex items-center justify-center"
+                    >
+                      🖨️ IMPRIMIR OS
+                    </Link>
+                  )}
+
+                  {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
+                    <button onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} className="px-4 py-2 bg-cyan-500 text-white rounded-xl text-[11px] font-black shadow-md italic">OBS. COORDENAÇÃO</button>
+                  )}
                 </div>
+
+                <div className="bg-slate-50 rounded-2xl border-2 border-slate-100 flex flex-col shadow-inner overflow-hidden flex-1">
+                  <div className="bg-slate-200/50 px-4 py-1.5 text-[9px] font-black text-slate-500 uppercase tracking-widest border-b shrink-0">Histórico da Coordenação:</div>
+                  <div className="p-4 text-xs font-medium text-slate-600 overflow-y-auto italic whitespace-pre-wrap leading-relaxed flex-1">
+                      {c.observacao_coordenador || "Nenhuma observação registrada."}
+                  </div>
+                </div>
+
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* MODAL: DETALHES */}
-      {modalDetalhesAberta && chamadoSelecionado && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
-            <div className="bg-slate-50 p-5 border-b flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-4">
-                <button onClick={() => setModalDetalhesAberta(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-600 text-xs font-black uppercase">← Voltar</button>
-                <h2 className="font-black text-slate-800 text-lg uppercase tracking-tight">Detalhes do Chamado #{chamadoSelecionado.id}</h2>
+      {/* MODAL: DETALHES COM RASTREABILIDADE TEMPORAL */}
+      {modalDetalhesAberta && chamadoSelecionado && (() => {
+        const slaModal = calcularTempoSLA(chamadoSelecionado.data_abertura, chamadoSelecionado.data_conclusao, chamadoSelecionado.prioridade);
+        return (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-6xl h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
+              <div className="bg-slate-50 p-5 border-b flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-4">
+                  <button onClick={() => setModalDetalhesAberta(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-600 text-xs font-black uppercase">← Voltar</button>
+                  <h2 className="font-black text-slate-800 text-lg uppercase tracking-tight">Detalhes do Chamado #{chamadoSelecionado.id}</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">Duração / SLA:</span>
+                  <span className="px-3 py-1 bg-blue-100 text-blue-800 font-black text-xs rounded-lg border border-blue-200">
+                    ⏱️ {slaModal.texto} (Meta: {slaModal.metaHoras}h)
+                  </span>
+                </div>
               </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-100">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <div className="lg:col-span-4 space-y-4 text-dark">
-                  <div className="bg-white rounded-2xl shadow-sm p-5 space-y-4">
-                      <div><label className="text-[10px] font-black text-slate-400 uppercase block">Equipamento</label><p className="font-bold text-slate-700">{chamadoSelecionado.eq_nome || 'N/A'}</p></div>
-                      <div className="pt-4 border-t space-y-4">
-                          {chamadoSelecionado.foto_abertura && (
-                              <div>
-                                  <label className="text-[10px] font-black text-blue-500 uppercase block mb-1">Foto Abertura:</label>
-                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} alt="Foto Abertura" />
-                              </div>
-                          )}
-                          {chamadoSelecionado.foto_conclusao && (
-                              <div>
-                                  <label className="text-[10px] font-black text-green-500 uppercase block mb-1">Foto Conclusão:</label>
-                                  <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} alt="Foto Conclusão" />
-                              </div>
-                          )}
-
-                          {/* BLOCO DE DOCUMENTOS E AUDITORIA */}
-                          <div className="bg-white rounded-2xl shadow-sm p-5 border border-slate-100 space-y-4">
-                            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                              <span>📎</span> Arquivos e Laudos (Auditoria)
-                            </h4>
-                            
-                            {/* Formulário de Upload */}
-                            <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                              <label className="block text-[9px] font-black text-slate-400 uppercase">Anexar Novo Documento (PDF/Imagem)</label>
-                              <input 
-                                type="file" 
-                                accept="image/*,application/pdf" 
-                                className="text-xs w-full block file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
-                                onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
-                              />
-                              <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all">
-                                Firmar Anexo no Histórico
-                              </button>
-                            </form>
-
-                            {/* Lista de Documentos Firmados */}
-                            <div className="space-y-2 max-h-48 overflow-y-auto pt-2">
-                              <label className="block text-[9px] font-black text-slate-400 uppercase border-b pb-1">Documentos Arquivados:</label>
-                              {listaDocumentos.map((doc) => (
-                                <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-1 text-[11px]">
-                                  <div className="flex justify-between items-start gap-1">
-                                    <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={doc.nome_original}>
-                                      {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
-                                    </span>
-                                    <a 
-                                      href={`${BASE_URL}${doc.url_arquivo}`} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer" 
-                                      className="text-blue-600 font-black hover:underline shrink-0 text-[10px]"
-                                    >
-                                      ABRIR
-                                    </a>
-                                  </div>
-                                  <div className="text-[9px] text-slate-400 leading-tight">
-                                    Enviado em: <strong>{new Date(doc.data_upload).toLocaleString('pt-BR')}</strong> <br />
-                                    Por: <strong>{doc.usuario_nome}</strong>
-                                  </div>
-                                </div>
-                              ))}
-                              {listaDocumentos.length === 0 && (
-                                <p className="text-[11px] text-slate-400 italic text-center py-2">Nenhum laudo ou documento anexado.</p>
-                              )}
-                            </div>
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-100">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  <div className="lg:col-span-4 space-y-4 text-dark">
+                    <div className="bg-white rounded-2xl shadow-sm p-5 space-y-4">
+                        <div><label className="text-[10px] font-black text-slate-400 uppercase block">Equipamento</label><p className="font-bold text-slate-700">{chamadoSelecionado.eq_nome || 'N/A'}</p></div>
+                        
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t text-xs">
+                          <div>
+                            <span className="text-[9px] font-black text-slate-400 uppercase block">Data Abertura:</span>
+                            <span className="font-bold text-slate-700">{chamadoSelecionado.data_abertura ? new Date(chamadoSelecionado.data_abertura).toLocaleString('pt-BR') : '---'}</span>
                           </div>
-                          
+                          <div>
+                            <span className="text-[9px] font-black text-slate-400 uppercase block">Data Fechamento:</span>
+                            <span className="font-bold text-slate-700">{chamadoSelecionado.data_conclusao ? new Date(chamadoSelecionado.data_conclusao).toLocaleString('pt-BR') : 'Em Aberto'}</span>
+                          </div>
+                        </div>
+
+                        <div className="pt-4 border-t space-y-4">
+                            {chamadoSelecionado.foto_abertura && (
+                                <div>
+                                    <label className="text-[10px] font-black text-blue-500 uppercase block mb-1">Foto Abertura:</label>
+                                    <img src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} alt="Foto Abertura" />
+                                </div>
+                            )}
+                            {chamadoSelecionado.foto_conclusao && (
+                                <div>
+                                    <label className="text-[10px] font-black text-green-500 uppercase block mb-1">Foto Conclusão:</label>
+                                    <img src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} className="rounded-xl border w-full h-32 object-cover cursor-pointer hover:opacity-80" onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} alt="Foto Conclusão" />
+                                </div>
+                            )}
+
+                            {/* BLOCO DE DOCUMENTOS E AUDITORIA */}
+                            <div className="bg-white rounded-2xl shadow-sm p-5 border border-slate-100 space-y-4">
+                              <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                <span>📎</span> Arquivos e Laudos (Auditoria)
+                              </h4>
+                              
+                              <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                                <label className="block text-[9px] font-black text-slate-400 uppercase">Anexar Novo Documento (PDF/Imagem)</label>
+                                <input 
+                                  type="file" 
+                                  accept="image/*,application/pdf" 
+                                  className="text-xs w-full block file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
+                                  onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
+                                />
+                                <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all">
+                                  Firmar Anexo no Histórico
+                                </button>
+                              </form>
+
+                              <div className="space-y-2 max-h-48 overflow-y-auto pt-2">
+                                <label className="block text-[9px] font-black text-slate-400 uppercase border-b pb-1">Documentos Arquivados:</label>
+                                {listaDocumentos.map((doc) => (
+                                  <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-1 text-[11px]">
+                                    <div className="flex justify-between items-start gap-1">
+                                      <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={doc.nome_original}>
+                                        {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
+                                      </span>
+                                      <a 
+                                        href={`${BASE_URL}${doc.url_arquivo}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="text-blue-600 font-black hover:underline shrink-0 text-[10px]"
+                                      >
+                                        ABRIR
+                                      </a>
+                                    </div>
+                                    <div className="text-[9px] text-slate-400 leading-tight">
+                                      Enviado em: <strong>{new Date(doc.data_upload).toLocaleString('pt-BR')}</strong> <br />
+                                      Por: <strong>{doc.usuario_nome}</strong>
+                                    </div>
+                                  </div>
+                                ))}
+                                {listaDocumentos.length === 0 && (
+                                  <p className="text-[11px] text-slate-400 italic text-center py-2">Nenhum laudo ou documento anexado.</p>
+                                )}
+                              </div>
+                            </div>
+                            
+                        </div>
+                    </div>
+                  </div>
+                  <div className="lg:col-span-8 space-y-4">
+                      <div className="bg-white rounded-2xl shadow-sm p-6">
+                          <h6 className="text-blue-600 font-black text-xs uppercase mb-3">Problema Reportado:</h6>
+                          <div className="bg-slate-50 border rounded-2xl p-4 text-slate-700 mb-6">{chamadoSelecionado.descricao_problema}</div>
+                          <h6 className="font-black text-slate-400 text-[10px] uppercase border-b pb-2 mb-4">Histórico</h6>
+                          <div className="space-y-4">
+                              {chamadoSelecionado.historico?.map((h, i) => (
+                                  <div key={i} className="border-b last:border-0 pb-4">
+                                      <div className="flex justify-between text-[10px] mb-1 font-black uppercase text-slate-400">
+                                          <span>{h.tecnico_nome}</span>
+                                          <span>{new Date(h.data_registro).toLocaleString()}</span>
+                                      </div>
+                                      <p className="text-xs text-slate-600 italic">{h.texto_historico}</p>
+                                  </div>
+                              ))}
+                          </div>
                       </div>
                   </div>
                 </div>
-                <div className="lg:col-span-8 space-y-4">
-                    <div className="bg-white rounded-2xl shadow-sm p-6">
-                        <h6 className="text-blue-600 font-black text-xs uppercase mb-3">Problema Reportado:</h6>
-                        <div className="bg-slate-50 border rounded-2xl p-4 text-slate-700 mb-6">{chamadoSelecionado.descricao_problema}</div>
-                        <h6 className="font-black text-slate-400 text-[10px] uppercase border-b pb-2 mb-4">Histórico</h6>
-                        <div className="space-y-4">
-                            {chamadoSelecionado.historico?.map((h, i) => (
-                                <div key={i} className="border-b last:border-0 pb-4">
-                                    <div className="flex justify-between text-[10px] mb-1 font-black uppercase text-slate-400">
-                                        <span>{h.tecnico_nome}</span>
-                                        <span>{new Date(h.data_registro).toLocaleString()}</span>
-                                    </div>
-                                    <p className="text-xs text-slate-600 italic">{h.texto_historico}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: OBSERVAÇÃO COORDENADOR */}
       {modalObsAberta && (
@@ -432,7 +532,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* MODAL: NOVO CHAMADO MODIFICADO */}
+      {/* MODAL: NOVO CHAMADO */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
           <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">

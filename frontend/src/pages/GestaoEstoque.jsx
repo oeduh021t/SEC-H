@@ -32,7 +32,13 @@ export function GestaoEstoque() {
 
   const obterNivelUsuario = () => {
     const userLogado = localStorage.getItem("user");
-    return userLogado ? JSON.parse(userLogado).nivel : "";
+    if (!userLogado) return "ADMIN";
+    try {
+      const parsed = JSON.parse(userLogado);
+      return parsed.nivel || "ADMIN";
+    } catch {
+      return "ADMIN";
+    }
   };
 
   const carregarEstoque = async () => {

@@ -385,15 +385,44 @@ app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CHAMADOS / OS (Atualizada para filtrar usuário comum)
+// ROTAS DE CHAMADOS / OS (Atualizada com Cálculos de SLA e Metas)
 // -------------------------------------------------------------------------
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    const nivelUsuario = req.headers['x-usuario-nivel'];
-    
-    // Como você salva o usuário no login no localStorage, podemos filtrar pelo nome do usuário logado ou ID se enviado
-    // Vamos manter a listagem padrão e filtrar com segurança no frontend, ou filtrar por nível se preferir.
     const query = `
-        SELECT c.*, s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
+        SELECT 
+            c.*, 
+            s.nome as setor_nome, 
+            e.nome as equip_nome, 
+            e.patrimonio as equip_pat,
+
+            -- Meta em Horas baseada na Prioridade
+            CASE 
+                WHEN c.prioridade = 'Urgente' THEN 2
+                WHEN c.prioridade = 'Alta' THEN 6
+                WHEN c.prioridade = 'Média' THEN 24
+                ELSE 48 
+            END AS meta_sla_horas,
+
+            -- Total de horas gastas até a conclusão ou até o momento atual
+            TIMESTAMPDIFF(MINUTE, c.data_abertura, IFNULL(c.data_conclusao, NOW())) / 60.0 AS horas_gastas,
+
+            -- Indicador de Conformidade do SLA
+            CASE 
+                WHEN c.status = 'Concluído' THEN
+                    CASE 
+                        WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, c.data_conclusao) <= (
+                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                        ) THEN 'Dentro do Prazo'
+                        ELSE 'Estourou SLA'
+                    END
+                ELSE
+                    CASE 
+                        WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, NOW()) > (
+                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                        ) THEN 'SLA Atrasado'
+                        ELSE 'No Prazo'
+                    END
+            END AS status_sla
         FROM chamados c
         LEFT JOIN setores s ON c.setor_id = s.id
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
@@ -416,9 +445,44 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
     const { id } = req.params;
 
     const queryChamado = `
-        SELECT c.*, e.patrimonio, e.num_serie, e.nome as eq_nome, 
-               e.modelo, e.fabricante, s.nome as setor_nome,
-               f.nome_fantasia as empresa_terceirizada
+        SELECT 
+            c.*, 
+            e.patrimonio, 
+            e.num_serie, 
+            e.nome as eq_nome, 
+            e.modelo, 
+            e.fabricante, 
+            s.nome as setor_nome, 
+            f.nome_fantasia as empresa_terceirizada,
+
+            -- Meta em Horas baseada na Prioridade
+            CASE 
+                WHEN c.prioridade = 'Urgente' THEN 2
+                WHEN c.prioridade = 'Alta' THEN 6
+                WHEN c.prioridade = 'Média' THEN 24
+                ELSE 48 
+            END AS meta_sla_horas,
+
+            -- Total de horas gastas até a conclusão ou até o momento atual
+            TIMESTAMPDIFF(MINUTE, c.data_abertura, IFNULL(c.data_conclusao, NOW())) / 60.0 AS horas_gastas,
+
+            -- Indicador de Conformidade do SLA
+            CASE 
+                WHEN c.status = 'Concluído' THEN
+                    CASE 
+                        WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, c.data_conclusao) <= (
+                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                        ) THEN 'Dentro do Prazo'
+                        ELSE 'Estourou SLA'
+                    END
+                ELSE
+                    CASE 
+                        WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, NOW()) > (
+                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                        ) THEN 'SLA Atrasado'
+                        ELSE 'No Prazo'
+                    END
+            END AS status_sla
         FROM chamados c
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
         LEFT JOIN setores s ON c.setor_id = s.id
@@ -432,8 +496,8 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 
         const chamado = results[0];
         const queryHist = `SELECT * FROM chamados_historico WHERE chamado_id = ? ORDER BY data_registro DESC`;
-        db.query(queryHist, [id], (err, logs) => {
-            if (err) return res.status(500).json({ error: err.message });
+        db.query(queryHist, [id], (errLogs, logs) => {
+            if (errLogs) return res.status(500).json({ error: errLogs.message });
             chamado.historico = logs || [];
             
             const queryItens = `
@@ -462,7 +526,6 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
     const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
     const v_usuario_id = usuario_id && usuario_id !== "" && usuario_id !== "null" && usuario_id !== "undefined" ? Number(usuario_id) : null;
 
-    // Utilizando a coluna correta 'usuario_abertura_id' mapeada no seu banco
     const query = `INSERT INTO chamados (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
     const values = [v_setor_id, v_equipamento_id, v_usuario_id, titulo, descricao_problema, prioridade || 'Média', categoryFinal, tipo_manutencao || 'Corretiva', foto_abertura];
 
@@ -511,7 +574,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
         nf_referencia, 
         custo_servico, 
         tecnico_responsavel, 
-        tecnico_id // 🆕 Recebendo o ID do técnico escolhido
+        tecnico_id
     } = req.body;
     
     const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
@@ -520,7 +583,6 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 🆕 Query updated para persistir o 'tecnico_id'
         const queryUpdate = `
             UPDATE chamados
             SET status = ?, 
@@ -530,14 +592,14 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
                 fornecedor_id = ?, 
                 nf_referencia = ?, 
                 custo_servico = ?,
-                data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
+                data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
             WHERE id = ?
         `;
         const valuesUpdate = [
             status, 
             tipo_atendimento, 
             tecnico_nome, 
-            v_tecnico_id, // 🆕 Vinculando a chave estrangeira
+            v_tecnico_id, 
             fornecedor_id || null, 
             nf_referencia || null, 
             custo_servico || 0, 
@@ -545,8 +607,8 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
             id
         ];
 
-        conn.query(queryUpdate, valuesUpdate, (err) => {
-            if (err) return conn.rollback(() => { conn.release(); res.status(500).json({ error: err.message }); });
+        conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
+            if (errUpdate) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpdate.message }); });
 
             if (descricao_solucao && descricao_solucao.trim() !== "") {
                 const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
@@ -556,7 +618,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
                     conn.commit((errCommit) => {
                         if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                         conn.release();
-                        res.json({ message: "Chamado e cronologia updated com sucesso!" });
+                        res.json({ message: "Chamado e cronologia atualizados com sucesso!" });
                     });
                 });
             } else {
@@ -570,7 +632,6 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
     });
 });
 
-// 🟢 CORRIGIDO: Correção do erro de digitação de "quantity" para "quantidade" no UPDATE do estoque
 app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { item_id, quantity, quantidade } = req.body;
@@ -608,7 +669,6 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
                 conn.query(queryIns, [id, item_id, qtd_solicitada, item.valor_unitario], (errIns) => {
                     if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
-                    // 🛠️ CORREÇÃO AQUI: Mudado de quantity para quantidade
                     conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
                         if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
@@ -639,7 +699,6 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
 
-        // 🟢 CORRIGIDO: Agora atualiza explicitamente o campo 'descricao_solucao' na tabela principal 'chamados' ao concluir
         const queryUpdate = `
             UPDATE chamados
             SET status = ?, 
@@ -647,19 +706,19 @@ app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador',
                 descricao_solucao = ?, 
                 tipo_atendimento = ?,
                 foto_conclusao = COALESCE(?, foto_conclusao),
-                data_conclusao = IF(? = 'Concluído', NOW(), data_conclusao)
+                data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
             WHERE id = ?
         `;
         const valuesUpdate = [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id];
 
-        conn.query(queryUpdate, valuesUpdate, (err) => {
-            if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+        conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
+            if (errUpdate) return conn.rollback(() => { conn.release(); res.status(500).json(errUpdate); });
 
             const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
             const msgHist = descricao_solucao || `Status alterado para ${status}`;
 
-            conn.query(queryHist, [id, tecnico_responsavel, msgHist, status], (err) => {
-                if (err) return conn.rollback(() => { conn.release(); res.status(500).json(err); });
+            conn.query(queryHist, [id, tecnico_responsavel, msgHist, status], (errHist) => {
+                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json(errHist); });
                 
                 conn.commit(errCommit => {
                     if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json(errCommit); });
@@ -689,12 +748,10 @@ app.patch('/api/chamados/:id/observacao', permitirApenas(['admin', 'coordenador'
     });
 });
 
-// ROTA DE ASSINATURA CORRIGIDA: Agora grava a imagem E o nome por extenso digitado
 app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { id } = req.params;
-    const { tipo, signatureBase64, assinaturaBase64, nome } = req.body; // Aceita tanto o nome antigo do body quanto as variações
+    const { tipo, signatureBase64, assinaturaBase64, nome } = req.body;
 
-    // Normaliza qual imagem base64 usar (para o caso de variação de nome de variável vinda do formulário)
     const imagemAssinatura = assinaturaBase64 || signatureBase64;
     const nomeDigitado = nome || req.body.nome_digitado;
 
@@ -702,11 +759,9 @@ app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', '
         return res.status(400).json({ error: "Dados da assinatura digital ausentes." });
     }
 
-    // Define dinamicamente as colunas exatas reveladas pelo DESCRIBE do banco
     const campoAssinatura = tipo === 'tecnico' ? 'assinatura_tecnico' : 'assinatura_setor';
     const campoNomeExtenso = tipo === 'tecnico' ? 'nome_tecnico' : 'nome_setor';
 
-    // Monta a query injetando as duas colunas correspondentes
     const query = `UPDATE chamados SET ${campoAssinatura} = ?, ${campoNomeExtenso} = ? WHERE id = ?`;
 
     db.query(query, [imagemAssinatura, nomeDigitado || null, id], (err, result) => {
