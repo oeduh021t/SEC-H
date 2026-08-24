@@ -167,6 +167,35 @@ const Chamados = ({ user: userProp }) => {
     }).catch(err => console.error("Erro ao abrir chamado:", err));
   };
 
+  // 🔄 FUNÇÃO DE REABERTURA EXCLUSIVA PARA ADMIN
+  const handleReabrirChamado = (id) => {
+    const motivo = prompt("Informe a justificativa/motivo para reabrir esta Ordem de Serviço:");
+    if (motivo === null) return; // Cancelado
+    if (!motivo.trim()) return alert("É obrigatório informar uma justificativa.");
+
+    fetch(`${API_URL}/chamados/${id}/reabrir`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-usuario-nivel': obterNivelUsuario()
+      },
+      body: JSON.stringify({
+        motivo_reabertura: motivo.trim(),
+        usuario_nome: user?.nome || 'Administrador'
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error);
+      } else {
+        alert("Chamado reaberto com sucesso! 🔄");
+        carregarDados();
+      }
+    })
+    .catch(err => console.error("Erro ao reabrir chamado:", err));
+  };
+
   const handleUploadDocumento = (e) => {
     e.preventDefault();
     if (!documentoSelecionado) return alert("Selecione um arquivo PDF ou Imagem!");
@@ -278,6 +307,7 @@ const Chamados = ({ user: userProp }) => {
         {filtrados.map(c => {
           const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
           const isConcluido = c.status === 'Concluído';
+          const isAdmin = user?.nivel?.toLowerCase() === 'admin';
 
           return (
             <div key={c.id} className={`bg-white rounded-3xl shadow-sm border-l-[12px] flex flex-col h-[520px] overflow-hidden transition-all hover:shadow-xl ${c.status === 'Aberto' ? 'border-red-500' : c.status === 'Em Atendimento' ? 'border-amber-400' : 'border-green-500'}`}>
@@ -350,6 +380,17 @@ const Chamados = ({ user: userProp }) => {
                       className="px-4 py-2 bg-blue-600 text-white rounded-xl text-[11px] font-black shadow-md transition-transform active:scale-95"
                     >
                       ATENDER
+                    </button>
+                  )}
+
+                  {/* BOTÃO REABRIR OS: Exclusivo para ADMIN em chamados Concluídos */}
+                  {isConcluido && isAdmin && (
+                    <button
+                      onClick={() => handleReabrirChamado(c.id)}
+                      className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-[11px] font-black shadow-sm hover:bg-rose-600 hover:text-white transition-all active:scale-95 flex items-center gap-1"
+                      title="Reabrir este chamado encerrado"
+                    >
+                      🔄 REABRIR OS
                     </button>
                   )}
 

@@ -2806,5 +2806,88 @@ app.put('/api/estoque/:id', permitirApenas(['admin', 'coordenador']), (req, res)
     });
 });
 
+// 🔄 ROTA DE REABERTURA DE CHAMADO (Exclusiva para ADMIN)
+app.patch('/api/chamados/:id/reabrir', permitirApenas(['admin']), (req, res) => {
+    const { id } = req.params;
+    const { motivo_reabertura, usuario_nome } = req.body;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Altera o status para 'Aberto' e anula a data_conclusao para o cronômetro/SLA voltar a contar
+        const queryUpdate = `
+            UPDATE chamados 
+            SET status = 'Aberto', 
+                data_conclusao = NULL 
+            WHERE id = ?
+        `;
+
+        conn.query(queryUpdate, [id], (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+            // 2. Registra o evento de reabertura no histórico
+            const logTexto = `[🔄 CHAMADO REABERTO PELO ADMINISTRADOR] Motivo: ${motivo_reabertura || 'Reabertura solicitada pela administração.'}`;
+            const queryHist = `
+                INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
+                VALUES (?, ?, ?, 'Aberto', NOW())
+            `;
+
+            conn.query(queryHist, [id, usuario_nome || 'Administrador', logTexto], (errHist) => {
+                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.json({ message: "Chamado reaberto com sucesso!" });
+                });
+            });
+        });
+    });
+});
+
+// ➕ ENTRADA RÁPIDA DE ESTOQUE (INCREMENTA ITEM EXISTENTE)
+app.post('/api/estoque/:id/entrada-rapida', permitirApenas(['admin', 'coordenador']), (req, res) => {
+  const { id } = req.params;
+  const { quantidade_adicionada, novo_valor_unitario, num_nota } = req.body;
+
+  const qtdAdicionar = Number(quantidade_adicionada || 0);
+  const valorUnitario = Number(novo_valor_unitario || 0);
+
+  if (!id || qtdAdicionar <= 0) {
+    return res.status(400).json({ error: "Informe uma quantidade válida maior que zero." });
+  }
+
+  db.beginTransaction((err, conn) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const queryUpdate = `
+      UPDATE itens_estoque 
+      SET quantidade = quantidade + ?,
+          valor_unitario = IF(? > 0, ?, valor_unitario),
+          data_atualizacao = NOW()
+      WHERE id = ?
+    `;
+
+    conn.query(queryUpdate, [qtdAdicionar, valorUnitario, valorUnitario, id], (errUp) => {
+      if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+      const queryHist = `
+        INSERT INTO itens_estoque_entradas (item_id, quantidade, valor_unitario, num_nota, data_entrada)
+        VALUES (?, ?, ?, ?, NOW())
+      `;
+
+      conn.query(queryHist, [id, qtdAdicionar, valorUnitario, num_nota || null], (errHist) => {
+        if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+        conn.commit((errCommit) => {
+          if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+          conn.release();
+          res.json({ message: "Estoque reabastecido com sucesso!" });
+        });
+      });
+    });
+  });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

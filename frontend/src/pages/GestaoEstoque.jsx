@@ -25,6 +25,12 @@ export function GestaoEstoque() {
   const [historicoEntradas, setHistoricoEntradas] = useState([]);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
 
+  // ➕ MODAL DE ENTRADA RÁPIDA (REABASTECIMENTO)
+  const [modalEntradaRapida, setModalEntradaRapida] = useState(null);
+  const [qtdEntradaRapida, setQtdEntradaRapida] = useState(1);
+  const [valorEntradaRapida, setValorEntradaRapida] = useState(0.0);
+  const [notaEntradaRapida, setNotaEntradaRapida] = useState("");
+
   const [modalEtiqueta, setModalEtiqueta] = useState(null);
 
   const API_URL = "http://192.168.5.101:3000/api";
@@ -107,6 +113,43 @@ export function GestaoEstoque() {
         carregarEstoque();
       } else {
         alert("Erro ao salvar. Verifique se o seu perfil possui permissão.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAbrirEntradaRapida = (item) => {
+    setModalEntradaRapida(item);
+    setQtdEntradaRapida(1);
+    setValorEntradaRapida(Number(item.valor_unitario || 0));
+    setNotaEntradaRapida("");
+  };
+
+  const handleSalvarEntradaRapida = async (e) => {
+    e.preventDefault();
+    if (!modalEntradaRapida || qtdEntradaRapida <= 0) return;
+
+    try {
+      const res = await fetch(`${API_URL}/estoque/${modalEntradaRapida.id}/entrada-rapida`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-usuario-nivel": obterNivelUsuario(),
+        },
+        body: JSON.stringify({
+          quantidade_adicionada: Number(qtdEntradaRapida),
+          novo_valor_unitario: Number(valorEntradaRapida),
+          num_nota: notaEntradaRapida,
+        }),
+      });
+
+      if (res.ok) {
+        alert(`+${qtdEntradaRapida} un. adicionadas ao saldo de "${modalEntradaRapida.nome}"! 📦✅`);
+        setModalEntradaRapida(null);
+        carregarEstoque();
+      } else {
+        alert("Erro ao dar entrada rápida.");
       }
     } catch (err) {
       console.error(err);
@@ -429,6 +472,15 @@ export function GestaoEstoque() {
                       
                       <td className="py-3 text-center hide-print">
                         <div className="flex justify-center gap-1.5">
+                          {/* ➕ BOTÃO DE ENTRADA RÁPIDA */}
+                          <button
+                            onClick={() => handleAbrirEntradaRapida(item)}
+                            className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-600 hover:text-white transition-all text-xs font-bold"
+                            title="Dar Entrada / Reabastecer Item"
+                          >
+                            ➕
+                          </button>
+
                           <button
                             onClick={() => handleVerHistorico(item)}
                             className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all text-xs"
@@ -460,6 +512,78 @@ export function GestaoEstoque() {
           </div>
         </div>
       </div>
+
+      {/* ➕ MODAL DE ENTRADA RÁPIDA / REABASTECIMENTO */}
+      {modalEntradaRapida && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+            <div className="bg-emerald-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+              <span>➕ Entrada Rápida de Estoque</span>
+              <button onClick={() => setModalEntradaRapida(null)}>✕</button>
+            </div>
+
+            <form onSubmit={handleSalvarEntradaRapida} className="p-6 space-y-4">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                <span className="text-[10px] font-black text-slate-400 uppercase block">Item a Reabastecer:</span>
+                <span className="text-sm font-black text-slate-800">{modalEntradaRapida.nome}</span>
+                <span className="text-xs text-slate-500 block mt-0.5">Saldo atual em almoxarifado: <strong>{modalEntradaRapida.quantidade} un.</strong></span>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Quantidade a Adicionar *</label>
+                <input
+                  required
+                  min="1"
+                  type="number"
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl text-center text-lg font-black bg-slate-50 outline-none focus:bg-white focus:border-emerald-500 text-black"
+                  value={qtdEntradaRapida}
+                  onChange={(e) => setQtdEntradaRapida(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Preço Unitário (R$)</label>
+                  <input
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono text-center font-bold bg-slate-50 outline-none focus:bg-white focus:border-emerald-500 text-black"
+                    value={valorEntradaRapida}
+                    onChange={(e) => setValorEntradaRapida(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nota Fiscal / Ref.</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: NF-e 1234"
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:bg-white focus:border-emerald-500 text-black"
+                    value={notaEntradaRapida}
+                    onChange={(e) => setNotaEntradaRapida(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalEntradaRapida(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 font-black text-xs uppercase rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase rounded-xl shadow-md transition-all active:scale-[0.98]"
+                >
+                  ➕ Confirmar Entrada
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 📜 MODAL DE HISTÓRICO DE ENTRADAS DO INSUMO */}
       {modalHistoricoItem && (
@@ -524,7 +648,6 @@ export function GestaoEstoque() {
               <h2 className="font-black text-sm uppercase leading-tight">{modalEtiqueta.nome}</h2>
               <p className="font-mono text-xs font-bold text-slate-600">REF: {modalEtiqueta.referencia || "S/R"}</p>
               
-              {/* QR Code Simulado com API Pública Google */}
               <div className="flex justify-center py-2">
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=ITEM-${modalEtiqueta.id}`} 
