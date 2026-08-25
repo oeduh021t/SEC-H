@@ -7,6 +7,8 @@ const SolicitacaoCompras = () => {
   const [fornecedores, setFornecedores] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
+  const [filtroStatus, setFiltroStatus] = useState('Todos');
+  const [itemExpandidoId, setItemExpandidoId] = useState(null);
 
   // Modal de Nova / Editar Solicitação
   const [modalNova, setModalNova] = useState(false);
@@ -193,17 +195,24 @@ const SolicitacaoCompras = () => {
 
   const solicitacoesFiltradas = solicitacoes.filter(s => {
     const t = busca.toLowerCase();
-    return (
+    const bateBusca = (
       (s.solicitante_nome && s.solicitante_nome.toLowerCase().includes(t)) ||
       (s.setor_nome && s.setor_nome.toLowerCase().includes(t)) ||
       (s.fornecedor_nome && s.fornecedor_nome.toLowerCase().includes(t)) ||
       (s.equipamento_nome && s.equipamento_nome.toLowerCase().includes(t)) ||
-      (s.motivo && s.motivo.toLowerCase().includes(t))
+      (s.motivo && s.motivo.toLowerCase().includes(t)) ||
+      String(s.id).includes(t)
     );
+    const bateStatus = filtroStatus === 'Todos' || s.status === filtroStatus;
+    return bateBusca && bateStatus;
   });
 
   const totalGeralEstimado = solicitacoes.reduce((acc, s) => acc + Number(s.valor_total_calculado || 0), 0);
   const totalPendentes = solicitacoes.filter(s => s.status === 'Pendente').length;
+  const totalComprados = solicitacoes.filter(s => s.status === 'Comprado' || s.status === 'Entregue').length;
+
+  // Cálculo dinâmico do subtotal no modal
+  const subtotalModal = itens.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(it.valor_estimado || 0)), 0);
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-400">Carregando solicitações de compras...</div>;
 
@@ -221,44 +230,72 @@ const SolicitacaoCompras = () => {
       `}</style>
 
       {/* HEADER */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 flex flex-col md:flex-row justify-between md:items-center gap-4">
         <div>
-          <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-            <span className="bg-blue-500 p-2 rounded-xl text-white text-sm">🛒</span> REQUISIÇÃO E SOLICITAÇÃO DE COMPRAS
+          <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2.5">
+            <span className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-md shadow-blue-200 text-base">🛒</span> 
+            SOLICITAÇÃO & REQUISIÇÃO DE COMPRAS
           </h1>
           <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Clínica Materno Infantil Domingos Lourenço</p>
         </div>
-        <div className="flex gap-3">
+        
+        <div className="flex flex-wrap items-center gap-3">
           <input
             type="text"
-            placeholder="🔍 Buscar por solicitante, setor, fornecedor ou ativo..."
-            className="p-3 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 w-80 focus:border-blue-500"
+            placeholder="🔍 Buscar solicitação, setor, fornecedor ou ativo..."
+            className="p-3 border-2 border-slate-100 rounded-2xl text-xs font-bold outline-none bg-slate-50 w-full sm:w-80 focus:border-blue-500 focus:bg-white transition-all text-slate-800"
             value={busca}
             onChange={e => setBusca(e.target.value)}
           />
           <button
             onClick={handleAbrirNova}
-            className="bg-blue-600 text-white px-6 py-3 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-xs uppercase"
+            className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all text-xs uppercase flex items-center gap-2"
           >
-            + Nova Solicitação
+            <span>+</span> Nova Solicitação
           </button>
         </div>
       </div>
 
       {/* PAINEL DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total de Pedidos</span>
-          <span className="text-2xl font-black text-slate-800">{solicitacoes.length} Solicitações</span>
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Total de Pedidos</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-slate-800">{solicitacoes.length}</span>
+            <span className="text-xs font-bold text-slate-400">Pedidos registrados</span>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Pendentes de Aprovação</span>
-          <span className="text-2xl font-black text-amber-600">{totalPendentes} Pedidos</span>
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Pendentes de Aprovação</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-amber-500">{totalPendentes}</span>
+            <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-xl">Aguardando</span>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Investimento Estimado</span>
-          <span className="text-2xl font-black text-emerald-600">R$ {totalGeralEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Investimento Estimado</span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-2xl sm:text-3xl font-black text-emerald-600">R$ {totalGeralEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-xl">{totalComprados} Concluídos</span>
+          </div>
         </div>
+      </div>
+
+      {/* FILTROS RÁPIDOS POR STATUS */}
+      <div className="flex flex-wrap gap-2 mb-4 items-center">
+        {['Todos', 'Pendente', 'Aprovado', 'Comprado', 'Entregue', 'Negado'].map(st => (
+          <button
+            key={st}
+            onClick={() => setFiltroStatus(st)}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              filtroStatus === st 
+                ? 'bg-slate-900 text-white shadow-md' 
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-100'
+            }`}
+          >
+            {st === 'Todos' ? '📂 Todos' : st === 'Pendente' ? '🟡 Pendentes' : st === 'Aprovado' ? '🔵 Aprovados' : st === 'Comprado' ? '📦 Comprados' : st === 'Entregue' ? '🟢 Entregues' : '🔴 Negados'}
+          </button>
+        ))}
       </div>
 
       {/* TABELA DE SOLICITAÇÕES */}
@@ -277,80 +314,132 @@ const SolicitacaoCompras = () => {
           </thead>
           <tbody className="divide-y divide-slate-50 text-xs">
             {solicitacoesFiltradas.map(s => (
-              <tr key={s.id} className="hover:bg-slate-50/50">
-                <td className="p-5">
-                  <span className="font-mono font-black text-blue-600 bg-blue-50 px-2 py-1 rounded">#{s.id}</span>
-                  <div className="text-[10px] text-slate-400 font-bold mt-1">
-                    {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
-                  </div>
-                </td>
-                <td className="p-5">
-                  <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
-                  <div className="text-[10px] text-blue-600 font-bold uppercase">{s.setor_nome || 'Setor Geral'}</div>
-                </td>
-                <td className="p-5 font-bold text-slate-700">
-                  {s.fornecedor_nome ? `🚚 ${s.fornecedor_nome}` : '---'}
-                  {s.equipamento_nome && <div className="text-[10px] text-slate-400 font-normal">⚙️ {s.equipamento_nome}</div>}
-                </td>
-                <td className="p-5 font-black text-slate-800">
-                  R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  <div className="text-[10px] text-slate-400 font-normal">{s.total_itens} item(ns)</div>
-                </td>
-                <td className="p-5">
-                  <span className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase ${
-                    s.urgencia === 'Crítica' ? 'bg-red-100 text-red-600' :
-                    s.urgencia === 'Alta' ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {s.urgencia}
-                  </span>
-                </td>
-                
-                {/* SELECT DINÂMICO PARA BAIXA E MUDANÇA DE STATUS */}
-                <td className="p-5">
-                  <select
-                    value={s.status}
-                    onChange={e => handleAlterarStatus(s.id, e.target.value)}
-                    className={`p-1.5 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer ${
-                      s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-green-100 text-green-800 border-green-200' :
-                      s.status === 'Aprovado' ? 'bg-blue-100 text-blue-800 border-blue-200' :
-                      s.status === 'Negado' ? 'bg-red-100 text-red-800 border-red-200' : 'bg-amber-100 text-amber-800 border-amber-200'
-                    }`}
-                  >
-                    <option value="Pendente">🟡 Pendente</option>
-                    <option value="Aprovado">🔵 Aprovado</option>
-                    <option value="Comprado">📦 Comprado</option>
-                    <option value="Entregue">🟢 Entregue / Baixado</option>
-                    <option value="Negado">🔴 Negado / Cancelado</option>
-                  </select>
-                </td>
+              <>
+                <tr key={s.id} className="hover:bg-slate-50/60 transition-colors">
+                  <td className="p-5">
+                    <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
+                    <div className="text-[10px] text-slate-400 font-bold mt-1.5">
+                      {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
+                    </div>
+                  </td>
+                  <td className="p-5">
+                    <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
+                    <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
+                    {s.motivo && (
+                      <p className="text-[10px] text-slate-400 italic line-clamp-1 mt-1 font-medium" title={s.motivo}>
+                        📝 {s.motivo}
+                      </p>
+                    )}
+                  </td>
+                  <td className="p-5 font-bold text-slate-700">
+                    {s.fornecedor_nome ? (
+                      <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
+                    ) : (
+                      <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
+                    )}
+                    {s.equipamento_nome && (
+                      <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
+                    )}
+                  </td>
+                  <td className="p-5 font-black text-slate-800">
+                    <div>R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <button 
+                      onClick={() => setItemExpandidoId(itemExpandidoId === s.id ? null : s.id)}
+                      className="text-[10px] text-blue-500 hover:text-blue-700 font-bold mt-1 flex items-center gap-1"
+                    >
+                      <span>{s.total_itens || 1} item(ns)</span>
+                      <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ ver itens'}</span>
+                    </button>
+                  </td>
+                  <td className="p-5">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                      s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200' :
+                      s.urgencia === 'Alta' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {s.urgencia}
+                    </span>
+                  </td>
+                  
+                  {/* SELECT DINÂMICO PARA BAIXA E MUDANÇA DE STATUS */}
+                  <td className="p-5">
+                    <select
+                      value={s.status}
+                      onChange={e => handleAlterarStatus(s.id, e.target.value)}
+                      className={`p-2 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer transition-all shadow-sm ${
+                        s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' :
+                        s.status === 'Aprovado' ? 'bg-blue-50 text-blue-800 border-blue-300' :
+                        s.status === 'Negado' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      <option value="Pendente">🟡 Pendente</option>
+                      <option value="Aprovado">🔵 Aprovado</option>
+                      <option value="Comprado">📦 Comprado</option>
+                      <option value="Entregue">🟢 Entregue / Baixado</option>
+                      <option value="Negado">🔴 Negado / Cancelado</option>
+                    </select>
+                  </td>
 
-                <td className="p-5 text-center">
-                  <div className="flex justify-center gap-1.5">
-                    <button
-                      onClick={() => handleAbrirEdicao(s)}
-                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
-                      title="Editar Solicitação"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => handleImprimir(s.id)}
-                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
-                      title="Imprimir Requisição"
-                    >
-                      🖨️
-                    </button>
-                    <button
-                      onClick={() => handleExcluir(s.id)}
-                      className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xs"
-                      title="Excluir Solicitação"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+                  <td className="p-5 text-center">
+                    <div className="flex justify-center gap-1.5">
+                      <button
+                        onClick={() => handleAbrirEdicao(s)}
+                        className="p-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
+                        title="Editar Solicitação"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => handleImprimir(s.id)}
+                        className="p-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
+                        title="Imprimir Requisição"
+                      >
+                        🖨️
+                      </button>
+                      <button
+                        onClick={() => handleExcluir(s.id)}
+                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all"
+                        title="Excluir Solicitação"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                {/* ACCORDION EXPANSÍVEL: VISUALIZAÇÃO RÁPIDA DOS ITENS */}
+                {itemExpandidoId === s.id && (
+                  <tr className="bg-slate-50/80 border-b border-slate-100">
+                    <td colSpan="7" className="p-4 pl-14">
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm max-w-3xl">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Detalhamento dos Itens da OS #{s.id}</span>
+                        <div className="space-y-1.5">
+                          {s.itens && s.itens.length > 0 ? (
+                            s.itens.map((it, idx) => (
+                              <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-100 pb-1.5 last:border-0 last:pb-0">
+                                <span className="font-bold text-slate-700">• {it.descricao}</span>
+                                <div className="flex gap-4 font-mono">
+                                  <span className="text-slate-500 font-bold">{it.quantidade}x</span>
+                                  <span className="text-slate-800 font-black">R$ {Number(it.valor_estimado || 0).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">Nenhum item listado individualmente.</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            ))}
+            {solicitacoesFiltradas.length === 0 && (
+              <tr>
+                <td colSpan="7" className="p-10 text-center text-slate-400 font-bold italic">
+                  Nenhuma solicitação localizada com os filtros atuais.
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -361,14 +450,14 @@ const SolicitacaoCompras = () => {
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
               <span>{editandoId ? `✏️ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
-              <button onClick={() => setModalNova(false)}>✕</button>
+              <button onClick={() => setModalNova(false)} className="text-lg">✕</button>
             </div>
 
             <form onSubmit={handleSalvarSolicitacao} className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Setor Destino</label>
-                  <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
+                  <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
                     <option value="">Selecione o Setor...</option>
                     {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                   </select>
@@ -376,7 +465,7 @@ const SolicitacaoCompras = () => {
 
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor (Opcional)</label>
-                  <select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
+                  <select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
                     <option value="">Nenhum / A definir</option>
                     {fornecedores.map(f => <option key={f.id} value={f.id}>🚚 {f.nome_fantasia}</option>)}
                   </select>
@@ -384,7 +473,7 @@ const SolicitacaoCompras = () => {
 
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Equipamento (Opcional)</label>
-                  <select value={equipamentoId} onChange={e => setEquipamentoId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
+                  <select value={equipamentoId} onChange={e => setEquipamentoId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
                     <option value="">Nenhum ativo específico</option>
                     {equipamentos.map(eq => <option key={eq.id} value={eq.id}>{eq.nome} (PAT: {eq.patrimonio || 'S/P'})</option>)}
                   </select>
@@ -392,7 +481,7 @@ const SolicitacaoCompras = () => {
 
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Urgência</label>
-                  <select value={urgencia} onChange={e => setUrgencia(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-black">
+                  <select value={urgencia} onChange={e => setUrgencia(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
                     <option value="Baixa">🟢 Baixa</option>
                     <option value="Média">🟡 Média</option>
                     <option value="Alta">🟠 Alta</option>
@@ -403,11 +492,11 @@ const SolicitacaoCompras = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Justificativa / Motivo da Compra *</label>
-                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-black" placeholder="Ex: Detergente Zenit para higienização de ar-condicionado..." />
+                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Detergente Zenit para higienização de ar-condicionado..." />
               </div>
 
-              {/* LISTA DE ITENS SOLICITADOS */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
+              {/* LISTA DINÂMICA DE ITENS COM TOTAL AUTOMÁTICO */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
                 <div className="flex justify-between items-center border-b pb-2">
                   <span className="text-[10px] font-black text-slate-500 uppercase">Itens da Solicitação</span>
                   <button type="button" onClick={handleAdicionarItem} className="text-xs font-black text-blue-600 hover:underline">+ Adicionar Item</button>
@@ -418,8 +507,8 @@ const SolicitacaoCompras = () => {
                     <input
                       type="text"
                       required
-                      placeholder="Descrição do item ou equipamento..."
-                      className="flex-[3] p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-black"
+                      placeholder="Descrição do item ou peça..."
+                      className="flex-[3] p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
                       value={item.descricao}
                       onChange={e => handleItemChange(index, 'descricao', e.target.value)}
                     />
@@ -428,7 +517,7 @@ const SolicitacaoCompras = () => {
                       min="1"
                       required
                       placeholder="Qtd"
-                      className="w-20 p-2.5 border-2 rounded-xl text-xs font-bold text-center bg-white text-black"
+                      className="w-20 p-2.5 border-2 rounded-xl text-xs font-bold text-center bg-white text-slate-800 outline-none focus:border-blue-500"
                       value={item.quantidade}
                       onChange={e => handleItemChange(index, 'quantidade', e.target.value)}
                     />
@@ -436,20 +525,27 @@ const SolicitacaoCompras = () => {
                       type="number"
                       step="0.01"
                       placeholder="Val. Est. R$"
-                      className="w-28 p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-black"
+                      className="w-32 p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
                       value={item.valor_estimado}
                       onChange={e => handleItemChange(index, 'valor_estimado', e.target.value)}
                     />
                     {itens.length > 1 && (
-                      <button type="button" onClick={() => handleRemoverItem(index)} className="p-2 text-red-500 font-black">✕</button>
+                      <button type="button" onClick={() => handleRemoverItem(index)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg font-black transition-all">✕</button>
                     )}
                   </div>
                 ))}
+
+                <div className="pt-2 border-t flex justify-between items-center text-xs font-black text-slate-700">
+                  <span>Total Estimado do Pedido:</span>
+                  <span className="text-sm font-black text-emerald-600 font-mono">
+                    R$ {subtotalModal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setModalNova(false)} className="flex-1 bg-slate-100 py-3 rounded-xl font-black text-xs uppercase text-slate-600">Cancelar</button>
-                <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-black text-xs uppercase shadow-lg shadow-blue-100">
+                <button type="button" onClick={() => setModalNova(false)} className="flex-1 bg-slate-100 py-3 rounded-2xl font-black text-xs uppercase text-slate-600 hover:bg-slate-200 transition-all">Cancelar</button>
+                <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all">
                   {editandoId ? 'Atualizar Solicitação' : 'Gerar Solicitação'}
                 </button>
               </div>

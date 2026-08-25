@@ -385,7 +385,7 @@ app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CHAMADOS / OS (Atualizada com Cálculos de SLA e Metas)
+// ROTAS DE CHAMADOS / OS (Atualizada com Cálculos de SLA, Metas e Solicitante)
 // -------------------------------------------------------------------------
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
@@ -394,6 +394,7 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
             s.nome as setor_nome, 
             e.nome as equip_nome, 
             e.patrimonio as equip_pat,
+            u.nome as solicitante_nome, -- 👤 Nome de quem abriu a OS
 
             -- Meta em Horas baseada na Prioridade
             CASE 
@@ -426,6 +427,7 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
         FROM chamados c
         LEFT JOIN setores s ON c.setor_id = s.id
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
         ORDER BY
             CASE
                 WHEN c.status = 'Aberto' THEN 1
@@ -454,6 +456,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             e.fabricante, 
             s.nome as setor_nome, 
             f.nome_fantasia as empresa_terceirizada,
+            u.nome as solicitante_nome, -- 👤 Nome de quem abriu a OS
 
             -- Meta em Horas baseada na Prioridade
             CASE 
@@ -487,6 +490,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
         LEFT JOIN setores s ON c.setor_id = s.id
         LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+        LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
         WHERE c.id = ?
     `;
 

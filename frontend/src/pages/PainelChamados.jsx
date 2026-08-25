@@ -125,10 +125,13 @@ const PainelChamados = () => {
     return `${dias[d.getDay()]} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
   };
 
+  // Helper para obter o nome do solicitante
+  const obterSolicitante = (c) => {
+    return c.usuario_nome || c.solicitante_nome || c.usuario_abertura_nome || c.criado_por || 'Solicitante não informado';
+  };
+
   return (
-    <div className={`min-h-screen p-6 flex flex-col font-sans select-none transition-colors duration-500 ${
-      modoPlantao ? 'bg-slate-950 text-white' : 'bg-slate-950 text-white'
-    }`}>
+    <div className="min-h-screen p-6 flex flex-col font-sans select-none bg-slate-950 text-white transition-colors duration-500">
       
       {/* 🚨 AVISO DE MODO PLANTÃO ATIVO */}
       {modoPlantao && (
@@ -162,7 +165,6 @@ const PainelChamados = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          
           {/* 🌙 BOTÃO ATIVAR/DESATIVAR MODO FIM DE SEMANA / PLANTÃO */}
           <button
             onClick={alternarModoPlantao}
@@ -249,6 +251,19 @@ const PainelChamados = () => {
                   </div>
                 )}
 
+                {/* 👤 LINHA DO SOLICITANTE / QUEM ABRIU O CHAMADO */}
+                <div className="bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800/80 mb-3 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-slate-300 font-bold truncate">
+                    <span className="text-slate-500">👤 Solicitante:</span>
+                    <span className="text-amber-300 font-black uppercase truncate">{obterSolicitante(c)}</span>
+                  </div>
+                  {c.categoria && (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800 uppercase">
+                      {c.categoria}
+                    </span>
+                  )}
+                </div>
+
                 <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 pt-2 border-t border-slate-800/60">
                   <span>Prioridade: <strong className="text-red-400">{c.prioridade || 'Média'}</strong></span>
                   <span className="text-amber-300">📅 Aberto: {formatarDiaSemana(c.data_abertura)}</span>
@@ -294,6 +309,19 @@ const PainelChamados = () => {
                     <span>[{c.equip_pat}] {c.equip_nome}</span>
                   </div>
                 )}
+
+                {/* 👤 LINHA DO SOLICITANTE / QUEM ABRIU O CHAMADO */}
+                <div className="bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800/80 mb-3 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-slate-300 font-bold truncate">
+                    <span className="text-slate-500">👤 Solicitante:</span>
+                    <span className="text-amber-300 font-black uppercase truncate">{obterSolicitante(c)}</span>
+                  </div>
+                  {c.categoria && (
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800 uppercase">
+                      {c.categoria}
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 pt-2 border-t border-slate-800/60">
                   <span>Status: <strong className="text-amber-400">Em Atendimento</strong></span>
