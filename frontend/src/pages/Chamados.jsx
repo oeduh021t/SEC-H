@@ -282,7 +282,7 @@ const Chamados = ({ user: userProp }) => {
           <span className="bg-amber-100 p-2 rounded-xl text-amber-600">🎫</span>
           CHAMADOS / OS
         </h1>
-        <div className="flex flex-wrap gap-3 w-full md:w-auto">
+        <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
           <select className="border-2 border-slate-100 rounded-xl p-2.5 text-sm font-bold bg-white outline-none" onChange={(e) => setFiltroStatus(e.target.value)}>
             <option value="Todos">Todos Status</option>
             <option value="Aberto">🔴 Abertos</option>
@@ -297,6 +297,17 @@ const Chamados = ({ user: userProp }) => {
             className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800" 
             onChange={(e) => setBusca(e.target.value)} 
           />
+
+          {/* 📺 BOTÃO DO PAINEL TV */}
+          <Link
+            to="/painel-chamados"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center gap-2"
+            title="Abrir Painel de TV em tempo real"
+          >
+            <span>📺</span> PAINEL TV
+          </Link>
 
           <button onClick={() => { setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); setModalAberta(true); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all">+ NOVO CHAMADO</button>
         </div>
