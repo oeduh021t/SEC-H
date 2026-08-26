@@ -298,16 +298,18 @@ const Chamados = ({ user: userProp }) => {
             onChange={(e) => setBusca(e.target.value)} 
           />
 
-          {/* 📺 BOTÃO DO PAINEL TV */}
-          <Link
-            to="/painel-chamados"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center gap-2"
-            title="Abrir Painel de TV em tempo real"
-          >
-            <span>📺</span> PAINEL TV
-          </Link>
+          {/* 📺 BOTÃO DO PAINEL TV (Oculto para usuário comum) */}
+          {user?.nivel?.toLowerCase().trim() !== 'usuario' && (
+            <Link
+              to="/painel-chamados"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center gap-2"
+              title="Abrir Painel de TV em tempo real"
+            >
+              <span>📺</span> PAINEL TV
+            </Link>
+          )}
 
           <button onClick={() => { setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); setModalAberta(true); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all">+ NOVO CHAMADO</button>
         </div>

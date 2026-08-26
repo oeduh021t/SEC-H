@@ -4,6 +4,7 @@ export function RelatorioEstoqueLocal() {
   const [itens, setItens] = useState([]);
   const [locais, setLocais] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [exportando, setExportando] = useState(false);
 
   // Estados dos filtros (Padrão 30 dias para as datas)
   const [filtroLocal, setFiltroLocal] = useState('todos');
@@ -61,6 +62,39 @@ export function RelatorioEstoqueLocal() {
     gerarRelatorioConsolidado();
   }, [filtroLocal, filtroTipo, dataInicio, dataFim]);
 
+  // 📊 EXPORTAR EXCEL (.XLSX)
+  const handleExportarExcel = async () => {
+    setExportando(true);
+    try {
+      const urlParams = new URLSearchParams({
+        local_estoque_id: filtroLocal,
+        tipo_registro: filtroTipo,
+        data_inicio: dataInicio,
+        data_fim: dataFim
+      });
+
+      const res = await fetch(`${API_URL}/relatorios/exportar/estoque-local?${urlParams.toString()}`, {
+        headers: { 'x-usuario-nivel': obterNivelUsuario() }
+      });
+
+      if (!res.ok) throw new Error("Falha ao gerar o arquivo Excel.");
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `balanco_estoque_${dataInicio}_a_${dataFim}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      alert("Erro ao exportar Excel: " + err.message);
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const totalPecasExibidas = itens.reduce((acc, item) => acc + Number(item.quantidade || 0), 0);
   const capitalInvestidoExibido = itens.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0);
 
@@ -73,7 +107,7 @@ export function RelatorioEstoqueLocal() {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* 🖨️ MOTOR DE IMPRESSÃO PROFISSIONAL INTEGRADO (IDÊNTICO AO CUSTOS POR SETOR) */}
+      {/* 🖨️ MOTOR DE IMPRESSÃO */}
       <style>{`
         @media print {
           body * { visibility: hidden; background: white !important; }
@@ -104,14 +138,25 @@ export function RelatorioEstoqueLocal() {
         }
       `}</style>
 
-      {/* Botões Superiores de Controle (Somem na impressão) */}
+      {/* BOTÕES DE CONTROLE SUPERIOR */}
       <div className="flex gap-2 justify-end mb-6 hide-print">
-        <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95">
-          🖨️ IMPRIMIR RELATÓRIO
+        <button 
+          onClick={handleExportarExcel} 
+          disabled={exportando || loading}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
+        >
+          <span>📊</span> {exportando ? "Gerando..." : "Exportar Excel"}
+        </button>
+
+        <button 
+          onClick={() => window.print()} 
+          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center gap-2"
+        >
+          <span>🖨️</span> Imprimir Relatório
         </button>
       </div>
 
-      {/* PAINEL DE CONTROLE DE FILTROS (Some na impressão) */}
+      {/* PAINEL DE FILTROS */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6 hide-print">
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Almoxarifado / Escopo</label>
@@ -149,7 +194,7 @@ export function RelatorioEstoqueLocal() {
         </div>
       </div>
 
-      {/* CONTAINER ALVO DA IMPRESSÃO (Envelopa todo o miolo do relatório) */}
+      {/* CONTAINER ALVO DA IMPRESSÃO */}
       <div className="relatorio-container space-y-6">
         
         {/* CABEÇALHO DO RELATÓRIO */}
@@ -162,7 +207,7 @@ export function RelatorioEstoqueLocal() {
           </p>
         </div>
 
-        {/* CARDS INDICADORES COESOS */}
+        {/* CARDS INDICADORES */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 indicadores-impressao">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[8px]">Unidades no Filtro</span>
@@ -170,11 +215,13 @@ export function RelatorioEstoqueLocal() {
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[8px]">Valor do Inventário no Filtro</span>
-            <p className="text-xl font-black text-emerald-600 mt-1 print:text-sm">R$ {capitalInvestidoExibido.toFixed(2)}</p>
+            <p className="text-xl font-black text-emerald-600 mt-1 print:text-sm">
+              R$ {capitalInvestidoExibido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
           </div>
         </div>
 
-        {/* TABELA DE RESULTADOS ANALÍTICOS */}
+        {/* TABELA DE RESULTADOS */}
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 print:p-0 print:border-none">
           {loading ? (
             <div className="text-center py-8 font-bold text-xs text-slate-400">Processando balanço...</div>
@@ -215,9 +262,11 @@ export function RelatorioEstoqueLocal() {
                         ) : '---'}
                       </td>
                       <td className="py-3.5 text-center font-bold text-slate-600 bg-slate-50/30 print:bg-none">{row.quantidade} un.</td>
-                      <td className="py-3.5 text-right font-mono text-slate-500 font-medium">R$ {Number(row.valor_unitario).toFixed(2)}</td>
+                      <td className="py-3.5 text-right font-mono text-slate-500 font-medium">
+                        R$ {Number(row.valor_unitario).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
                       <td className="py-3.5 text-right font-mono font-black text-slate-800 print:text-slate-900">
-                        R$ {(Number(row.quantidade) * Number(row.valor_unitario)).toFixed(2)}
+                        R$ {(Number(row.quantidade) * Number(row.valor_unitario)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))}
@@ -239,5 +288,7 @@ export function RelatorioEstoqueLocal() {
 
       </div>
     </div>
-  )
+  );
 }
+
+export default RelatorioEstoqueLocal;

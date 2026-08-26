@@ -7,6 +7,7 @@ const bcrypt = require('bcrypt');
 const multer = require('multer');
 const path = require('path');
 const saltRounds = 10;
+const ExcelJS = require('exceljs');
 
 const app = express();
 app.use(cors({
@@ -40,13 +41,13 @@ const filtroDocumentos = (req, file, cb) => {
     if (mimetype && extname) {
         return cb(null, true);
     } else {
-        cb(new Error('Erro: O sistema aceita apenas arquivos in formato PDF ou Imagem (JPEG, JPG, PNG)!'));
+        cb(new Error('Erro: O sistema aceita apenas arquivos no formato PDF ou Imagem (JPEG, JPG, PNG)!'));
     }
 };
 
 // Instância do multer específica para documentos
 const uploadDocumento = multer({
-    storage: storage, // Reaproveita o seu diskStorage que gera nomes únicos
+    storage: storage,
     fileFilter: filtroDocumentos,
     limits: { fileSize: 15 * 1024 * 1024 } // Limite de 15MB para PDFs maiores
 });
@@ -113,9 +114,7 @@ const permitirApenas = (niveisPermitidos) => {
     };
 };
 
-
 // TESTE HORA
-
 app.get('/api/testar-horario', (req, res) => {
     const horaNode = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
     const horaNodeUTC = new Date().toISOString();
@@ -131,16 +130,12 @@ app.get('/api/testar-horario', (req, res) => {
     });
 });
 
-
-
-
 // -------------------------------------------------------------------------
 // DASHBOARD - MÉTRICAS COM SUPORTE A FILTRO DE DATA
 // -------------------------------------------------------------------------
 app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { data_inicio, data_fim } = req.query;
 
-    // Filtros de data para injetar nas queries SQL quando fornecidos
     let filtroChamadosData = '';
     let filtroAberturaData = '';
     let paramsData = [];
@@ -180,7 +175,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
 
         recentes: `SELECT id, titulo, status, data_abertura FROM chamados${filtroAberturaData} ORDER BY id DESC LIMIT 6`,
 
-        // Gasto com Insumos / Peças no período
         gastoInsumosGerais: `
             SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
             FROM chamados_itens ci
@@ -188,7 +182,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             JOIN itens_estoque i ON ci.item_id = i.id
             WHERE i.tipo != 'Filtro'${filtroChamadosData.replace('data_abertura', 'c.data_abertura')}`,
 
-        // Total em Equipamentos (Patrimônio)
         gastoTotalEquipamentos: `
             SELECT (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
@@ -204,7 +197,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 FROM equipamentos
             ) as total`,
 
-        // Gasto em Estrutura / Predial no período
         gastoTotalEstrutura: `
             SELECT (
                 SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
@@ -271,7 +263,6 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        // 🛠️ CORRIGIDO: Alterado de 'text: message' para 'text: mensagem'
         await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
@@ -281,7 +272,7 @@ const enviarTelegram = async (mensagem) => {
 };
 
 // -------------------------------------------------------------------------
-// ROTAS DE EQUIPAMENTOS - CORRIGIDAS PARA SALVAR PREVENTIVAS E COLUNAS DO BANCO
+// ROTAS DE EQUIPAMENTOS
 // -------------------------------------------------------------------------
 app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id ORDER BY e.id DESC`;
@@ -291,33 +282,23 @@ app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 
     });
 });
 
-// 🟢 NOVO ATIVO: Captura a "data_ultima_preventiva" e grava no "tipo_equipamento_id"
 app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id, valor } = req.body;
     
-    // Captura o arquivo de foto se ele foi enviado
     const foto_equipamento = req.file ? `/uploads/${req.file.filename}` : null;
-
-    // Sanitização de tipos contra valores vazios
     const v_nome = nome && nome.trim() !== "" ? nome : 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
     const v_patrimonio = patrimonio && patrimonio.trim() !== "" ? patrimonio.trim() : null;
     const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
     const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
-    
-    // Grava o ID recebido nas duas colunas para garantir sincronia do banco legado
     const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
-    
     const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
     const v_status = status || 'Ativo';
     const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
-    const v_valor = valor && valor !== "" ? Number(valor) : 0.00; // 🆕 Higienização do valor
-
-    // Se o usuário não enviou uma data, define como null para não dar erro de data inválida
+    const v_valor = valor && valor !== "" ? Number(valor) : 0.00;
     const v_data_preventiva = data_ultima_preventiva && data_ultima_preventiva.trim() !== "" ? data_ultima_preventiva : null;
 
-    // Query atualizada gravando tanto em tipo_id quanto em tipo_equipamento_id, além da data customizada e valor
     const query = `INSERT INTO equipamentos 
         (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, tipo_equipamento_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento, local_estoque_id, valor) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
@@ -333,7 +314,6 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
     });
 });
 
-// 🟡 EDITAR ATIVO: Adicionado suporte à atualização da "data_ultima_preventiva" e "tipo_equipamento_id"
 app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
     const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id, valor } = req.body;
@@ -344,16 +324,11 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
     const v_num_serie = num_serie && num_serie.trim() !== "" ? num_serie : null;
     const v_fabricante = fabricante && fabricante.trim() !== "" ? fabricante : null;
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
-    
-    // Alinha o tipo nas duas colunas
     const v_tipo_id = tipo_id && tipo_id !== "" && tipo_id !== "null" ? Number(tipo_id) : null;
-    
     const v_periodicidade = periodicidade_preventiva ? Number(periodicidade_preventiva) : 0;
     const v_status = status || 'Ativo';
     const v_local_estoque_id = local_estoque_id && local_estoque_id !== "" && local_estoque_id !== "null" ? Number(local_estoque_id) : null;
-    const v_valor = valor && valor !== "" ? Number(valor) : 0.00; // 🆕 Higienização do valor
-    
-    // Trata a data vinda da edição
+    const v_valor = valor && valor !== "" ? Number(valor) : 0.00;
     const v_data_preventiva = data_ultima_preventiva && data_ultima_preventiva.trim() !== "" ? data_ultima_preventiva : null;
 
     let query, values;
@@ -372,7 +347,7 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
             console.error("❌ Erro interno do MySQL no PUT de equipamentos:", err.message);
             return res.status(500).json({ error: err.message });
         }
-        res.json({ message: "Dados updates com sucesso!" });
+        res.json({ message: "Dados atualizados com sucesso!" });
     });
 });
 
@@ -385,7 +360,7 @@ app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CHAMADOS / OS (Atualizada com Cálculos de SLA, Metas e Solicitante)
+// ROTAS DE CHAMADOS / OS
 // -------------------------------------------------------------------------
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
@@ -394,9 +369,8 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
             s.nome as setor_nome, 
             e.nome as equip_nome, 
             e.patrimonio as equip_pat,
-            u.nome as solicitante_nome, -- 👤 Nome de quem abriu a OS
+            u.nome as solicitante_nome,
 
-            -- Meta em Horas baseada na Prioridade
             CASE 
                 WHEN c.prioridade = 'Urgente' THEN 2
                 WHEN c.prioridade = 'Alta' THEN 6
@@ -404,10 +378,8 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
                 ELSE 48 
             END AS meta_sla_horas,
 
-            -- Total de horas gastas até a conclusão ou até o momento atual
             TIMESTAMPDIFF(MINUTE, c.data_abertura, IFNULL(c.data_conclusao, NOW())) / 60.0 AS horas_gastas,
 
-            -- Indicador de Conformidade do SLA
             CASE 
                 WHEN c.status = 'Concluído' THEN
                     CASE 
@@ -456,9 +428,8 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             e.fabricante, 
             s.nome as setor_nome, 
             f.nome_fantasia as empresa_terceirizada,
-            u.nome as solicitante_nome, -- 👤 Nome de quem abriu a OS
+            u.nome as solicitante_nome,
 
-            -- Meta em Horas baseada na Prioridade
             CASE 
                 WHEN c.prioridade = 'Urgente' THEN 2
                 WHEN c.prioridade = 'Alta' THEN 6
@@ -466,10 +437,8 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 ELSE 48 
             END AS meta_sla_horas,
 
-            -- Total de horas gastas até a conclusão ou até o momento atual
             TIMESTAMPDIFF(MINUTE, c.data_abertura, IFNULL(c.data_conclusao, NOW())) / 60.0 AS horas_gastas,
 
-            -- Indicador de Conformidade do SLA
             CASE 
                 WHEN c.status = 'Concluído' THEN
                     CASE 
@@ -578,7 +547,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
         nf_referencia, 
         custo_servico, 
         tecnico_responsavel, 
-        tecnico_id
+        tecnico_id 
     } = req.body;
     
     const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
@@ -778,7 +747,7 @@ app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', '
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE PREVENTIVAS (VERSÃO ULTRA-ESTÁVEL - ZERO SUBQUERIES)
+// ROTAS DE PREVENTIVAS
 // -------------------------------------------------------------------------
 app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
@@ -792,15 +761,13 @@ app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', '
             e.periodicidade_preventiva,
             IFNULL(t.nome, 'Aparelho') as tipo_nome,
             e.tipo_id,
-            -- Calcula a data exata do próximo vencimento baseado no ciclo real do ativo
             DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY) as data_vencimento,
-            -- Calcula a diferença de dias exata até a data de vencimento projetada
             DATEDIFF(DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY), CURDATE()) as dias_restantes
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
         LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
         WHERE (e.status IN ('Ativo', 'Em Manutenção', 'Inoperante', 'Reserva'))
-          AND e.periodicidade_preventiva > 0 -- 🛠️ Correção: Ignora ativos que não possuem plano de preventiva/PMOC
+          AND e.periodicidade_preventiva > 0
         ORDER BY dias_restantes ASC
     `;
 
@@ -815,18 +782,14 @@ app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', '
 
 app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('arquivo'), (req, res) => {
     const { equipamento_id, relatorio_tecnico, tecnico_nome } = req.body;
-    
-    // Captura o caminho do arquivo se ele foi enviado
     const url_anexo = req.file ? `/uploads/${req.file.filename}` : null;
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json(err);
         
-        // 1. Atualiza a data da última preventiva para HOJE
         conn.query("UPDATE equipamentos SET data_ultima_preventiva = CURDATE() WHERE id = ?", [equipamento_id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json(errUp); });
             
-            // 2. Insere na cronologia salvando a url do anexo na coluna 'arquivo_url'
             const historicoTexto = `[ID EQUIP: ${equipamento_id}] RELATÓRIO DE PREVENTIVA: ${relatorio_tecnico}`;
             const queryHist = `
                 INSERT INTO chamados_historico 
@@ -847,7 +810,6 @@ app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecn
     });
 });
 
-// 🛠️ VERSÃO DEFINITIVA: Prontuário ajustado para ler 'arquivo_url' do histórico e somar o valor patrimonial inicial
 app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const queryEquip = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id WHERE e.id = ?`;
@@ -877,7 +839,6 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
                 COALESCE(d.url_arquivo, h.arquivo_url) as url_anexo
             FROM chamados_historico h 
             JOIN chamados c ON h.chamado_id = c.id 
-            -- 🟢 AJUSTE AQUI: Faz um JOIN com a tabela de documentos usando o nome do arquivo para obter a url real
             LEFT JOIN documentos d ON d.chamado_id = c.id AND h.texto_historico LIKE CONCAT('%', d.nome_original, '%')
             WHERE c.equipamento_id = ?
         )
@@ -917,7 +878,6 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
         db.query(queryTimeline, [id, id, id, id], (errTimeline, timeline) => {
             if (errTimeline) return res.status(500).json(errTimeline);
             
-            // 🛠️ ATUALIZADO: Query modificada para somar o valor inicial de aquisição do ativo (e.valor)
             const queryCusto = `
                 SELECT (SELECT IFNULL(SUM(custo_servico), 0) FROM chamados WHERE equipamento_id = ? AND status = 'Concluído') +
                         (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?) +
@@ -965,7 +925,7 @@ app.put('/api/usuarios/:id', permitirApenas(['admin']), async (req, res) => {
             const query = "UPDATE usuarios SET nome=?, login=?, nivel=?, senha=? WHERE id=?";
             db.query(query, [nome, login, nivel, hash, id], (err) => {
                 if (err) return res.status(400).json(err);
-                res.json({ message: "Usuário e senha updated!" });
+                res.json({ message: "Usuário e senha atualizados!" });
             });
         } else {
             const query = "UPDATE usuarios SET nome=?, login=?, nivel=? WHERE id=?";
@@ -1035,7 +995,6 @@ app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador',
     });
 });
 
-// GET: Listar apenas usuários habilitados para atendimento (técnicos, admins e coordenadores)
 app.get('/api/tecnicos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `
         SELECT id, nome 
@@ -1050,10 +1009,8 @@ app.get('/api/tecnicos', permitirApenas(['admin', 'coordenador', 'tecnico']), (r
 });
 
 // -------------------------------------------------------------------------
-// MÓDULO SIMPLES DE CONTROLE DE EPIs (FICHA DE ENTREGA)
+// MÓDULO DE EPIs
 // -------------------------------------------------------------------------
-
-// 1. LISTAR TODAS AS FICHAS / REGISTROS DE EPI
 app.get('/api/epis', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `
         SELECT f.id, f.usuario_id, u.nome as usuario_nome, u.login as usuario_login,
@@ -1068,7 +1025,6 @@ app.get('/api/epis', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, 
     });
 });
 
-// 2. REGISTRAR ENTREGA DE EPI / ANEXAR TERMO
 app.post('/api/epis', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('termo_pdf'), (req, res) => {
     const { usuario_id, data_entrega, observacao } = req.body;
 
@@ -1094,7 +1050,6 @@ app.post('/api/epis', permitirApenas(['admin', 'coordenador', 'tecnico']), uploa
     });
 });
 
-// 3. EXCLUIR REGISTRO DE EPI
 app.delete('/api/epis/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     db.query("DELETE FROM epis_fichas WHERE id = ?", [id], (err) => {
@@ -1106,13 +1061,11 @@ app.delete('/api/epis/:id', permitirApenas(['admin', 'coordenador']), (req, res)
 // -------------------------------------------------------------------------
 // RELATÓRIOS GERAIS
 // -------------------------------------------------------------------------
-// OBTENER RELATÓRIO DETALHADO UNIFICADO COM FILTRO DE TIPO DE REGISTRO
 app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { local_estoque_id, data_inicio, data_fim, tipo_registro } = req.query;
 
     let query = `
         SELECT * FROM (
-            -- 1. Bloco de Insumos / Peças
             SELECT 
                 i.id, 
                 i.nome, 
@@ -1129,14 +1082,13 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
             
             UNION ALL
             
-            -- 2. Bloco de Equipamentos (Ajustado para usar CURDATE() e fallbacks compatíveis)
             SELECT 
                 e.id, 
                 CONCAT(e.nome, ' (S/N: ', IFNULL(e.num_serie, 'N/A'), ')') AS nome,
                 IFNULL(e.patrimonio, 'S/Patrimônio') AS referencia, 
                 1 AS quantidade, 
                 0.00 AS valor_unitario, 
-                IFNULL(e.data_ultima_preventiva, CURDATE()) AS data_cadastro, -- Fallback para evitar erro de coluna
+                IFNULL(e.data_ultima_preventiva, CURDATE()) AS data_cadastro,
                 'Equipamento' AS tipo_registro, 
                 e.local_estoque_id, 
                 l.nome AS nome_estoque, 
@@ -1148,19 +1100,16 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
     `;
     const queryParams = [];
 
-    // Filtro por Local de Estoque
     if (local_estoque_id && local_estoque_id !== 'todos') {
         query += ` AND local_estoque_id = ?`;
         queryParams.push(Number(local_estoque_id));
     }
 
-    // Filtro por tipo (Equipamento ou Insumo)
     if (tipo_registro && tipo_registro !== 'todos') {
         query += ` AND tipo_registro = ?`;
         queryParams.push(tipo_registro);
     }
 
-    // Filtro por Período
     if (data_inicio && data_fim) {
         query += ` AND data_cadastro BETWEEN ? AND ?`;
         queryParams.push(`${data_inicio} 00:00:00`, `${data_fim} 23:59:59`);
@@ -1177,39 +1126,31 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
     });
 });
 
-
-// ⚙️ ROTA ATUALIZADA COM FILTRAGEM DINÂMICA DE SETOR, STATUS E TIPO DE EQUIPAMENTO
 app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    // 🆕 Adicionado 'tipo_id' e 'tipo_equipamento_id' na captura de parâmetros
     const { data_inicio, data_fim, setor_id, status, tipo_id, tipo_equipamento_id } = req.query;
 
     const inicio = data_inicio ? data_inicio + ' 00:00:00' : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
     const fim = data_fim ? data_fim + ' 23:59:59' : new Date().toISOString().split('T')[0] + ' 23:59:59';
 
-    // 1º ao 4º '?' : Subqueries financeiras do cálculo de custos
     let queryParams = [inicio, fim, inicio, fim];
     let filtrosAdicionais = [];
 
-    // Filtro Dinâmico de Setor
     if (setor_id && setor_id !== 'todos') {
         filtrosAdicionais.push('e.setor_id = ?');
         queryParams.push(Number(setor_id));
     }
 
-    // Filtro Dinâmico de Status
     if (status && status !== 'todos') {
         filtrosAdicionais.push('e.status = ?');
         queryParams.push(status);
     }
 
-    // 🆕 FILTRO DE TIPO DE EQUIPAMENTO (Corrige a busca de Ar Condicionado, Bebedouro, etc)
     const tipoFiltro = tipo_id || tipo_equipamento_id;
     if (tipoFiltro && tipoFiltro !== 'todos') {
         filtrosAdicionais.push('(e.tipo_id = ? OR e.tipo_equipamento_id = ?)');
         queryParams.push(Number(tipoFiltro), Number(tipoFiltro));
     }
 
-    // Monta a cláusula WHERE
     const clausulaWhere = filtrosAdicionais.length > 0 
         ? `WHERE ${filtrosAdicionais.join(' AND ')}` 
         : '';
@@ -1265,7 +1206,6 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
         queryParams.push(setor_id);
     }
 
-    // 🌳 SQL RECURSIVA: Monta o caminho completo do setor (Ex: Centro Médico > Térreo)
     const sql = `
         WITH RECURSIVE ArvoreSetores AS (
             SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
@@ -1280,7 +1220,7 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
         )
         SELECT 
             s.id AS setor_id,
-            s.caminho AS nome_setor, -- 👈 Agora retorna a árvore completa!
+            s.caminho AS nome_setor,
             COUNT(c.id) AS total_chamados,
             SUM(COALESCE(c.custo_servico, 0)) AS total_custo_servico,
             SUM(COALESCE(ci.total_pecas, 0)) AS total_custo_pecas,
@@ -1306,7 +1246,6 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
     });
 });
 
-// 🔍 DRILL-DOWN: Busca as OSs detalhadas de um setor específico no período
 app.get('/api/relatorios/chamados-detalhes-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { setor_id, data_inicio, data_fim } = req.query;
 
@@ -1323,7 +1262,7 @@ app.get('/api/relatorios/chamados-detalhes-setor', permitirApenas(['admin', 'coo
             c.titulo, 
             c.status, 
             c.data_abertura, 
-            c.tecnico_responsavel,
+            c.tecnico_responsavel, 
             e.nome AS equipamento_nome, 
             e.patrimonio AS equipamento_patrimonio,
             COALESCE(c.custo_servico, 0) AS custo_servico,
@@ -1349,11 +1288,9 @@ app.get('/api/relatorios/chamados-detalhes-setor', permitirApenas(['admin', 'coo
     });
 });
 
-// 📊 ROTA DO RELATÓRIO DE CHAMADOS POR SETOR (FILTRO DE DATA CORRIGIDO)
 app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
-    // Normaliza para strings simples no formato YYYY-MM-DD
     const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const fim = data_fim || new Date().toISOString().split('T')[0];
 
@@ -1404,14 +1341,12 @@ app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador'
 app.get('/api/setores', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         WITH RECURSIVE ArvoreSetores AS (
-            -- Caso Base: Pega todos os setores e inicia a linha com o nome próprio
             SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
             FROM setores
             WHERE setor_pai_id IS NULL OR setor_pai_id = 0
             
             UNION ALL
             
-            -- Passo Recursivo: Junta o setor pai ao filho indefinidamente até o topo
             SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
             FROM setores filho
             INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
@@ -1446,7 +1381,6 @@ app.post('/api/setores', permitirApenas(['admin', 'coordenador']), (req, res) =>
     });
 });
 
-// 🔄 ROTA DE LISTAGEM ATUALIZADA: Mapeamento de endpoint unificado para o React (/api/tipos-equipamentos)
 app.get('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     db.query(`SELECT id, nome FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -1454,7 +1388,6 @@ app.get('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecn
     });
 });
 
-// 💡 ROTA LEGADA MANTIDA: Evita quebras ocultas em outras partes do sistema
 app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     db.query(`SELECT * FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
         if (err) return res.status(500).json(err);
@@ -1462,7 +1395,6 @@ app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecn
     });
 });
 
-// 🆕 ROTA DE CADASTRO: Insere um novo tipo de ativo no banco de dados Express/MySQL
 app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { nome } = req.body;
     if (!nome || nome.trim() === "") {
@@ -1475,11 +1407,9 @@ app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador']), (r
     });
 });
 
-// 🆕 ROTA DE EXCLUSÃO: Remove o tipo por ID com verificação de segurança integridade relacional
 app.delete('/api/tipos-equipamentos/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
 
-    // 🛡️ Validação: Impede apagar o tipo se ele estiver em uso por algum equipamento ativo no SEC-H
     const queryCheck = `SELECT COUNT(*) as em_uso FROM equipamentos WHERE tipo_id = ? OR tipo_equipamento_id = ?`;
     
     db.query(queryCheck, [id, id], (errCheck, resultsCheck) => {
@@ -1491,7 +1421,6 @@ app.delete('/api/tipos-equipamentos/:id', permitirApenas(['admin', 'coordenador'
             });
         }
 
-        // Se passar na verificação, realiza o comando de exclusão física
         db.query(`DELETE FROM tipos_equipamentos WHERE id = ?`, [id], (errDel) => {
             if (errDel) return res.status(500).json({ error: errDel.message });
             res.json({ message: "Tipo de equipamento removido com sucesso!" });
@@ -1559,10 +1488,8 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
 });
 
 // -------------------------------------------------------------------------
-// MÓDULO DE NOTAS FISCAIS E GESTÃO DE BOLETOS
+// NOTAS FISCAIS E BOLETOS
 // -------------------------------------------------------------------------
-
-// 1. LISTAR TODAS AS NOTAS FISCAIS (Com métricas e alertas de vencimento dos boletos)
 app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const query = `
         SELECT 
@@ -1584,7 +1511,6 @@ app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, re
     });
 });
 
-// 2. CONSULTAR OS BOLETOS DE UMA NOTA FISCAL ESPECÍFICA
 app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const query = `SELECT * FROM boletos WHERE nota_fiscal_id = ? ORDER BY data_vencimento ASC`;
@@ -1595,7 +1521,6 @@ app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador'
     });
 });
 
-// 3. CADASTRAR NOTA FISCAL COM ARQUIVOS (XML / DANFE)
 app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
     { name: 'xml', maxCount: 1 },
     { name: 'danfe', maxCount: 1 }
@@ -1620,7 +1545,6 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
     });
 });
 
-// 4. CADASTRAR/ANEXAR UM BOLETO A UMA NOTA
 app.post('/api/boletos', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('boleto_pdf'), (req, res) => {
     const { nota_fiscal_id, parcela, codigo_barras, linha_digitavel, valor_boleto, data_vencimento } = req.body;
     const url_boleto_pdf = req.file ? `/uploads/${req.file.filename}` : null;
@@ -1637,7 +1561,6 @@ app.post('/api/boletos', permitirApenas(['admin', 'coordenador']), uploadDocumen
     });
 });
 
-// 5. DAR BAIXA / REGISTRAR PAGAMENTO DO BOLETO (Com comprovante)
 app.patch('/api/boletos/:id/pagar', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('comprovante_pdf'), (req, res) => {
     const { id } = req.params;
     const { data_pagamento } = req.body;
@@ -1655,7 +1578,6 @@ app.patch('/api/boletos/:id/pagar', permitirApenas(['admin', 'coordenador']), up
     });
 });
 
-// 6. EXCLUIR NOTA FISCAL (Vai deletar os boletos automaticamente devido ao ON DELETE CASCADE)
 app.delete('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     db.query(`DELETE FROM notas_fiscais WHERE id = ?`, [id], (err) => {
@@ -1665,10 +1587,8 @@ app.delete('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (
 });
 
 // -------------------------------------------------------------------------
-// GESTÃO DINÂMICA DE LOCAIS DE ESTOQUE / ÁREAS (ESCOPOS DE ATUAÇÃO)
+// LOCAIS DE ESTOQUE
 // -------------------------------------------------------------------------
-
-// 1. LISTAR LOCAIS DE ESTOQUE
 app.get('/api/locais-estoque', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     db.query("SELECT * FROM locais_estoque WHERE status = 'Ativo' ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -1676,7 +1596,6 @@ app.get('/api/locais-estoque', permitirApenas(['admin', 'coordenador', 'tecnico'
     });
 });
 
-// 2. CADASTRAR NOVO LOCAL DE ESTOQUE
 app.post('/api/locais-estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { nome, descricao } = req.body;
     if (!nome || nome.trim() === "") {
@@ -1690,7 +1609,7 @@ app.post('/api/locais-estoque', permitirApenas(['admin', 'coordenador']), (req, 
     });
 });
 
-// FORNECEDORES (Com retorno do campo contrato_url)
+// FORNECEDORES
 app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, contrato_url FROM fornecedores ORDER BY nome_fantasia ASC";
     db.query(query, (err, result) => {
@@ -1699,11 +1618,8 @@ app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res
     });
 });
 
-// POST COM UPLOAD DE CONTRATO (Utilizando o 'uploadDocumento' que você já configurou)
 app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('contrato'), (req, res) => {
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade } = req.body;
-    
-    // Se o arquivo do contrato foi enviado, gera a URL relativa
     const contrato_url = req.file ? `/uploads/${req.file.filename}` : null;
 
     const query = "INSERT INTO fornecedores (nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, contrato_url) VALUES (?, ?, ?, ?, ?, ?, ?, 'Ativo', ?)";
@@ -1715,7 +1631,6 @@ app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), uploadDo
     });
 });
 
-// PUT COM SUPORTE A ATUALIZAÇÃO DE CONTRATO
 app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('contrato'), (req, res) => {
     const { id } = req.params;
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status } = req.body;
@@ -1740,7 +1655,6 @@ app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), uploa
     }
 });
 
-// DELETE FORNECEDOR
 app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     db.query("DELETE FROM fornecedores WHERE id = ?", [id], (err) => {
@@ -1750,10 +1664,8 @@ app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CONTROLE DE FILTROS DE ÁGUA
+// FILTROS DE ÁGUA
 // -------------------------------------------------------------------------
-
-// 1. LISTAR PONTOS DE FILTRAGEM (Com dados do Setor e Equipamento/Bebedouro vinculado)
 app.get('/api/filtros', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT f.id, f.nome, f.setor_id, f.equipamento_id, f.modelo_refil, f.data_ultima_troca, f.periodicidade_meses, f.observacoes,
@@ -1775,7 +1687,6 @@ app.get('/api/filtros', permitirApenas(['admin', 'coordenador', 'tecnico', 'usua
     });
 });
 
-// 2. CADASTRAR NOVO PONTO DE FILTRAGEM (Com suporte a equipamento_id opcional)
 app.post('/api/filtros', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { nome, setor_id, equipamento_id, modelo_refil, data_ultima_troca, periodicidade_meses, observacoes } = req.body;
     
@@ -1796,7 +1707,6 @@ app.post('/api/filtros', permitirApenas(['admin', 'coordenador', 'tecnico']), (r
     });
 });
 
-// 3. REGISTRAR TROCA / BAIXA DE REFIL NO ALMOXARIFADO
 app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { filtro_id, tecnico_nome, obs_intervencao, item_id, quantity, quantidade } = req.body;
     const qtd_usada = Number(quantidade || quantity || 0);
@@ -1804,13 +1714,11 @@ app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico'
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 1. Atualiza a data da última troca na tabela filtros_agua
         const queryUpdate = `UPDATE filtros_agua SET data_ultima_troca = CURDATE() WHERE id = ?`;
         conn.query(queryUpdate, [filtro_id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
             if (item_id && qtd_usada > 0) {
-                // 2. Busca o valor unitário do item no estoque
                 conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
                     if (errEstoque || results.length === 0) {
                         return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item de refil não localizado no almoxarifado." }); });
@@ -1824,7 +1732,6 @@ app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico'
                     const cubic_total = item.valor_unitario * qtd_usada;
                     const log_intervencao = `${obs_intervencao || 'Troca de refil.'} [Peça Deduzida: ${qtd_usada}x ${item.nome} | Custo Médio: R$ ${cubic_total.toFixed(2)}]`;
 
-                    // 3. Atualiza o custo acumulado numérico do ponto de filtragem
                     const queryUpdateFiltro = `
                         UPDATE filtros_agua 
                         SET cubic_acumulado = cubic_acumulado + ?
@@ -1833,12 +1740,10 @@ app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico'
                     conn.query(queryUpdateFiltro, [cubic_total, filtro_id], (errCusto) => {
                         if (errCusto) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCusto.message }); });
 
-                        // 4. Grava no histórico do módulo
                         const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
                         conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', log_intervencao], (errHist) => {
                             if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
-                            // 5. Deduz a quantidade física do estoque do almoxarifado
                             conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_usada, item_id], (errDeduz) => {
                                 if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
 
@@ -1852,7 +1757,6 @@ app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico'
                     });
                 });
             } else {
-                // Caso seja uma troca manual sem deduzir insumos do estoque
                 const queryHist = `INSERT INTO filtros_historico (filtro_id, data_troca, tecnico_nome, obs_intervencao) VALUES (?, CURDATE(), ?, ?)`;
                 conn.query(queryHist, [filtro_id, tecnico_nome || 'Técnico', obs_intervencao || 'Troca manual sem peça do estoque'], (errHist) => {
                     if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
@@ -1868,7 +1772,6 @@ app.post('/api/filtros/baixa', permitirApenas(['admin', 'coordenador', 'tecnico'
     });
 });
 
-// 4. RELATÓRIO DE TROCAS DE FILTROS
 app.get('/api/filtros/relatorio', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim } = req.query;
     const inicio = data_inicio ? `${data_inicio} 00:00:00` : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
@@ -1915,10 +1818,8 @@ app.get('/api/filtros/relatorio', permitirApenas(['admin', 'coordenador']), (req
 });
 
 // -------------------------------------------------------------------------
-// MÓDULO DE DOCUMENTOS (AUDITÁVEL)
+// MÓDULO DE DOCUMENTOS
 // -------------------------------------------------------------------------
-
-// 1. ROTA DE UPLOAD: Salva o documento e faz as amarrações obrigatórias/opcionais
 app.post('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('arquivo'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: "Nenhum arquivo foi enviado." });
@@ -1926,7 +1827,6 @@ app.post('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico']),
 
     const { chamado_id, setor_id, equipamento_id, usuario_id } = req.body;
 
-    // Validação obrigatória da auditoria
     if (!chamado_id || chamado_id === "null" || chamado_id === "undefined") {
         return res.status(400).json({ error: "Vínculo com o Chamado é obrigatório para auditoria." });
     }
@@ -1939,7 +1839,6 @@ app.post('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico']),
     const url_arquivo = `/uploads/${req.file.filename}`;
     const tipo_mimetype = req.file.mimetype;
 
-    // Sanatização dos IDs opcionais
     const v_chamado_id = Number(chamado_id);
     const v_usuario_id = Number(usuario_id);
     const v_setor_id = setor_id && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
@@ -1957,19 +1856,16 @@ app.post('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico']),
             return res.status(500).json({ error: err.message });
         }
 
-        // Registrar no histórico cronológico do chamado que um anexo foi adicionado (Auditoria)
         const msgHist = `📎 Novo anexo adicionado: ${nome_original}`;
         const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
         
         db.query(queryHist, [v_chamado_id, msgHist], (errHist) => {
             if (errHist) console.error("⚠️ Falha ao gerar log de histórico do anexo:", errHist.message);
-            
             res.status(201).json({ message: "Documento anexado com sucesso!", id: result.insertId });
         });
     });
 });
 
-// 2. ROTA DE CONSULTA: Retorna o histórico de documentos filtrados por Equipamento, Setor ou Chamado
 app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { chamado_id, setor_id, equipamento_id } = req.query;
 
@@ -2005,7 +1901,9 @@ app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'u
     });
 });
 
-// 🔄 1. LISTAR EQUIPAMENTOS DÍSPONÍVEIS PARA SUBSTITUIÇÃO (RESERVAS OU ATIVOS DE OUTROS SETORES DO MESMO TIPO)
+// -------------------------------------------------------------------------
+// TROCAS E RESERVAS
+// -------------------------------------------------------------------------
 app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { tipo_de_equipamento_com_base_em } = req.query;
 
@@ -2013,7 +1911,6 @@ app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 't
         return res.status(400).json({ error: "O ID do equipamento de referência é obrigatório." });
     }
 
-    // Descobre o tipo do equipamento de origem
     const queryTipo = `SELECT id, tipo_id, tipo_equipamento_id FROM equipamentos WHERE id = ?`;
     
     db.query(queryTipo, [Number(tipo_de_equipamento_com_base_em)], (errTipo, resultTipo) => {
@@ -2022,7 +1919,6 @@ app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 't
 
         const tipoId = resultTipo[0].tipo_id || resultTipo[0].tipo_equipamento_id;
 
-        // Lista ativos 'Reserva' ou ativos 'Ativos' do mesmo tipo vindo de outros setores
         let queryReservas = `
             SELECT e.id, e.nome, e.patrimonio, e.status, IFNULL(s.nome, 'Sem Setor / Reserva') as setor_nome 
             FROM equipamentos e
@@ -2045,14 +1941,13 @@ app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 't
     });
 });
 
-// 🔄 2. EXECUTAR PERMUTA/TROCA FÍSICA E REGISTRAR AUDITORIA COMPLETA EM AMBOS OS PRONTUÁRIOS E OS
 app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { 
-        equipamento_atual_id,  // Ativo Ruim
-        equipamento_reserva_id,// Ativo Bom (Reserva ou de outro setor)
+        equipamento_atual_id, 
+        equipamento_reserva_id,
         chamado_id, 
         tecnico_nome, 
-        setor_destino_id       // Setor do Quarto que precisa do ativo funcionando
+        setor_destino_id 
     } = req.body;
 
     if (!equipamento_atual_id || !equipamento_reserva_id || !setor_destino_id) {
@@ -2062,7 +1957,6 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // Passo 1: Busca dados atualizados de ambos os equipamentos
         const queryInfo = `SELECT id, nome, patrimonio, status, setor_id FROM equipamentos WHERE id IN (?, ?)`;
         conn.query(queryInfo, [equipamento_atual_id, equipamento_reserva_id], (errInfo, eqResults) => {
             if (errInfo || eqResults.length < 2) {
@@ -2075,7 +1969,6 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
             const eqAntigo = eqResults.find(e => e.id === Number(equipamento_atual_id));
             const eqNovo = eqResults.find(e => e.id === Number(equipamento_reserva_id));
 
-            // Passo 2: O Ativo Avariado muda para 'Inoperante' e perde o setor
             const queryUpdateAntigo = `
                 UPDATE equipamentos 
                 SET status = 'Inoperante', 
@@ -2085,7 +1978,6 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
             conn.query(queryUpdateAntigo, [equipamento_atual_id], (errUpAntigo) => {
                 if (errUpAntigo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpAntigo.message }); });
 
-                // Passo 3: O Ativo Destaque passa a ser 'Ativo' e assume o setor de destino
                 const queryUpdateNovo = `
                     UPDATE equipamentos 
                     SET status = 'Ativo', 
@@ -2095,7 +1987,6 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                 conn.query(queryUpdateNovo, [setor_destino_id, equipamento_reserva_id], (errUpNovo) => {
                     if (errUpNovo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpNovo.message }); });
 
-                    // Passo 4: Registro no Histórico do Ativo Avariado (Poltrona Ruim)
                     const logDescricaoAntigo = `Retirado do setor devido a avaria relatada${chamado_id ? ` na OS #${chamado_id}` : ''}. Substituído pelo equipamento ${eqNovo.nome} (Pat: ${eqNovo.patrimonio}).`;
                     const queryHistAntigo = `
                         INSERT INTO equipamentos_historico 
@@ -2105,7 +1996,6 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                     conn.query(queryHistAntigo, [equipamento_atual_id, eqAntigo.setor_id, eqAntigo.status, logDescricaoAntigo, tecnico_nome || 'Técnico'], (errHistA) => {
                         if (errHistA) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistA.message }); });
 
-                        // Passo 5: Registro no Histórico do Ativo Bom (Poltrona Boa)
                         const logDescricaoNovo = `Instalado no setor (ID: ${setor_destino_id}) em substituição/permuta ao equipamento ${eqAntigo.nome} (Pat: ${eqAntigo.patrimonio}).`;
                         const queryHistNovo = `
                             INSERT INTO equipamentos_historico 
@@ -2115,7 +2005,6 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                         conn.query(queryHistNovo, [equipamento_reserva_id, eqNovo.setor_id, setor_destino_id, eqNovo.status, logDescricaoNovo, tecnico_nome || 'Técnico'], (errHistN) => {
                             if (errHistN) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistN.message }); });
 
-                            // Passo 6: Se houver chamado_id válido, atualiza e gera cronologia da OS
                             if (chamado_id && chamado_id !== "0" && chamado_id !== "null") {
                                 const queryUpdateChamado = `UPDATE chamados SET equipamento_id = ? WHERE id = ?`;
                                 conn.query(queryUpdateChamado, [equipamento_reserva_id, chamado_id], (errChamado) => {
@@ -2152,10 +2041,8 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
 });
 
 // -------------------------------------------------------------------------
-// MÓDULO DE CONTROLE DE GASES MEDICINAIS (CORRIGIDO)
+// GASES MEDICINAIS
 // -------------------------------------------------------------------------
-
-// 1. CADASTRAR NOVO TIPO DE GÁS NO INVENTÁRIO
 app.post('/api/gases', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { tipo_gas, capacidade_cilindro, estoque_minimo } = req.body;
 
@@ -2180,7 +2067,6 @@ app.post('/api/gases', permitirApenas(['admin', 'coordenador']), (req, res) => {
     });
 });
 
-// 2. LISTAR O SALDO ATUAL E TIPOS DE GASES CADASTRADOS
 app.get('/api/gases', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT *, 
@@ -2195,7 +2081,6 @@ app.get('/api/gases', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuari
     });
 });
 
-// 3. REGISTRAR COMPRA (ENTRADA DE CILINDROS CHEIOS)
 app.post('/api/gases/entrada', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { tipo_gas_id, quantity_cilindros, quantidade_cilindros, valor_unitario_cilindro, tecnico_nome, observacao } = req.body;
     const qtd_entrada = Number(quantidade_cilindros || quantity_cilindros || 0);
@@ -2243,7 +2128,6 @@ app.post('/api/gases/entrada', permitirApenas(['admin', 'coordenador']), (req, r
     });
 });
 
-// 4. REGISTRAR CONSUMO (BAIXA DE CILINDRO SECO NA CENTRAL)
 app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { tipo_gas_id, quantity_cilindros, quantidade_cilindros, tecnico_nome, observacao } = req.body;
     const qtd_baixa = Number(quantidade_cilindros || quantity_cilindros || 1);
@@ -2298,7 +2182,6 @@ app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico'
     });
 });
 
-// 5. EXTRATO / HISTÓRICO DE MOVIMENTAÇÕES DE GASES (Com Filtros)
 app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { data_inicio, data_fim, tipo_movimentacao } = req.query;
 
@@ -2330,16 +2213,14 @@ app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico
 });
 
 // -------------------------------------------------------------------------
-// MÓDULO DE SOLICITAÇÃO DE COMPRAS UNIFICADO (COMPLETO COM EDIÇÃO E BAIXA)
+// SOLICITAÇÃO DE COMPRAS
 // -------------------------------------------------------------------------
-
-// 1. LISTAR TODAS AS SOLICITAÇÕES
 app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT 
             sc.*, 
             s.nome AS setor_nome, 
-            f.nome_fantasia AS fornecedor_nome,
+            f.nome_fantasia AS fornecedor_nome, 
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio,
             u.nome AS solicitante_nome,
             (SELECT COUNT(*) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS total_itens,
@@ -2357,7 +2238,6 @@ app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tec
     });
 });
 
-// 2. BUSCAR UMA SOLICITAÇÃO ESPECÍFICA COM ITENS
 app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { id } = req.params;
 
@@ -2390,7 +2270,6 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
     });
 });
 
-// 3. CRIAR NOVA SOLICITAÇÃO
 app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, itens } = req.body;
 
@@ -2437,7 +2316,6 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
     });
 });
 
-// 🆕 4. EDITAR SOLICITAÇÃO EXISTENTE
 app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { setor_id, fornecedor_id, equipamento_id, urgencia, motivo, itens } = req.body;
@@ -2462,7 +2340,6 @@ app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
         conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, urgencia || 'Média', motivo, id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-            // Apaga os itens antigos da solicitação para substituir pelos novos
             conn.query("DELETE FROM solicitacoes_compra_itens WHERE solicitacao_id = ?", [id], (errDel) => {
                 if (errDel) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDel.message }); });
 
@@ -2488,7 +2365,6 @@ app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
     });
 });
 
-// 5. ALTERAR STATUS / DAR BAIXA NA SOLICITAÇÃO
 app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { status, usuario_id } = req.body;
@@ -2513,7 +2389,6 @@ app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coord
     });
 });
 
-// 🆕 6. EXCLUIR SOLICITAÇÃO DE COMPRA
 app.delete('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
 
@@ -2536,7 +2411,7 @@ app.delete('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador
     });
 });
 
-// 🚚 1. REGISTRAR SAÍDA PARA MANUTENÇÃO EXTERNA (Atualiza para 'Em Manutenção')
+// MANUTENÇÃO EXTERNA
 app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { fornecedor_id, tecnico_nome, descricao_motivo, data_previsao_retorno } = req.body;
@@ -2548,7 +2423,6 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // Busca o nome do fornecedor para um log limpo e legível
         conn.query("SELECT nome_fantasia FROM fornecedores WHERE id = ?", [fornecedor_id], (errForn, resForn) => {
             if (errForn || resForn.length === 0) {
                 return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Fornecedor não localizado." }); });
@@ -2557,11 +2431,9 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
             const nomeFornecedor = resForn[0].nome_fantasia;
             const logTexto = `[SAÍDA EXTERNA] Enviado para ${nomeFornecedor}. Motivo: ${descricao_motivo}${data_previsao_retorno ? ` | Previsão Retorno: ${data_previsao_retorno}` : ''}`;
 
-            // Atualiza o status do equipamento para 'Em Manutenção' (Unificado)
             conn.query("UPDATE equipamentos SET status = 'Em Manutenção' WHERE id = ?", [id], (errUp) => {
                 if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-                // Grava no histórico geral de equipamentos
                 const queryHist = `
                     INSERT INTO equipamentos_historico 
                     (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
@@ -2583,7 +2455,6 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
     });
 });
 
-// 🛬 2. ROTA DE REGISTRO DE RETORNO DE MANUTENÇÃO EXTERNA (Retorna para Ativo ou Reserva)
 app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('laudo_tecnico'), (req, res) => {
     const { id } = req.params;
     const { numero_nf, valor_servico, observacao, tecnico_nome } = req.body;
@@ -2607,7 +2478,6 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
             if (valor_servico && Number(valor_servico) > 0) logTexto += ` Valor do Serviço: R$ ${Number(valor_servico).toFixed(2)}.`;
             if (observacao && observacao.trim() !== '') logTexto += ` Parecer Técnico: ${observacao}`;
 
-            // Retorna o status do equipamento para Ativo/Reserva
             conn.query("UPDATE equipamentos SET status = ? WHERE id = ?", [novoStatus, id], (errUp) => {
                 if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
@@ -2655,13 +2525,9 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
     });
 });
 
-// -------------------------------------------------------------------------
-// INTEGRAÇÃO: NOTAS FISCAIS ➔ ENTRADA DE ESTOQUE
-// -------------------------------------------------------------------------
-
-// 1. LANÇAR ITEM DA NOTA FISCAL (E CADASTRAR O INSUMO SE ELE NÃO EXISTIR)
+// INTEGRAÇÃO NOTAS FISCAIS -> ESTOQUE
 app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { id } = req.params; // ID da Nota Fiscal
+    const { id } = req.params;
     const { item_id, nome, referencia, descricao, local_estoque_id, quantidade, valor_unitario } = req.body;
 
     const qtd_entrada = Number(quantidade || 0);
@@ -2674,7 +2540,6 @@ app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // A. Busca o número da Nota Fiscal para auditoria
         conn.query("SELECT numero_nf FROM notas_fiscais WHERE id = ?", [id], (errNf, resNf) => {
             if (errNf || resNf.length === 0) {
                 return conn.rollback(() => { 
@@ -2685,7 +2550,6 @@ app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']
 
             const num_nota = resNf[0].numero_nf;
 
-            // Função auxiliar para registrar no histórico de entradas
             const registrarEntradaEstoque = (idItemFinal) => {
                 const queryHistEntrada = `
                     INSERT INTO itens_estoque_entradas 
@@ -2704,7 +2568,6 @@ app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']
                 });
             };
 
-            // B. Se o item_id foi informado, apenas incrementa o estoque existente
             if (item_id && item_id !== "" && item_id !== "null") {
                 const queryUpdateEstoque = `
                     UPDATE itens_estoque 
@@ -2719,7 +2582,6 @@ app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']
                     registrarEntradaEstoque(Number(item_id));
                 });
             } else {
-                // C. Se o item_id não foi informado, cadastra o novo insumo no estoque automaticamente
                 if (!nome || nome.trim() === "") {
                     return conn.rollback(() => {
                         conn.release();
@@ -2747,7 +2609,6 @@ app.post('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']
     });
 });
 
-// 2. LISTAR OS ITENS COMPRADOS/LANÇADOS EM UMA NOTA FISCAL ESPECÍFICA
 app.get('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const query = `
@@ -2765,7 +2626,6 @@ app.get('/api/notas-fiscais/:id/itens', permitirApenas(['admin', 'coordenador'])
     });
 });
 
-// 3. CONSULTAR O HISTÓRICO DE ENTRADAS POR NOTA FISCAL DE UM ITEM DO ESTOQUE
 app.get('/api/estoque/:id/historico-entradas', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const query = `
@@ -2784,7 +2644,6 @@ app.get('/api/estoque/:id/historico-entradas', permitirApenas(['admin', 'coorden
     });
 });
 
-// 🔄 EDICAO DE ITEM DO ESTOQUE
 app.put('/api/estoque/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const { nome, referencia, descricao, valor_unitario, estoque_minimo, local_estoque_id } = req.body;
@@ -2810,7 +2669,6 @@ app.put('/api/estoque/:id', permitirApenas(['admin', 'coordenador']), (req, res)
     });
 });
 
-// 🔄 ROTA DE REABERTURA DE CHAMADO (Exclusiva para ADMIN)
 app.patch('/api/chamados/:id/reabrir', permitirApenas(['admin']), (req, res) => {
     const { id } = req.params;
     const { motivo_reabertura, usuario_nome } = req.body;
@@ -2818,7 +2676,6 @@ app.patch('/api/chamados/:id/reabrir', permitirApenas(['admin']), (req, res) => 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 1. Altera o status para 'Aberto' e anula a data_conclusao para o cronômetro/SLA voltar a contar
         const queryUpdate = `
             UPDATE chamados 
             SET status = 'Aberto', 
@@ -2829,7 +2686,6 @@ app.patch('/api/chamados/:id/reabrir', permitirApenas(['admin']), (req, res) => 
         conn.query(queryUpdate, [id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-            // 2. Registra o evento de reabertura no histórico
             const logTexto = `[🔄 CHAMADO REABERTO PELO ADMINISTRADOR] Motivo: ${motivo_reabertura || 'Reabertura solicitada pela administração.'}`;
             const queryHist = `
                 INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
@@ -2849,7 +2705,6 @@ app.patch('/api/chamados/:id/reabrir', permitirApenas(['admin']), (req, res) => 
     });
 });
 
-// ➕ ENTRADA RÁPIDA DE ESTOQUE (INCREMENTA ITEM EXISTENTE)
 app.post('/api/estoque/:id/entrada-rapida', permitirApenas(['admin', 'coordenador']), (req, res) => {
   const { id } = req.params;
   const { quantidade_adicionada, novo_valor_unitario, num_nota } = req.body;
@@ -2892,6 +2747,619 @@ app.post('/api/estoque/:id/entrada-rapida', permitirApenas(['admin', 'coordenado
     });
   });
 });
+
+// -------------------------------------------------------------------------
+// ROTAS DE EXPORTAÇÃO EXCEL (.XLSX)
+// -------------------------------------------------------------------------
+
+// 1. EXPORTAR CHAMADOS GERAIS
+app.get('/api/relatorios/exportar/chamados', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                c.id,
+                c.data_abertura,
+                c.data_conclusao,
+                c.titulo,
+                c.status,
+                c.prioridade,
+                c.categoria,
+                c.tipo_manutencao,
+                s.nome AS setor_nome,
+                e.nome AS equipamento_nome,
+                e.patrimonio AS equipamento_patrimonio,
+                u.nome AS solicitante_nome,
+                c.tecnico_responsavel,
+                c.custo_servico
+            FROM chamados c
+            LEFT JOIN setores s ON c.setor_id = s.id
+            LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+            LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
+            ORDER BY c.data_abertura DESC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Chamados');
+
+            worksheet.columns = [
+                { header: 'Nº OS', key: 'id', width: 10 },
+                { header: 'Data Abertura', key: 'data_abertura', width: 20 },
+                { header: 'Data Conclusão', key: 'data_conclusao', width: 20 },
+                { header: 'Status', key: 'status', width: 16 },
+                { header: 'Prioridade', key: 'prioridade', width: 14 },
+                { header: 'Setor', key: 'setor_nome', width: 24 },
+                { header: 'Equipamento', key: 'equipamento_nome', width: 28 },
+                { header: 'Patrimônio', key: 'equipamento_patrimonio', width: 15 },
+                { header: 'Assunto / Título', key: 'titulo', width: 35 },
+                { header: 'Solicitante', key: 'solicitante_nome', width: 24 },
+                { header: 'Técnico Responsável', key: 'tecnico_responsavel', width: 24 },
+                { header: 'Custo (R$)', key: 'custo_servico', width: 15 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    id: row.id,
+                    data_abertura: row.data_abertura ? new Date(row.data_abertura).toLocaleString('pt-BR') : '',
+                    data_conclusao: row.data_conclusao ? new Date(row.data_conclusao).toLocaleString('pt-BR') : '',
+                    status: row.status,
+                    prioridade: row.prioridade,
+                    setor_nome: row.setor_nome || 'Geral',
+                    equipamento_nome: row.equipamento_nome || 'Nenhum',
+                    equipamento_patrimonio: row.equipamento_patrimonio || 'S/P',
+                    titulo: row.titulo,
+                    solicitante_nome: row.solicitante_nome || 'Não informado',
+                    tecnico_responsavel: row.tecnico_responsavel || 'Aguardando',
+                    custo_servico: Number(row.custo_servico || 0).toFixed(2)
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', 'attachment; filename=relatorio_chamados.xlsx');
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 2. EXPORTAR INVENTÁRIO PATRIMONIAL GERAL COM FILTROS DINÂMICOS
+app.get('/api/relatorios/exportar/inventario-geral', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const { data_inicio, data_fim, setor_id, status, tipo_id, tipo_equipamento_id } = req.query;
+
+        const inicio = data_inicio ? `${data_inicio} 00:00:00` : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+        const fim = data_fim ? `${data_fim} 23:59:59` : new Date().toISOString().split('T')[0] + ' 23:59:59';
+
+        let queryParams = [inicio, fim, inicio, fim];
+        let filtrosAdicionais = [];
+
+        if (setor_id && setor_id !== 'todos') {
+            filtrosAdicionais.push('e.setor_id = ?');
+            queryParams.push(Number(setor_id));
+        }
+
+        if (status && status !== 'todos') {
+            filtrosAdicionais.push('e.status = ?');
+            queryParams.push(status);
+        }
+
+        const tipoFiltro = tipo_id || tipo_equipamento_id;
+        if (tipoFiltro && tipoFiltro !== 'todos') {
+            filtrosAdicionais.push('(e.tipo_id = ? OR e.tipo_equipamento_id = ?)');
+            queryParams.push(Number(tipoFiltro), Number(tipoFiltro));
+        }
+
+        const clausulaWhere = filtrosAdicionais.length > 0 
+            ? `WHERE ${filtrosAdicionais.join(' AND ')}` 
+            : '';
+
+        const query = `
+            SELECT
+                e.id, 
+                e.patrimonio,
+                e.nome, 
+                e.fabricante as marca,
+                e.modelo, 
+                IFNULL(s.nome, 'Sem Setor') as setor_nome,
+                IFNULL(t.nome, 'Sem Tipo') as tipo_nome,
+                e.status,
+                (
+                    SELECT IFNULL(SUM(c.custo_servico), 0) 
+                    FROM chamados c 
+                    WHERE c.equipamento_id = e.id AND c.data_abertura BETWEEN ? AND ?
+                ) +
+                (
+                    SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0)
+                    FROM chamados_itens ci
+                    JOIN chamados ch ON ci.chamado_id = ch.id
+                    WHERE ch.equipamento_id = e.id AND ch.data_abertura BETWEEN ? AND ?
+                ) + IFNULL(e.valor, 0) as total_gasto
+            FROM equipamentos e
+            LEFT JOIN setores s ON e.setor_id = s.id
+            LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
+            ` + clausulaWhere + `
+            ORDER BY total_gasto DESC, s.nome ASC, e.nome ASC
+        `;
+
+        db.query(query, queryParams, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Inventário Patrimonial');
+
+            worksheet.columns = [
+                { header: 'Patrimônio', key: 'patrimonio', width: 16 },
+                { header: 'Equipamento', key: 'nome', width: 32 },
+                { header: 'Marca / Fabricante', key: 'marca', width: 22 },
+                { header: 'Modelo', key: 'modelo', width: 20 },
+                { header: 'Tipo', key: 'tipo_nome', width: 20 },
+                { header: 'Setor / Localização', key: 'setor_nome', width: 25 },
+                { header: 'Status Atual', key: 'status', width: 16 },
+                { header: 'Custo Acumulado (R$)', key: 'total_gasto', width: 22 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    patrimonio: row.patrimonio || '---',
+                    nome: row.nome,
+                    marca: row.marca || 'S/M',
+                    modelo: row.modelo || 'S/M',
+                    tipo_nome: row.tipo_nome || 'Sem Tipo',
+                    setor_nome: row.setor_nome || 'Não definido',
+                    status: row.status || 'Ativo',
+                    total_gasto: Number(row.total_gasto || 0).toFixed(2)
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=inventario_geral_${data_inicio || 'inicio'}_a_${data_fim || 'fim'}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 3. EXPORTAR RELATÓRIO DE CHAMADOS POR SETOR
+app.get('/api/relatorios/exportar/chamados-setor', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const { data_inicio, data_fim, setor_id } = req.query;
+
+        const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const fim = data_fim || new Date().toISOString().split('T')[0];
+
+        let queryParams = [inicio, fim];
+        let filterSetor = '';
+
+        if (setor_id && setor_id !== 'todos') {
+            filterSetor = 'AND s.id = ?';
+            queryParams.push(Number(setor_id));
+        }
+
+        const sql = `
+            WITH RECURSIVE ArvoreSetores AS (
+                SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+                FROM setores
+                WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+                
+                UNION ALL
+                
+                SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+                FROM setores filho
+                INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+            )
+            SELECT 
+                s.id AS setor_id,
+                s.caminho AS nome_setor,
+                COUNT(c.id) AS total_chamados
+            FROM ArvoreSetores s
+            LEFT JOIN chamados c ON c.setor_id = s.id AND DATE(c.data_abertura) BETWEEN ? AND ?
+            WHERE 1=1 ${filterSetor}
+            GROUP BY s.id, s.caminho
+            HAVING total_chamados > 0
+            ORDER BY total_chamados DESC, s.caminho ASC
+        `;
+
+        db.query(sql, queryParams, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Chamados por Setor');
+
+            worksheet.columns = [
+                { header: 'Setor', key: 'nome_setor', width: 35 },
+                { header: 'Total de Chamados', key: 'total_chamados', width: 20 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    nome_setor: row.nome_setor,
+                    total_chamados: Number(row.total_chamados || 0)
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=chamados_por_setor_${inicio}_a_${fim}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 4. EXPORTAR ESTOQUE DE INSUMOS
+app.get('/api/relatorios/exportar/estoque', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                ie.id,
+                ie.referencia,
+                ie.nome,
+                ie.quantidade,
+                ie.estoque_minimo,
+                ie.valor_unitario,
+                (ie.quantidade * ie.valor_unitario) AS valor_total_estoque,
+                le.nome AS local_estoque_nome
+            FROM itens_estoque ie
+            LEFT JOIN locais_estoque le ON ie.local_estoque_id = le.id
+            ORDER BY ie.nome ASC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Estoque de Insumos');
+
+            worksheet.columns = [
+                { header: 'ID', key: 'id', width: 8 },
+                { header: 'Referência', key: 'referencia', width: 16 },
+                { header: 'Nome da Peça / Insumo', key: 'nome', width: 35 },
+                { header: 'Local de Estoque', key: 'local_estoque_nome', width: 22 },
+                { header: 'Saldo Atual', key: 'quantidade', width: 14 },
+                { header: 'Qtd Mínima', key: 'estoque_minimo', width: 14 },
+                { header: 'Valor Unit. (R$)', key: 'valor_unitario', width: 16 },
+                { header: 'Valor Total (R$)', key: 'valor_total_estoque', width: 18 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    id: row.id,
+                    referencia: row.referencia || '---',
+                    nome: row.nome,
+                    local_estoque_nome: row.local_estoque_nome || 'Geral',
+                    quantidade: row.quantidade,
+                    estoque_minimo: row.estoque_minimo || 0,
+                    valor_unitario: Number(row.valor_unitario || 0).toFixed(2),
+                    valor_total_estoque: Number(row.valor_total_estoque || 0).toFixed(2)
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', 'attachment; filename=estoque_insumos.xlsx');
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR RELATÓRIO DE TROCAS DE FILTROS DE ÁGUA (.XLSX)
+app.get('/api/relatorios/exportar/filtros', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const { data_inicio, data_fim } = req.query;
+        const inicio = data_inicio ? `${data_inicio} 00:00:00` : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+        const fim = data_fim ? `${data_fim} 23:59:59` : new Date().toISOString().split('T')[0] + ' 23:59:59';
+
+        const query = `
+            SELECT h.id, h.data_troca, h.tecnico_nome, h.obs_intervencao, f.nome AS filtro_nome, s.nome AS setor_nome
+            FROM filtros_historico h
+            JOIN filtros_agua f ON h.filtro_id = f.id
+            LEFT JOIN setores s ON f.setor_id = s.id
+            WHERE h.data_troca BETWEEN ? AND ?
+            ORDER BY h.data_troca DESC
+        `;
+
+        db.query(query, [inicio, fim], async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Trocas de Filtros');
+
+            worksheet.columns = [
+                { header: 'Data da Troca', key: 'data_troca', width: 18 },
+                { header: 'Ponto / Local', key: 'filtro_nome', width: 30 },
+                { header: 'Setor', key: 'setor_nome', width: 25 },
+                { header: 'Insumo Utilizado', key: 'insumo', width: 30 },
+                { header: 'Responsável Técnico', key: 'tecnico_nome', width: 25 },
+                { header: 'Laudo / Observações', key: 'observacao', width: 45 },
+                { header: 'Custo Médio (R$)', key: 'custo', width: 18 }
+            ];
+
+            // Cabeçalho estilizado em azul ardósia escuro
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0284C7' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                let insumo = 'Nenhum insumo baixado';
+                let obsLimpa = row.obs_intervencao || '';
+                let custo = '0.00';
+
+                if (row.obs_intervencao && row.obs_intervencao.includes('Peça Deduzida:')) {
+                    try {
+                        const trecho = row.obs_intervencao.split('Peça Deduzida:')[1];
+                        insumo = trecho.split('|')[0].replace(']', '').trim();
+                    } catch {}
+                }
+
+                if (row.obs_intervencao && row.obs_intervencao.includes('[')) {
+                    obsLimpa = row.obs_intervencao.split('[')[0].trim();
+                }
+
+                if (row.obs_intervencao && row.obs_intervencao.includes('Custo Médio: R$')) {
+                    try {
+                        const partes = row.obs_intervencao.split('Custo Médio: R$');
+                        if (partes[1]) {
+                            custo = parseFloat(partes[1].replace(']', '').trim()).toFixed(2);
+                        }
+                    } catch {}
+                }
+
+                worksheet.addRow({
+                    data_troca: row.data_troca ? new Date(row.data_troca).toLocaleDateString('pt-BR') : '',
+                    filtro_nome: row.filtro_nome,
+                    setor_nome: row.setor_nome || 'Não Informado',
+                    insumo: insumo,
+                    tecnico_nome: row.tecnico_nome,
+                    observacao: obsLimpa,
+                    custo: custo
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=relatorio_filtros_${data_inicio}_a_${data_fim}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR RELATÓRIO CONSOLIDADO DE ESTOQUE POR LOCAL (.XLSX)
+app.get('/api/relatorios/exportar/estoque-local', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const { local_estoque_id, data_inicio, data_fim, tipo_registro } = req.query;
+
+        let query = `
+            SELECT * FROM (
+                SELECT 
+                    i.id, 
+                    i.nome, 
+                    IFNULL(i.referencia, '---') AS referencia, 
+                    i.quantidade, 
+                    i.valor_unitario, 
+                    IFNULL(i.data_cadastro, NOW()) AS data_cadastro,
+                    'Insumo' AS tipo_registro, 
+                    i.local_estoque_id, 
+                    l.nome AS nome_estoque, 
+                    IFNULL(i.descricao, 'Sem descrição informada') AS descricao
+                FROM itens_estoque i
+                JOIN locais_estoque l ON i.local_estoque_id = l.id
+                
+                UNION ALL
+                
+                SELECT 
+                    e.id, 
+                    CONCAT(e.nome, ' (S/N: ', IFNULL(e.num_serie, 'N/A'), ')') AS nome,
+                    IFNULL(e.patrimonio, 'S/Patrimônio') AS referencia, 
+                    1 AS quantidade, 
+                    0.00 AS valor_unitario, 
+                    IFNULL(e.data_ultima_preventiva, CURDATE()) AS data_cadastro,
+                    'Equipamento' AS tipo_registro, 
+                    e.local_estoque_id, 
+                    l.nome AS nome_estoque, 
+                    CONCAT('Modelo: ', IFNULL(e.modelo, 'Não informado'), ' | Fabricante: ', IFNULL(e.fabricante, 'Não informado')) AS descricao
+                FROM equipamentos e
+                JOIN locais_estoque l ON e.local_estoque_id = l.id
+            ) AS tabela_consolidada
+            WHERE 1=1
+        `;
+        const queryParams = [];
+
+        if (local_estoque_id && local_estoque_id !== 'todos') {
+            query += ` AND local_estoque_id = ?`;
+            queryParams.push(Number(local_estoque_id));
+        }
+
+        if (tipo_registro && tipo_registro !== 'todos') {
+            query += ` AND tipo_registro = ?`;
+            queryParams.push(tipo_registro);
+        }
+
+        if (data_inicio && data_fim) {
+            query += ` AND data_cadastro BETWEEN ? AND ?`;
+            queryParams.push(`${data_inicio} 00:00:00`, `${data_fim} 23:59:59`);
+        }
+
+        query += ` ORDER BY nome_estoque ASC, tipo_registro DESC, nome ASC`;
+
+        db.query(query, queryParams, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Balanço de Estoque');
+
+            worksheet.columns = [
+                { header: 'Descrição / Especificação', key: 'nome', width: 35 },
+                { header: 'Tipo', key: 'tipo_registro', width: 16 },
+                { header: 'Origem / Estoque', key: 'nome_estoque', width: 25 },
+                { header: 'Ref / Patrimônio', key: 'referencia', width: 20 },
+                { header: 'Qtd', key: 'quantidade', width: 12 },
+                { header: 'Preço Unit. (R$)', key: 'valor_unitario', width: 18 },
+                { header: 'Subtotal (R$)', key: 'subtotal', width: 18 },
+                { header: 'Detalhes / Observações', key: 'descricao', width: 40 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                const subtotal = Number(row.quantidade || 0) * Number(row.valor_unitario || 0);
+                worksheet.addRow({
+                    nome: row.nome,
+                    tipo_registro: row.tipo_registro,
+                    nome_estoque: row.nome_estoque,
+                    referencia: row.referencia,
+                    quantidade: Number(row.quantidade || 0),
+                    valor_unitario: Number(row.valor_unitario || 0).toFixed(2),
+                    subtotal: subtotal.toFixed(2),
+                    descricao: row.descricao
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=balanco_estoque_local_${data_inicio || 'inicio'}_a_${data_fim || 'fim'}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR RELATÓRIO DE CUSTOS POR SETOR (.XLSX)
+app.get('/api/relatorios/exportar/custos-setor', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const { data_inicio, data_fim, setor_id } = req.query;
+
+        const inicio = data_inicio || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + ' 00:00:00';
+        const fim = data_fim || new Date().toISOString().split('T')[0] + ' 23:59:59';
+
+        let queryParams = [inicio, fim];
+        let filterSetor = '';
+
+        if (setor_id && setor_id !== 'todos') {
+            filterSetor = 'AND s.id = ?';
+            queryParams.push(setor_id);
+        }
+
+        const sql = `
+            WITH RECURSIVE ArvoreSetores AS (
+                SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+                FROM setores
+                WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+                
+                UNION ALL
+                
+                SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+                FROM setores filho
+                INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+            )
+            SELECT 
+                s.id AS setor_id,
+                s.caminho AS nome_setor,
+                COUNT(c.id) AS total_chamados,
+                SUM(COALESCE(c.custo_servico, 0)) AS total_custo_servico,
+                SUM(COALESCE(ci.total_pecas, 0)) AS total_custo_pecas,
+                (SUM(COALESCE(c.custo_servico, 0)) + SUM(COALESCE(ci.total_pecas, 0))) AS custo_total_geral
+            FROM ArvoreSetores s
+            LEFT JOIN chamados c ON c.setor_id = s.id AND c.data_abertura BETWEEN ? AND ?
+            LEFT JOIN (
+                SELECT chamado_id, SUM(quantidade * valor_unitario_na_epoca) AS total_pecas
+                FROM chamados_itens
+                GROUP BY chamado_id
+            ) ci ON ci.chamado_id = c.id
+            WHERE 1=1 ${filterSetor}
+            GROUP BY s.id, s.caminho
+            ORDER BY custo_total_geral DESC, s.caminho ASC
+        `;
+
+        db.query(sql, queryParams, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Custos por Setor');
+
+            worksheet.columns = [
+                { header: 'Setor Hospitalar', key: 'nome_setor', width: 35 },
+                { header: 'Nº Chamados (OS)', key: 'total_chamados', width: 18 },
+                { header: 'Custos de Serviços (R$)', key: 'total_custo_servico', width: 22 },
+                { header: 'Custos de Peças (R$)', key: 'total_custo_pecas', width: 20 },
+                { header: 'Total Acumulado (R$)', key: 'custo_total_geral', width: 22 }
+            ];
+
+            // Cabeçalho estilizado em azul escuro
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    nome_setor: row.nome_setor,
+                    total_chamados: Number(row.total_chamados || 0),
+                    total_custo_servico: Number(row.total_custo_servico || 0).toFixed(2),
+                    total_custo_pecas: Number(row.total_custo_pecas || 0).toFixed(2),
+                    custo_total_geral: Number(row.custo_total_geral || 0).toFixed(2)
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=custos_por_setor_${data_inicio || 'inicio'}_a_${data_fim || 'fim'}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

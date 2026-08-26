@@ -21,9 +21,30 @@ const PainelChamados = () => {
 
   const API_URL = 'http://192.168.5.101:3000/api';
 
-  // 🔊 Alarme sonoro em dois tons
-  const emitirAlertaSonoro = () => {
+  // 🗣️ FUNÇÃO DE SÍNTESE DE VOZ (Fala Setor + Assunto)
+  const falarTexto = (texto) => {
+    if (!('speechSynthesis' in window)) return;
+
+    // Cancela falas anteriores na fila para não acumular
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(texto);
+    utterance.lang = 'pt-BR';
+    utterance.rate = 1.05; // Velocidade da fala levemente mais dinâmica
+    utterance.pitch = 1.0; // Tom de voz padrão
+
+    // Tenta priorizar uma voz brasileira de boa qualidade
+    const vozes = window.speechSynthesis.getVoices();
+    const vozPt = vozes.find(v => v.lang === 'pt-BR' || v.lang.includes('pt'));
+    if (vozPt) utterance.voice = vozPt;
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // 🔊 Alarme sonoro em dois tons + Anúncio de Voz
+  const emitirAlertaCompleto = (novosChamados = []) => {
     try {
+      // 1. Toca o Ding-Dong sonoro primeiro
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const tocarBeep = (freq, start, dur) => {
         const osc = audioCtx.createOscillator();
@@ -37,8 +58,21 @@ const PainelChamados = () => {
         osc.start(audioCtx.currentTime + start);
         osc.stop(audioCtx.currentTime + start + dur);
       };
+
       tocarBeep(880, 0, 0.25);
       tocarBeep(1174.66, 0.3, 0.45);
+
+      // 2. Se houver chamados novos, anuncia via voz após 0.7 segundos
+      if (novosChamados.length > 0) {
+        setTimeout(() => {
+          novosChamados.forEach((c) => {
+            const setor = c.setor_nome || 'Setor não informado';
+            const assunto = c.titulo || 'Sem assunto';
+            const mensagem = `Atenção: Novo chamado no setor ${setor}. Assunto: ${assunto}.`;
+            falarTexto(mensagem);
+          });
+        }, 700);
+      }
     } catch (e) {
       console.warn("Áudio não pôde ser reproduzido:", e);
     }
@@ -68,10 +102,11 @@ const PainelChamados = () => {
       
       const pendentes = data.filter(c => c.status !== 'Concluído');
 
+      // Se houver novos chamados abertos e o áudio estiver ativo, anuncia por voz
       if (!primeiraCargaRef.current && audioHabilitado) {
         const novos = pendentes.filter(c => !ultimosIdsRef.current.has(c.id) && c.status === 'Aberto');
         if (novos.length > 0) {
-          emitirAlertaSonoro();
+          emitirAlertaCompleto(novos);
         }
       }
 
@@ -127,7 +162,7 @@ const PainelChamados = () => {
 
   // Helper para obter o nome do solicitante
   const obterSolicitante = (c) => {
-    return c.usuario_nome || c.solicitante_nome || c.usuario_abertura_nome || c.criado_por || 'Solicitante não informado';
+    return c.solicitante_nome || c.usuario_nome || c.usuario_abertura_nome || c.criado_por || 'Solicitante não informado';
   };
 
   return (
@@ -179,14 +214,22 @@ const PainelChamados = () => {
             <span>{modoPlantao ? 'DESATIVAR PLANTÃO' : 'MODO FIM DE SEMANA'}</span>
           </button>
 
-          {/* 🔊 BOTÃO DE ÁUDIO */}
+          {/* 🔊 BOTÃO DE ÁUDIO E VOZ */}
           <button 
-            onClick={() => { setAudioHabilitado(!audioHabilitado); emitirAlertaSonoro(); }}
+            onClick={() => { 
+              const novoStatus = !audioHabilitado;
+              setAudioHabilitado(novoStatus); 
+              if (novoStatus) {
+                emitirAlertaCompleto();
+                falarTexto("Sistema de áudio e avisos por voz ativado.");
+              }
+            }}
             className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
               audioHabilitado ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
             }`}
+            title="Clique para habilitar/desabilitar alertas sonoros e voz"
           >
-            {audioHabilitado ? '🔊 SOM ATIVADO' : '🔇 ATIVAR SOM'}
+            {audioHabilitado ? '🔊 VOZ E SOM ATIVOS' : '🔇 CLIQUE P/ ATIVAR VOZ'}
           </button>
 
           {/* ⏰ RELÓGIO */}
@@ -251,7 +294,7 @@ const PainelChamados = () => {
                   </div>
                 )}
 
-                {/* 👤 LINHA DO SOLICITANTE / QUEM ABRIU O CHAMADO */}
+                {/* 👤 LINHA DO SOLICITANTE */}
                 <div className="bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800/80 mb-3 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 text-slate-300 font-bold truncate">
                     <span className="text-slate-500">👤 Solicitante:</span>
@@ -310,7 +353,7 @@ const PainelChamados = () => {
                   </div>
                 )}
 
-                {/* 👤 LINHA DO SOLICITANTE / QUEM ABRIU O CHAMADO */}
+                {/* 👤 LINHA DO SOLICITANTE */}
                 <div className="bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800/80 mb-3 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 text-slate-300 font-bold truncate">
                     <span className="text-slate-500">👤 Solicitante:</span>

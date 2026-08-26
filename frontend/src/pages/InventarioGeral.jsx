@@ -3,15 +3,16 @@ import { useEffect, useState } from 'react';
 const InventarioGeral = () => {
     const [equipamentos, setEquipamentos] = useState([]);
     const [setores, setSetores] = useState([]);
-    const [tiposEquipamentos, setTiposEquipamentos] = useState([]); // 🆕 Lista de tipos de equipamentos
+    const [tiposEquipamentos, setTiposEquipamentos] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [exportando, setExportando] = useState(false);
 
     // Estados dos filtros dinâmicos
     const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
     const [setorSelecionado, setSetorSelecionado] = useState("todos");
     const [statusSelecionado, setStatusSelecionado] = useState("todos");
-    const [tipoSelecionado, setTipoSelecionado] = useState("todos"); // 🆕 Filtro por tipo de equipamento
+    const [tipoSelecionado, setTipoSelecionado] = useState("todos");
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
@@ -33,10 +34,10 @@ const InventarioGeral = () => {
         }
     };
 
-    // 🆕 Busca a lista de tipos de equipamentos cadastrados
+    // Busca a lista de tipos de equipamentos cadastrados
     const carregarTiposEquipamentos = async () => {
         try {
-            const res = await fetch(`${API_URL}/tipos-equipamentos`, { // Ajuste para a sua rota de tipos de equipamentos, se necessário
+            const res = await fetch(`${API_URL}/tipos-equipamentos`, {
                 headers: { "x-usuario-nivel": obterNivelUsuario() }
             }).then(res => res.json());
             setTiposEquipamentos(res || []);
@@ -49,7 +50,6 @@ const InventarioGeral = () => {
     const carregarInventarioFiltrado = async () => {
         setLoading(true);
         try {
-            // 🆕 URL atualizada contendo o parametro 'tipo_id'
             const url = `${API_URL}/relatorios/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}&status=${statusSelecionado}&tipo_id=${tipoSelecionado}`;
             
             const res = await fetch(url, {
@@ -65,13 +65,40 @@ const InventarioGeral = () => {
 
     useEffect(() => { 
         carregarSetores(); 
-        carregarTiposEquipamentos(); // 🆕 Carrega os tipos ao iniciar
+        carregarTiposEquipamentos();
     }, []);
     
-    // ⚙️ O useEffect agora reage imediatamente ao mudar qualquer um dos 5 filtros
     useEffect(() => { 
         carregarInventarioFiltrado(); 
     }, [dataInicio, dataFim, setorSelecionado, statusSelecionado, tipoSelecionado]);
+
+    // 📊 EXPORTAÇÃO DIRETA PARA EXCEL (.XLSX)
+    const handleExportarExcel = async () => {
+        setExportando(true);
+        try {
+            const url = `${API_URL}/relatorios/exportar/inventario-geral?data_inicio=${dataInicio}&data_fim=${dataFim}&setor_id=${setorSelecionado}&status=${statusSelecionado}&tipo_id=${tipoSelecionado}`;
+            
+            const res = await fetch(url, {
+                headers: { "x-usuario-nivel": obterNivelUsuario() }
+            });
+
+            if (!res.ok) throw new Error("Falha ao gerar o arquivo Excel.");
+
+            const blob = await res.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = `inventario_patrimonial_${dataInicio}_a_${dataFim}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (err) {
+            alert("Erro ao exportar Excel: " + err.message);
+        } finally {
+            setExportando(false);
+        }
+    };
 
     const investimentoTotal = equipamentos.reduce((acc, curr) => {
         const valor = parseFloat(curr.total_gasto) || 0;
@@ -103,8 +130,8 @@ const InventarioGeral = () => {
                         left: 0; 
                         top: 0; 
                         width: 100%; 
-                        padding: 0 !important;
-                        margin: 0 !important;
+                        padding: 0 !important; 
+                        margin: 0 !important; 
                     }
                     .hide-print { display: none !important; }
                     table { width: 100% !important; border-collapse: collapse !important; }
@@ -114,20 +141,32 @@ const InventarioGeral = () => {
 
             {/* BARRA DE FERRAMENTAS E FILTROS */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4 mb-6 hide-print">
-                <div className="flex justify-between items-center border-b border-slate-50 pb-3">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-50 pb-3 gap-3">
                     <div>
                         <h3 className="text-sm font-black uppercase text-slate-700 tracking-wider">Filtros de Auditoria</h3>
                         <p className="text-[10px] text-slate-400 font-bold uppercase">Refine os custos aplicados por intervalo de tempo, localidade, tipo ou status</p>
                     </div>
-                    <button 
-                        onClick={() => window.print()} 
-                        className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all shadow-md active:scale-[0.98]"
-                    >
-                        🖨️ Gerar PDF / Imprimir
-                    </button>
+                    
+                    {/* BOTÕES DE EXPORTAÇÃO E IMPRESSÃO */}
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={handleExportarExcel} 
+                            disabled={exportando || loading}
+                            className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-md active:scale-[0.98] flex items-center gap-2 disabled:opacity-50"
+                        >
+                            <span>📊</span> {exportando ? "Gerando..." : "Exportar Excel"}
+                        </button>
+
+                        <button 
+                            onClick={() => window.print()} 
+                            className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-700 transition-all shadow-md active:scale-[0.98] flex items-center gap-2"
+                        >
+                            <span>🖨️</span> Gerar PDF / Imprimir
+                        </button>
+                    </div>
                 </div>
 
-                {/* Grid adaptado para 5 colunas em telas maiores (lg:grid-cols-5) */}
+                {/* Grid adaptado para 5 colunas em telas maiores */}
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Inicial</label>
@@ -145,7 +184,6 @@ const InventarioGeral = () => {
                         </select>
                     </div>
 
-                    {/* 🆕 NOVO SELECT: Tipo de Equipamento */}
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Tipo de Equipamento</label>
                         <select 

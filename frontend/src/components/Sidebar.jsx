@@ -27,6 +27,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
 
   const isActive = (path) => location.pathname === path;
   const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
+  const isUsuarioComum = nivelUsuario === 'usuario';
 
   // Permissões
   const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
@@ -154,10 +155,10 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
           </button>
         </div>
 
-        {/* NAVEGAÇÃO REORGANIZADA POR GRUPOS */}
+        {/* NAVEGAÇÃO */}
         <nav className="space-y-1 flex-1 overflow-y-auto pr-1 custom-scrollbar overflow-x-hidden">
 
-          {/* --- GRUPO 1: PRINCIPAL --- */}
+          {/* --- GRUPO PRINCIPAL --- */}
           {podeVerDashboard && (
             <Link to="/" title="Dashboard" className={`flex items-center gap-3 p-2.5 rounded-xl font-bold text-sm transition-all ${isActive('/') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800'}`}>
               <span className="text-base shrink-0">🏠</span>
@@ -170,196 +171,201 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             {sidebarAberta && <span className="truncate">Chamados / OS</span>}
           </Link>
 
-          {/* DIVISOR 1 */}
-          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gestão Técnica</div>}
+          {/* 🔒 SEÇÕES RESTRITAS OCULTAS PARA USUÁRIO COMUM */}
+          {!isUsuarioComum && (
+            <>
+              {/* DIVISOR 1 */}
+              {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gestão Técnica</div>}
 
-          {/* --- GRUPO 2: ATIVOS & INFRA (DROPDOWN) --- */}
-          {podeVerEquipamentos && (
-            <div>
-              <button
-                onClick={() => {
-                  if(!sidebarAberta) setSidebarAberta(true);
-                  setMenuAtivosAberto(!menuAtivosAberto);
-                }}
-                className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isAtivosActive ? 'text-blue-400' : ''}`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-base shrink-0">🛠️</span>
-                  {sidebarAberta && <span className="truncate">Ativos & Infra</span>}
-                </div>
-                {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuAtivosAberto || isAtivosActive ? 'rotate-180' : ''}`} size={14} />}
-              </button>
+              {/* --- GRUPO 2: ATIVOS & INFRA (DROPDOWN) --- */}
+              {podeVerEquipamentos && (
+                <div>
+                  <button
+                    onClick={() => {
+                      if(!sidebarAberta) setSidebarAberta(true);
+                      setMenuAtivosAberto(!menuAtivosAberto);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isAtivosActive ? 'text-blue-400' : ''}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-base shrink-0">🛠️</span>
+                      {sidebarAberta && <span className="truncate">Ativos & Infra</span>}
+                    </div>
+                    {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuAtivosAberto || isAtivosActive ? 'rotate-180' : ''}`} size={14} />}
+                  </button>
 
-              {sidebarAberta && (menuAtivosAberto || isAtivosActive) && (
-                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
-                  <Link to="/equipamentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Listar Ativos</span>
-                  </Link>
-                  <Link to="/preventivas" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Preventivas PMOC</span>
-                  </Link>
-                  <Link to="/setores" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/setores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Setores e Áreas</span>
-                  </Link>
-                  {podeVerDocumentos && (
-                    <Link to="/documentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/documentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                      <span>• Repositório Docs</span>
-                    </Link>
-                  )}
-                  {['admin', 'coordenador'].includes(nivelUsuario) && (
-                    <button onClick={() => setModalTipoEquipAberto(true)} className="w-full text-left p-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white">
-                      <span>• Gerenciar Tipos</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* DIVISOR 2 */}
-          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Suprimentos</div>}
-
-          {/* --- GRUPO 3: SUPRIMENTOS & FINANÇAS (DROPDOWN) --- */}
-{(podeSolicitarCompras || podeGerenciarInfraestoque) && (
-  <div>
-    <button
-      onClick={() => {
-        if(!sidebarAberta) setSidebarAberta(true);
-        setMenuSuprimentosAberto(!menuSuprimentosAberto);
-      }}
-      className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isSuprimentosActive ? 'text-blue-400' : ''}`}
-    >
-      <div className="flex items-center gap-2.5 min-w-0 pr-1">
-        <span className="text-base shrink-0">📦</span>
-        {sidebarAberta && (
-          <span className="truncate text-xs font-black uppercase tracking-tight">
-            Almoxarifado / Compras
-          </span>
-        )}
-      </div>
-      {sidebarAberta && (
-        <FiChevronDown 
-          className={`shrink-0 transition-transform duration-200 ${menuSuprimentosAberto || isSuprimentosActive ? 'rotate-180' : ''}`} 
-          size={14} 
-        />
-      )}
-    </button>
-
-    {sidebarAberta && (menuSuprimentosAberto || isSuprimentosActive) && (
-      <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
-        {podeSolicitarCompras && (
-          <Link to="/solicitacoes-compra" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/solicitacoes-compra') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-            <span>• Solicitações / Compras</span>
-          </Link>
-        )}
-        {podeGerenciarInfraestoque && (
-          <>
-            <Link to="/estoque" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/estoque') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-              <span>• Estoque Insumos</span>
-            </Link>
-            <Link to="/locais-estoque" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/locais-estoque') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-              <span>• Locais de Estoque</span>
-            </Link>
-            <Link to="/notas-fiscais" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/notas-fiscais') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-              <span>• Notas & Boletos</span>
-            </Link>
-            <Link to="/fornecedores" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/fornecedores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-              <span>• Fornecedores</span>
-            </Link>
-          </>
-        )}
-      </div>
-    )}
-  </div>
-)}
-
-          {/* DIVISOR 3 */}
-          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Segurança & Utilidades</div>}
-
-          {/* --- GRUPO 4: UTILIDADES & SST (DROPDOWN) --- */}
-          {(podeVerEpis || podeVerGases || podeVerFiltrosAgua) && (
-            <div>
-              <button
-                onClick={() => {
-                  if(!sidebarAberta) setSidebarAberta(true);
-                  setMenuUtilidadesAberto(!menuUtilidadesAberto);
-                }}
-                className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isUtilidadesActive ? 'text-blue-400' : ''}`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-base shrink-0">🥽</span>
-                  {sidebarAberta && <span className="truncate">Utilidades & SST</span>}
-                </div>
-                {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuUtilidadesAberto || isUtilidadesActive ? 'rotate-180' : ''}`} size={14} />}
-              </button>
-
-              {sidebarAberta && (menuUtilidadesAberto || isUtilidadesActive) && (
-                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
-                  {podeVerEpis && (
-                    <Link to="/controle-epi" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/controle-epi') ? 'text-white bg-emerald-600' : 'text-slate-400 hover:text-white'}`}>
-                      <span>• Entrega de EPIs</span>
-                    </Link>
-                  )}
-                  {podeVerGases && (
-                    <Link to="/gases" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/gases') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                      <span>• Gases Medicinais</span>
-                    </Link>
-                  )}
-                  {podeVerFiltrosAgua && (
-                    <Link to="/filtros" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/filtros') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                      <span>• Filtros de Água</span>
-                    </Link>
+                  {sidebarAberta && (menuAtivosAberto || isAtivosActive) && (
+                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                      <Link to="/equipamentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Listar Ativos</span>
+                      </Link>
+                      <Link to="/preventivas" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Preventivas PMOC</span>
+                      </Link>
+                      <Link to="/setores" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/setores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Setores e Áreas</span>
+                      </Link>
+                      {podeVerDocumentos && (
+                        <Link to="/documentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/documentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                          <span>• Repositório Docs</span>
+                        </Link>
+                      )}
+                      {['admin', 'coordenador'].includes(nivelUsuario) && (
+                        <button onClick={() => setModalTipoEquipAberto(true)} className="w-full text-left p-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white">
+                          <span>• Gerenciar Tipos</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* DIVISOR 4 */}
-          {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gerencial</div>}
+              {/* DIVISOR 2 */}
+              {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Suprimentos</div>}
 
-          {/* --- GRUPO 5: RELATÓRIOS (DROPDOWN) --- */}
-          {podeVerRelatorios && (
-            <div>
-              <button
-                onClick={() => {
-                  if(!sidebarAberta) setSidebarAberta(true);
-                  setMenuRelatAberto(!menuRelatAberto);
-                }}
-                className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isRelatActive ? 'text-blue-400' : ''}`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-base shrink-0">📊</span>
-                  {sidebarAberta && <span className="truncate">Relatórios</span>}
-                </div>
-                {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`} size={14} />}
-              </button>
+              {/* --- GRUPO 3: SUPRIMENTOS & FINANÇAS (DROPDOWN) --- */}
+              {(podeSolicitarCompras || podeGerenciarInfraestoque) && (
+                <div>
+                  <button
+                    onClick={() => {
+                      if(!sidebarAberta) setSidebarAberta(true);
+                      setMenuSuprimentosAberto(!menuSuprimentosAberto);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isSuprimentosActive ? 'text-blue-400' : ''}`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-1">
+                      <span className="text-base shrink-0">📦</span>
+                      {sidebarAberta && (
+                        <span className="truncate text-xs font-black uppercase tracking-tight">
+                          Almoxarifado / Compras
+                        </span>
+                      )}
+                    </div>
+                    {sidebarAberta && (
+                      <FiChevronDown 
+                        className={`shrink-0 transition-transform duration-200 ${menuSuprimentosAberto || isSuprimentosActive ? 'rotate-180' : ''}`} 
+                        size={14} 
+                      />
+                    )}
+                  </button>
 
-              {sidebarAberta && (menuRelatAberto || isRelatActive) && (
-                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
-                  <Link to="/relatorios/inventario" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Inventário Geral</span>
-                  </Link>
-                  <Link to="/relatorios/custos-setor" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Custos por Setor</span>
-                  </Link>
-                  <Link to="/relatorios/estoque-local" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/estoque-local') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Balanço Estoque</span>
-                  </Link>
-                  <Link to="/relatorios/chamados-setor" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/chamados-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
-                    <span>• Chamados por Setor</span>
-                  </Link>
+                  {sidebarAberta && (menuSuprimentosAberto || isSuprimentosActive) && (
+                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                      {podeSolicitarCompras && (
+                        <Link to="/solicitacoes-compra" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/solicitacoes-compra') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                          <span>• Solicitações / Compras</span>
+                        </Link>
+                      )}
+                      {podeGerenciarInfraestoque && (
+                        <>
+                          <Link to="/estoque" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/estoque') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                            <span>• Estoque Insumos</span>
+                          </Link>
+                          <Link to="/locais-estoque" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/locais-estoque') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                            <span>• Locais de Estoque</span>
+                          </Link>
+                          <Link to="/notas-fiscais" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/notas-fiscais') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                            <span>• Notas & Boletos</span>
+                          </Link>
+                          <Link to="/fornecedores" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/fornecedores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                            <span>• Fornecedores</span>
+                          </Link>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* USUÁRIOS */}
-          {podeGerenciarUsuarios && (
-            <Link to="/usuarios" title="Usuários" className={`flex items-center gap-3 p-2.5 rounded-xl font-bold text-sm transition-all ${isActive('/usuarios') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800'}`}>
-              <span className="text-base shrink-0">👥</span>
-              {sidebarAberta && <span className="truncate">Usuários</span>}
-            </Link>
+              {/* DIVISOR 3 */}
+              {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Segurança & Utilidades</div>}
+
+              {/* --- GRUPO 4: UTILIDADES & SST (DROPDOWN) --- */}
+              {(podeVerEpis || podeVerGases || podeVerFiltrosAgua) && (
+                <div>
+                  <button
+                    onClick={() => {
+                      if(!sidebarAberta) setSidebarAberta(true);
+                      setMenuUtilidadesAberto(!menuUtilidadesAberto);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isUtilidadesActive ? 'text-blue-400' : ''}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-base shrink-0">🥽</span>
+                      {sidebarAberta && <span className="truncate">Utilidades & SST</span>}
+                    </div>
+                    {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuUtilidadesAberto || isUtilidadesActive ? 'rotate-180' : ''}`} size={14} />}
+                  </button>
+
+                  {sidebarAberta && (menuUtilidadesAberto || isUtilidadesActive) && (
+                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                      {podeVerEpis && (
+                        <Link to="/controle-epi" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/controle-epi') ? 'text-white bg-emerald-600' : 'text-slate-400 hover:text-white'}`}>
+                          <span>• Entrega de EPIs</span>
+                        </Link>
+                      )}
+                      {podeVerGases && (
+                        <Link to="/gases" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/gases') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                          <span>• Gases Medicinais</span>
+                        </Link>
+                      )}
+                      {podeVerFiltrosAgua && (
+                        <Link to="/filtros" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/filtros') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                          <span>• Filtros de Água</span>
+                        </Link>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* DIVISOR 4 */}
+              {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gerencial</div>}
+
+              {/* --- GRUPO 5: RELATÓRIOS (DROPDOWN) --- */}
+              {podeVerRelatorios && (
+                <div>
+                  <button
+                    onClick={() => {
+                      if(!sidebarAberta) setSidebarAberta(true);
+                      setMenuRelatAberto(!menuRelatAberto);
+                    }}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold text-sm hover:bg-slate-800 ${isRelatActive ? 'text-blue-400' : ''}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-base shrink-0">📊</span>
+                      {sidebarAberta && <span className="truncate">Relatórios</span>}
+                    </div>
+                    {sidebarAberta && <FiChevronDown className={`transition-transform duration-200 ${menuRelatAberto || isRelatActive ? 'rotate-180' : ''}`} size={14} />}
+                  </button>
+
+                  {sidebarAberta && (menuRelatAberto || isRelatActive) && (
+                    <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-800 pl-2">
+                      <Link to="/relatorios/inventario" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/inventario') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Inventário Geral</span>
+                      </Link>
+                      <Link to="/relatorios/custos-setor" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Custos por Setor</span>
+                      </Link>
+                      <Link to="/relatorios/estoque-local" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/estoque-local') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Balanço Estoque</span>
+                      </Link>
+                      <Link to="/relatorios/chamados-setor" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/chamados-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                        <span>• Chamados por Setor</span>
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* USUÁRIOS */}
+              {podeGerenciarUsuarios && (
+                <Link to="/usuarios" title="Usuários" className={`flex items-center gap-3 p-2.5 rounded-xl font-bold text-sm transition-all ${isActive('/usuarios') ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'hover:bg-slate-800'}`}>
+                  <span className="text-base shrink-0">👥</span>
+                  {sidebarAberta && <span className="truncate">Usuários</span>}
+                </Link>
+              )}
+            </>
           )}
         </nav>
 
@@ -437,7 +443,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                     <input 
                       type="text" 
                       className="flex-1 border-2 border-slate-100 p-2.5 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm" 
-                      placeholder="Ex: Cardioversor, Compressor..."
+                      placeholder="Ex: Cardioversor, Compressor..." 
                       value={nomeNovoTipo} 
                       onChange={(e) => setNomeNovoTipo(e.target.value)} 
                       required 
@@ -471,9 +477,9 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                       <span className="text-sm font-bold text-slate-700">
                         {tipo.nome}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeletarTipoEquipamento(tipo.id, tipo.nome)}
+                      <button 
+                        type="button" 
+                        onClick={() => handleDeletarTipoEquipamento(tipo.id, tipo.nome)} 
                         title="Excluir este tipo"
                         className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50"
                       >

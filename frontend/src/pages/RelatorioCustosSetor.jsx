@@ -7,6 +7,7 @@ export function RelatorioCustosSetor() {
   const [dados, setDados] = useState([])
   const [setores, setSetores] = useState([])
   const [loading, setLoading] = useState(true)
+  const [exportando, setExportando] = useState(false)
   
   const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
   const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0])
@@ -54,6 +55,34 @@ export function RelatorioCustosSetor() {
   useEffect(() => { carregarSetores() }, [])
   useEffect(() => { carregarRelatorio() }, [dataInicio, dataFim, setorSelecionado])
 
+  // 📊 EXPORTAR EXCEL (.XLSX)
+  const handleExportarExcel = async () => {
+    setExportando(true)
+    try {
+      const url = `${API_URL}/relatorios/exportar/custos-setor?data_inicio=${dataInicio} 00:00:00&data_fim=${dataFim} 23:59:59&setor_id=${setorSelecionado}`
+      
+      const res = await fetch(url, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
+      })
+
+      if (!res.ok) throw new Error("Falha ao gerar o arquivo Excel.")
+
+      const blob = await res.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = downloadUrl
+      a.download = `custos_por_setor_${dataInicio}_a_${dataFim}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (err) {
+      alert("Erro ao exportar Excel: " + err.message)
+    } finally {
+      setExportando(false)
+    }
+  }
+
   // 🔍 AÇÃO DO DRILL-DOWN: Abre o Modal e carrega as OSs do setor clicado
   const abrirModalDetalhes = async (setorObj) => {
     if (!setorObj || setorObj.total_chamados === 0) return;
@@ -76,7 +105,7 @@ export function RelatorioCustosSetor() {
     }
   }
 
-  // 🎯 NAVEGAÇÃO DIRETA PARA A TELA CENTRAL DE CHAMADOS COM O FILTRO PREENCHIDO
+  // 🎯 NAVEGAÇÃO DIRETA PARA A TELA CENTRAL DE CHAMADOS
   const handleAbrirChamado = (osId) => {
     setModalAberto(false)
     navigate('/chamados', { state: { buscaId: osId } })
@@ -128,9 +157,22 @@ export function RelatorioCustosSetor() {
         }
       `}</style>
 
-      {/* Botões Superiores */}
+      {/* Botões Superiores de Ação */}
       <div className="flex gap-2 justify-end mb-6 hide-print">
-        <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95">🖨️ IMPRIMIR RELATÓRIO</button>
+        <button 
+          onClick={handleExportarExcel} 
+          disabled={exportando || loading}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
+        >
+          <span>📊</span> {exportando ? "Gerando..." : "Exportar Excel"}
+        </button>
+
+        <button 
+          onClick={() => window.print()} 
+          className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center gap-2"
+        >
+          <span>🖨️</span> Imprimir Relatório
+        </button>
       </div>
 
       {/* BARRA DE FILTROS */}
@@ -173,15 +215,21 @@ export function RelatorioCustosSetor() {
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[8px]">Mão de Obra / Serv.</span>
-            <p className="text-xl font-black text-amber-600 mt-1 print:text-sm">R$ {totalGeralServicos.toFixed(2)}</p>
+            <p className="text-xl font-black text-amber-600 mt-1 print:text-sm">
+              R$ {totalGeralServicos.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[8px]">Insumos / Peças</span>
-            <p className="text-xl font-black text-blue-600 mt-1 print:text-sm">R$ {totalGeralPecas.toFixed(2)}</p>
+            <p className="text-xl font-black text-blue-600 mt-1 print:text-sm">
+              R$ {totalGeralPecas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
           </div>
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 bg-gradient-to-br from-slate-900 to-slate-800 text-white print:text-slate-800 print:bg-none">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[8px] print:text-slate-400">Despesa Total</span>
-            <p className="text-xl font-black text-green-400 mt-1 print:text-sm print:text-green-600">R$ {totalInvestidoGeral.toFixed(2)}</p>
+            <p className="text-xl font-black text-green-400 mt-1 print:text-sm print:text-green-600">
+              R$ {totalInvestidoGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
           </div>
         </div>
 
@@ -206,7 +254,7 @@ export function RelatorioCustosSetor() {
                     <tr key={obj.setor_id} className="text-xs hover:bg-slate-50/50 transition-colors print:text-[10px]">
                       <td className="py-3.5 pr-2 font-black text-slate-700">{obj.nome_setor}</td>
                       
-                      {/* 🎯 BOTÃO CLICÁVEL DRILL-DOWN NA COLUNA DE OS */}
+                      {/* BOTÃO DRILL-DOWN */}
                       <td className="py-3.5 text-center font-bold">
                         {obj.total_chamados > 0 ? (
                           <button 
@@ -223,10 +271,14 @@ export function RelatorioCustosSetor() {
                         <span className="hidden print:inline">{obj.total_chamados} OS</span>
                       </td>
 
-                      <td className="py-3.5 text-right font-mono text-slate-600">R$ {Number(obj.total_custo_servico || 0).toFixed(2)}</td>
-                      <td className="py-3.5 text-right font-mono text-slate-600">R$ {Number(obj.total_custo_pecas || 0).toFixed(2)}</td>
+                      <td className="py-3.5 text-right font-mono text-slate-600">
+                        R$ {Number(obj.total_custo_servico || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3.5 text-right font-mono text-slate-600">
+                        R$ {Number(obj.total_custo_pecas || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
                       <td className="py-3.5 text-right font-mono font-black text-slate-800 print:text-slate-900">
-                        R$ {Number(obj.custo_total_geral || 0).toFixed(2)}
+                        R$ {Number(obj.custo_total_geral || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))}
@@ -248,7 +300,7 @@ export function RelatorioCustosSetor() {
 
       </div>
 
-      {/* 🪟 MODAL DE DRILL-DOWN (LISTA DE OSs DO SETOR) */}
+      {/* MODAL DE DRILL-DOWN */}
       {modalAberto && setorAtivoModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hide-print">
           <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 border border-slate-100">
@@ -316,11 +368,11 @@ export function RelatorioCustosSetor() {
                             </span>
                           </td>
                           <td className="p-3 text-right font-mono font-bold text-slate-700">
-                            R$ {Number(os.custo_total || 0).toFixed(2)}
+                            R$ {Number(os.custo_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="p-3 text-center">
                             <button 
-                              type="button"
+                              type="button" 
                               onClick={() => handleAbrirChamado(os.id)}
                               className="bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-transform active:scale-95"
                             >
@@ -361,3 +413,5 @@ export function RelatorioCustosSetor() {
     </div>
   )
 }
+
+export default RelatorioCustosSetor;

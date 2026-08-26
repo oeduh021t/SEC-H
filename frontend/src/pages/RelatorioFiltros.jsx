@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 
 const RelatorioFiltros = () => {
-    // Define o período inicial padrão (últimos 30 dias)
     const hoje = new Date().toISOString().split('T')[0];
     const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -9,13 +8,13 @@ const RelatorioFiltros = () => {
     const [dataFim, setDataFim] = useState(hoje);
     const [dados, setDados] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [exportando, setExportando] = useState(false);
 
     const API_URL = 'http://192.168.5.101:3000/api';
 
     const buscarRelatorio = useCallback(async () => {
         setLoading(true);
         try {
-            // Recarrega o nível do usuário do localStorage dinamicamente para sanar o erro 401 Unauthorized
             const userLogado = localStorage.getItem('user');
             const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
 
@@ -23,7 +22,6 @@ const RelatorioFiltros = () => {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
-                    // 🔥 CORREÇÃO: Envia a credencial necessária para a API autorizar e listar os dados
                     'x-usuario-nivel': nivelUsuario
                 }
             });
@@ -43,7 +41,37 @@ const RelatorioFiltros = () => {
         buscarRelatorio();
     }, [buscarRelatorio]);
 
-    // Função auxiliar para limpar e destacar a observação técnica retirando o log de custo na exibição da tabela
+    // 📊 EXPORTAR EXCEL (.XLSX)
+    const handleExportarExcel = async () => {
+        setExportando(true);
+        try {
+            const userLogado = localStorage.getItem('user');
+            const nivelUsuario = userLogado ? JSON.parse(userLogado).nivel : '';
+
+            const url = `${API_URL}/relatorios/exportar/filtros?data_inicio=${dataInicio}&data_fim=${dataFim}`;
+
+            const res = await fetch(url, {
+                headers: { 'x-usuario-nivel': nivelUsuario }
+            });
+
+            if (!res.ok) throw new Error("Falha ao gerar o arquivo Excel.");
+
+            const blob = await res.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = `relatorio_filtros_${dataInicio}_a_${dataFim}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (err) {
+            alert("Erro ao exportar Excel: " + err.message);
+        } finally {
+            setExportando(false);
+        }
+    };
+
     const formatarObs = (obs) => {
         if (!obs) return '';
         if (obs.includes('[')) {
@@ -52,7 +80,6 @@ const RelatorioFiltros = () => {
         return obs;
     };
 
-    // Extrai o nome da peça usada de dentro do log salvo no banco
     const extrairPecaUsada = (obs) => {
         if (!obs || !obs.includes('Peça Deduzida:')) return 'Nenhum insumo baixado';
         try {
@@ -72,7 +99,7 @@ const RelatorioFiltros = () => {
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
             
-            {/* LÓGICA DE IMPRESSÃO ABSOLUTA: Oculta o sistema e força a exibição apenas do bloco de relatório */}
+            {/* LÓGICA DE IMPRESSÃO */}
             <style>{`
                 @media print {
                     body * { visibility: hidden; background: white !important; }
@@ -82,12 +109,10 @@ const RelatorioFiltros = () => {
                         left: 0; 
                         top: 0; 
                         width: 100%; 
-                        padding: 0;
-                        margin: 0;
+                        padding: 0; 
+                        margin: 0; 
                     }
                     .hide-print { display: none !important; }
-                    
-                    /* Mantém os cards em row na folha A4 */
                     .indicadores-impressao {
                         display: flex !important;
                         flex-direction: row !important;
@@ -104,17 +129,25 @@ const RelatorioFiltros = () => {
                 }
             `}</style>
 
-            {/* BOTÃO SUPERIOR PADRONIZADO (Some na impressão) */}
+            {/* BOTÕES DE AÇÃO (EXCEL E IMPRESSÃO) */}
             <div className="flex gap-2 justify-end mb-6 hide-print">
                 <button 
-                    onClick={() => window.print()} 
-                    className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95"
+                    onClick={handleExportarExcel} 
+                    disabled={exportando || loading}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50"
                 >
-                    🖨️ IMPRIMIR RELATÓRIO
+                    <span>📊</span> {exportando ? "Gerando..." : "Exportar Excel"}
+                </button>
+
+                <button 
+                    onClick={() => window.print()} 
+                    className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-md transition-all active:scale-95 flex items-center gap-2"
+                >
+                    <span>🖨️</span> Imprimir Relatório
                 </button>
             </div>
 
-            {/* BARRA DE FILTROS DE DATA (Some na impressão) */}
+            {/* BARRA DE FILTROS */}
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 hide-print">
                 <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Data Inicial</label>
@@ -152,7 +185,7 @@ const RelatorioFiltros = () => {
                             <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-[8px]">Investimento / Custo Total</span>
                                 <p className="text-xl font-black text-emerald-600 mt-1 print:text-sm">
-                                    BRL {dados?.indicators?.custo_total?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    R$ {dados?.indicators?.custo_total?.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </p>
                             </div>
                         </div>
@@ -208,7 +241,7 @@ const RelatorioFiltros = () => {
                     </>
                 )}
 
-                {/* RODAPÉ EXCLUSIVO DA IMPRESSÃO */}
+                {/* RODAPÉ DA IMPRESSÃO */}
                 <div className="hidden print:block mt-12 pt-4 border-t border-slate-200 text-center text-[9px] text-slate-400 font-bold uppercase tracking-wider">
                     Relatório gerencial emitido pelo sistema SEC-H Engenharia Clínica em {new Date().toLocaleString('pt-BR')}
                 </div>
