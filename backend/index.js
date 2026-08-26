@@ -1061,11 +1061,14 @@ app.delete('/api/epis/:id', permitirApenas(['admin', 'coordenador']), (req, res)
 // -------------------------------------------------------------------------
 // RELATÓRIOS GERAIS
 // -------------------------------------------------------------------------
+
+// 1. RELATÓRIO DE ESTOQUE POR LOCAL (JSON)
 app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { local_estoque_id, data_inicio, data_fim, tipo_registro } = req.query;
 
     let query = `
         SELECT * FROM (
+            -- 1. Bloco de Insumos / Peças
             SELECT 
                 i.id, 
                 i.nome, 
@@ -1082,12 +1085,13 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
             
             UNION ALL
             
+            -- 2. Bloco de Equipamentos
             SELECT 
                 e.id, 
                 CONCAT(e.nome, ' (S/N: ', IFNULL(e.num_serie, 'N/A'), ')') AS nome,
                 IFNULL(e.patrimonio, 'S/Patrimônio') AS referencia, 
                 1 AS quantidade, 
-                0.00 AS valor_unitario, 
+                IFNULL(e.valor, 0.00) AS valor_unitario, -- 👈 CORRIGIDO: Puxa o valor de aquisição real do ativo
                 IFNULL(e.data_ultima_preventiva, CURDATE()) AS data_cadastro,
                 'Equipamento' AS tipo_registro, 
                 e.local_estoque_id, 
@@ -1126,6 +1130,113 @@ app.get('/api/relatorios/estoque-local', permitirApenas(['admin', 'coordenador']
     });
 });
 
+// 2. EXPORTAR ESTOQUE POR LOCAL (.XLSX)
+app.get('/api/relatorios/exportar/estoque-local', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const { local_estoque_id, data_inicio, data_fim, tipo_registro } = req.query;
+
+        let query = `
+            SELECT * FROM (
+                SELECT 
+                    i.id, 
+                    i.nome, 
+                    IFNULL(i.referencia, '---') AS referencia, 
+                    i.quantidade, 
+                    i.valor_unitario, 
+                    IFNULL(i.data_cadastro, NOW()) AS data_cadastro,
+                    'Insumo' AS tipo_registro, 
+                    i.local_estoque_id, 
+                    l.nome AS nome_estoque, 
+                    IFNULL(i.descricao, 'Sem descrição informada') AS descricao
+                FROM itens_estoque i
+                JOIN locais_estoque l ON i.local_estoque_id = l.id
+                
+                UNION ALL
+                
+                SELECT 
+                    e.id, 
+                    CONCAT(e.nome, ' (S/N: ', IFNULL(e.num_serie, 'N/A'), ')') AS nome,
+                    IFNULL(e.patrimonio, 'S/Patrimônio') AS referencia, 
+                    1 AS quantidade, 
+                    IFNULL(e.valor, 0.00) AS valor_unitario, -- 👈 CORRIGIDO: Puxa o valor do ativo
+                    IFNULL(e.data_ultima_preventiva, CURDATE()) AS data_cadastro,
+                    'Equipamento' AS tipo_registro, 
+                    e.local_estoque_id, 
+                    l.nome AS nome_estoque, 
+                    CONCAT('Modelo: ', IFNULL(e.modelo, 'Não informado'), ' | Fabricante: ', IFNULL(e.fabricante, 'Não informado')) AS descricao
+                FROM equipamentos e
+                JOIN locais_estoque l ON e.local_estoque_id = l.id
+            ) AS tabela_consolidada
+            WHERE 1=1
+        `;
+        const queryParams = [];
+
+        if (local_estoque_id && local_estoque_id !== 'todos') {
+            query += ` AND local_estoque_id = ?`;
+            queryParams.push(Number(local_estoque_id));
+        }
+
+        if (tipo_registro && tipo_registro !== 'todos') {
+            query += ` AND tipo_registro = ?`;
+            queryParams.push(tipo_registro);
+        }
+
+        if (data_inicio && data_fim) {
+            query += ` AND data_cadastro BETWEEN ? AND ?`;
+            queryParams.push(`${data_inicio} 00:00:00`, `${data_fim} 23:59:59`);
+        }
+
+        query += ` ORDER BY nome_estoque ASC, tipo_registro DESC, nome ASC`;
+
+        db.query(query, queryParams, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Balanço de Estoque');
+
+            worksheet.columns = [
+                { header: 'Descrição / Especificação', key: 'nome', width: 35 },
+                { header: 'Tipo', key: 'tipo_registro', width: 16 },
+                { header: 'Origem / Estoque', key: 'nome_estoque', width: 25 },
+                { header: 'Ref / Patrimônio', key: 'referencia', width: 20 },
+                { header: 'Qtd', key: 'quantidade', width: 12 },
+                { header: 'Preço Unit. (R$)', key: 'valor_unitario', width: 18 },
+                { header: 'Subtotal (R$)', key: 'subtotal', width: 18 },
+                { header: 'Detalhes / Observações', key: 'descricao', width: 40 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F172A' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                const subtotal = Number(row.quantidade || 0) * Number(row.valor_unitario || 0);
+                worksheet.addRow({
+                    nome: row.nome,
+                    tipo_registro: row.tipo_registro,
+                    nome_estoque: row.nome_estoque,
+                    referencia: row.referencia,
+                    quantidade: Number(row.quantidade || 0),
+                    valor_unitario: Number(row.valor_unitario || 0).toFixed(2),
+                    subtotal: subtotal.toFixed(2),
+                    descricao: row.descricao
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=balanco_estoque_local_${data_inicio || 'inicio'}_a_${data_fim || 'fim'}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 3. INVENTÁRIO GERAL (JSON)
 app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id, status, tipo_id, tipo_equipamento_id } = req.query;
 
@@ -1192,6 +1303,7 @@ app.get('/api/relatorios/inventario-geral', permitirApenas(['admin', 'coordenado
     });
 });
 
+// 4. CUSTOS POR SETOR (JSON)
 app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
@@ -1246,6 +1358,7 @@ app.get('/api/relatorios/custos-setor', permitirApenas(['admin', 'coordenador'])
     });
 });
 
+// 5. DETALHAMENTO DE OSs POR SETOR (DRILL-DOWN)
 app.get('/api/relatorios/chamados-detalhes-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { setor_id, data_inicio, data_fim } = req.query;
 
@@ -1288,6 +1401,7 @@ app.get('/api/relatorios/chamados-detalhes-setor', permitirApenas(['admin', 'coo
     });
 });
 
+// 6. QUANTIDADE DE CHAMADOS POR SETOR (JSON)
 app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { data_inicio, data_fim, setor_id } = req.query;
 
