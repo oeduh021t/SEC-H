@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { FiMenu, FiTrash2, FiChevronLeft, FiChevronDown } from 'react-icons/fi';
+import { FiMenu, FiChevronLeft, FiChevronDown } from 'react-icons/fi';
 
 const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   // Estados de Controle de Submenus
@@ -9,15 +9,8 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const [menuUtilidadesAberto, setMenuUtilidadesAberto] = useState(false);
   const [menuRelatAberto, setMenuRelatAberto] = useState(false);
 
-  // Modais
+  // Modal de Configurações / Senha
   const [modalConfigAberta, setModalConfigAberta] = useState(false);
-  const [modalTipoEquipAberto, setModalTipoEquipAberto] = useState(false);
-  const [tiposEquipamentos, setTiposEquipamentos] = useState([]);
-  const [nomeNovoTipo, setNomeNovoTipo] = useState('');
-  const [carregandoTipos, setCarregandoTipos] = useState(false);
-  const [salvandoTipo, setSalvandoTipo] = useState(false);
-
-  // Senhas
   const [senhaAtual, setSenhaAtual] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
   const [confirmaSenha, setConfirmaSenha] = useState('');
@@ -42,29 +35,10 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeGerenciarUsuarios = nivelUsuario === 'admin';
 
   // Verificadores de submenus ativos
-  const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
+  const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('tipos-equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
   const isSuprimentosActive = location.pathname.includes('estoque') || location.pathname.includes('compras') || location.pathname.includes('fornecedores') || location.pathname.includes('notas-fiscais') || location.pathname.includes('locais-estoque');
   const isUtilidadesActive = location.pathname.includes('filtros') || location.pathname.includes('gases') || location.pathname.includes('controle-epi');
   const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
-
-  const carregarTiposEquipamentos = async () => {
-    setCarregandoTipos(true);
-    try {
-      const response = await fetch(`${API_URL}/tipos-equipamentos`);
-      if (response.ok) {
-        const data = await response.json();
-        setTiposEquipamentos(data);
-      }
-    } catch (err) {
-      console.error("Erro ao buscar tipos:", err);
-    } finally {
-      setCarregandoTipos(false);
-    }
-  };
-
-  useEffect(() => {
-    if (modalTipoEquipAberto) carregarTiposEquipamentos();
-  }, [modalTipoEquipAberto]);
 
   const handleMudarSenha = async (e) => {
     e.preventDefault();
@@ -85,41 +59,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
         setSenhaAtual(''); setNovaSenha(''); setConfirmaSenha('');
       } else {
         alert("❌ " + (data.error || "Erro ao mudar senha"));
-      }
-    } catch (err) {
-      alert("❌ Erro de conexão.");
-    }
-  };
-
-  const handleCadastrarTipoEquipamento = async (e) => {
-    e.preventDefault();
-    if (!nomeNovoTipo.trim()) return;
-    setSalvandoTipo(true);
-    try {
-      const response = await fetch(`${API_URL}/tipos-equipamentos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nomeNovoTipo })
-      });
-      if (response.ok) {
-        alert("✅ Tipo cadastrado com sucesso!");
-        setNomeNovoTipo('');
-        carregarTiposEquipamentos();
-      }
-    } catch (err) {
-      alert("❌ Erro de conexão.");
-    } finally {
-      setSalvandoTipo(false);
-    }
-  };
-
-  const handleDeletarTipoEquipamento = async (id, nome) => {
-    if (!window.confirm(`⚠️ Deseja excluir o tipo "${nome}"?`)) return;
-    try {
-      const response = await fetch(`${API_URL}/tipos-equipamentos/${id}`, { method: 'DELETE' });
-      if (response.ok) {
-        alert("✅ Tipo excluído com sucesso!");
-        carregarTiposEquipamentos();
       }
     } catch (err) {
       alert("❌ Erro de conexão.");
@@ -171,10 +110,9 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             {sidebarAberta && <span className="truncate">Chamados / OS</span>}
           </Link>
 
-          {/* 🔒 SEÇÕES RESTRITAS OCULTAS PARA USUÁRIO COMUM */}
+          {/* 🔒 SEÇÕES RESTRITAS */}
           {!isUsuarioComum && (
             <>
-              {/* DIVISOR 1 */}
               {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gestão Técnica</div>}
 
               {/* --- GRUPO 2: ATIVOS & INFRA (DROPDOWN) --- */}
@@ -199,6 +137,14 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                       <Link to="/equipamentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
                         <span>• Listar Ativos</span>
                       </Link>
+                      
+                      {/* 🏷️ LINK DEDICADO PARA A PÁGINA DE TIPOS */}
+                      {['admin', 'coordenador'].includes(nivelUsuario) && (
+                        <Link to="/tipos-equipamentos" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/tipos-equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
+                          <span>• Gerenciar Tipos</span>
+                        </Link>
+                      )}
+
                       <Link to="/preventivas" className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}>
                         <span>• Preventivas PMOC</span>
                       </Link>
@@ -210,17 +156,11 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                           <span>• Repositório Docs</span>
                         </Link>
                       )}
-                      {['admin', 'coordenador'].includes(nivelUsuario) && (
-                        <button onClick={() => setModalTipoEquipAberto(true)} className="w-full text-left p-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white">
-                          <span>• Gerenciar Tipos</span>
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* DIVISOR 2 */}
               {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Suprimentos</div>}
 
               {/* --- GRUPO 3: SUPRIMENTOS & FINANÇAS (DROPDOWN) --- */}
@@ -277,7 +217,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                 </div>
               )}
 
-              {/* DIVISOR 3 */}
               {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Segurança & Utilidades</div>}
 
               {/* --- GRUPO 4: UTILIDADES & SST (DROPDOWN) --- */}
@@ -319,7 +258,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                 </div>
               )}
 
-              {/* DIVISOR 4 */}
               {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gerencial</div>}
 
               {/* --- GRUPO 5: RELATÓRIOS (DROPDOWN) --- */}
@@ -422,84 +360,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                 <button type="submit" className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-black text-sm uppercase shadow-lg shadow-blue-200 active:scale-95 transition-all">Salvar Alterações</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL TIPOS DE EQUIPAMENTOS */}
-      {modalTipoEquipAberto && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 text-slate-800">
-          <div className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
-            <div className="bg-slate-800 p-5 text-white flex justify-between items-center shrink-0">
-              <h3 className="font-black uppercase tracking-widest text-sm">🛠️ Gerenciar Tipos de Equipamento</h3>
-              <button onClick={() => setModalTipoEquipAberto(false)} className="text-xl hover:text-red-400">✕</button>
-            </div>
-            
-            <div className="p-6 border-b border-slate-100 shrink-0">
-              <form onSubmit={handleCadastrarTipoEquipamento} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Cadastrar Novo Tipo</label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      className="flex-1 border-2 border-slate-100 p-2.5 rounded-xl outline-none focus:border-indigo-400 font-bold text-sm" 
-                      placeholder="Ex: Cardioversor, Compressor..." 
-                      value={nomeNovoTipo} 
-                      onChange={(e) => setNomeNovoTipo(e.target.value)} 
-                      required 
-                    />
-                    <button 
-                      type="submit" 
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 rounded-xl font-black text-xs uppercase shadow-md shadow-indigo-200 transition-all disabled:opacity-50 shrink-0"
-                      disabled={salvandoTipo}
-                    >
-                      {salvandoTipo ? '...' : 'Cadastrar'}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar min-h-[250px]">
-              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Tipos Cadastrados</h4>
-              
-              {carregandoTipos ? (
-                <p className="text-sm text-center text-slate-400 py-4">Carregando tipos...</p>
-              ) : tiposEquipamentos.length === 0 ? (
-                <p className="text-sm text-center text-slate-400 py-4">Nenhum tipo cadastrado.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {tiposEquipamentos.map((tipo) => (
-                    <div 
-                      key={tipo.id} 
-                      className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/80 rounded-xl transition-all border border-slate-100 group"
-                    >
-                      <span className="text-sm font-bold text-slate-700">
-                        {tipo.nome}
-                      </span>
-                      <button 
-                        type="button" 
-                        onClick={() => handleDeletarTipoEquipamento(tipo.id, tipo.nome)} 
-                        title="Excluir este tipo"
-                        className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50"
-                      >
-                        <FiTrash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-slate-50 p-4 flex justify-end shrink-0 border-t border-slate-100">
-              <button 
-                type="button" 
-                onClick={() => setModalTipoEquipAberto(false)} 
-                className="bg-white border border-slate-200 text-slate-500 hover:bg-slate-100 px-6 py-2.5 rounded-xl font-black text-xs uppercase"
-              >
-                Fechar
-              </button>
-            </div>
           </div>
         </div>
       )}

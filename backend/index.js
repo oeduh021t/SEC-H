@@ -1581,6 +1581,301 @@ app.get('/api/relatorios/exportar/setores', permitirApenas(['admin', 'coordenado
     }
 });
 
+// EXPORTAR SOLICITAÇÕES DE COMPRA (.XLSX)
+app.get('/api/relatorios/exportar/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                sc.id,
+                sc.data_solicitacao,
+                u.nome AS solicitante_nome,
+                s.nome AS setor_nome,
+                f.nome_fantasia AS fornecedor_nome,
+                e.nome AS equipamento_nome,
+                sc.urgencia,
+                sc.status,
+                sc.motivo,
+                (SELECT COUNT(*) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS total_itens,
+                (SELECT IFNULL(SUM(sci.quantidade * sci.valor_estimado), 0) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS valor_total_estimado
+            FROM solicitacoes_compra sc
+            LEFT JOIN usuarios u ON sc.solicitante_id = u.id
+            LEFT JOIN setores s ON sc.setor_id = s.id
+            LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
+            LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
+            ORDER BY sc.id DESC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Solicitações de Compra');
+
+            worksheet.columns = [
+                { header: 'Nº Pedido', key: 'id', width: 12 },
+                { header: 'Data', key: 'data_solicitacao', width: 15 },
+                { header: 'Solicitante', key: 'solicitante_nome', width: 25 },
+                { header: 'Setor Alvo', key: 'setor_nome', width: 22 },
+                { header: 'Fornecedor Sugerido', key: 'fornecedor_nome', width: 28 },
+                { header: 'Ativo Vinculado', key: 'equipamento_nome', width: 25 },
+                { header: 'Urgência', key: 'urgencia', width: 14 },
+                { header: 'Status Atual', key: 'status', width: 16 },
+                { header: 'Qtd Itens', key: 'total_itens', width: 12 },
+                { header: 'Valor Total Estimado (R$)', key: 'valor_total_estimado', width: 25 },
+                { header: 'Motivo / Justificativa', key: 'motivo', width: 45 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    id: `#${row.id}`,
+                    data_solicitacao: row.data_solicitacao ? new Date(row.data_solicitacao).toLocaleDateString('pt-BR') : '',
+                    solicitante_nome: row.solicitante_nome || 'Não informado',
+                    setor_nome: row.setor_nome || 'Geral',
+                    fornecedor_nome: row.fornecedor_nome || 'A definir / Cotação',
+                    equipamento_nome: row.equipamento_nome || 'Nenhum',
+                    urgencia: row.urgencia,
+                    status: row.status,
+                    total_itens: Number(row.total_itens || 0),
+                    valor_total_estimado: Number(row.valor_total_estimado || 0).toFixed(2),
+                    motivo: row.motivo
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=requisicoes_compras_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR RELATÓRIO DE NOTAS FISCAIS E CONTAS (.XLSX)
+app.get('/api/relatorios/exportar/notas-fiscais', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                nf.id,
+                nf.numero_nf,
+                nf.serie,
+                f.nome_fantasia AS fornecedor_nome,
+                nf.data_emissao,
+                nf.data_recebimento,
+                nf.valor_total,
+                (SELECT COUNT(*) FROM boletos b WHERE b.nota_fiscal_id = nf.id) AS total_boletos,
+                (SELECT COUNT(*) FROM boletos b WHERE b.nota_fiscal_id = nf.id AND b.status_pagamento = 'Pendente' AND b.data_vencimento < CURDATE()) AS boletos_atrasados,
+                (SELECT COUNT(*) FROM boletos b WHERE b.nota_fiscal_id = nf.id AND b.status_pagamento = 'Pendente' AND b.data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 5 DAY)) AS boletos_vencendo_breve
+            FROM notas_fiscais nf
+            LEFT JOIN fornecedores f ON nf.fornecedor_id = f.id
+            ORDER BY nf.data_emissao DESC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Notas Fiscais');
+
+            worksheet.columns = [
+                { header: 'Nº NF', key: 'numero_nf', width: 14 },
+                { header: 'Série', key: 'serie', width: 10 },
+                { header: 'Fornecedor', key: 'fornecedor_nome', width: 30 },
+                { header: 'Data Emissão', key: 'data_emissao', width: 15 },
+                { header: 'Data Recebimento', key: 'data_recebimento', width: 18 },
+                { header: 'Valor Total (R$)', key: 'valor_total', width: 20 },
+                { header: 'Total Boletos', key: 'total_boletos', width: 14 },
+                { header: 'Situação Financeira', key: 'situacao', width: 24 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                let situacao = 'Em Dia / Quitado';
+                if (Number(row.total_boletos) === 0) situacao = 'Sem Boletos';
+                else if (Number(row.boletos_atrasados) > 0) situacao = `🚨 ${row.boletos_atrasados} Atrasado(s)`;
+                else if (Number(row.boletos_vencendo_breve) > 0) situacao = `⏳ Vencendo em breve`;
+
+                worksheet.addRow({
+                    numero_nf: row.numero_nf,
+                    serie: row.serie || 'Única',
+                    fornecedor_nome: row.fornecedor_nome || 'Não informado',
+                    data_emissao: row.data_emissao ? new Date(row.data_emissao).toLocaleDateString('pt-BR') : '',
+                    data_recebimento: row.data_recebimento ? new Date(row.data_recebimento).toLocaleDateString('pt-BR') : '',
+                    valor_total: Number(row.valor_total || 0).toFixed(2),
+                    total_boletos: Number(row.total_boletos || 0),
+                    situacao: situacao
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=relatorio_notas_fiscais_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR RELATÓRIO DE FORNECEDORES (.XLSX)
+app.get('/api/relatorios/exportar/fornecedores', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                f.id,
+                f.nome_fantasia,
+                f.razao_social,
+                f.cnpj,
+                f.especialidade,
+                f.contato,
+                f.telefone,
+                f.email,
+                f.status,
+                IF(f.contrato_url IS NOT NULL AND f.contrato_url != '', 'Possui Contrato Anexado', 'Sem Contrato') AS situacao_contrato
+            FROM fornecedores f
+            ORDER BY f.nome_fantasia ASC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Fornecedores Cadastrados');
+
+            worksheet.columns = [
+                { header: 'ID', key: 'id', width: 8 },
+                { header: 'Nome Fantasia', key: 'nome_fantasia', width: 30 },
+                { header: 'Razão Social', key: 'razao_social', width: 35 },
+                { header: 'CNPJ', key: 'cnpj', width: 22 },
+                { header: 'Especialidade / Ramo', key: 'especialidade', width: 25 },
+                { header: 'Representante', key: 'contato', width: 22 },
+                { header: 'Telefone', key: 'telefone', width: 18 },
+                { header: 'E-mail', key: 'email', width: 30 },
+                { header: 'Status', key: 'status', width: 14 },
+                { header: 'Contrato', key: 'situacao_contrato', width: 25 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    id: `#${row.id}`,
+                    nome_fantasia: row.nome_fantasia,
+                    razao_social: row.razao_social || 'Não informada',
+                    cnpj: row.cnpj || 'SEM CNPJ',
+                    especialidade: row.especialidade || 'Geral',
+                    contato: row.contato || '---',
+                    telefone: row.telefone || '---',
+                    email: row.email || '---',
+                    status: row.status || 'Ativo',
+                    situacao_contrato: row.situacao_contrato
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=relatorio_fornecedores_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR CRONOGRAMA DE FILTROS E REFIS (.XLSX)
+app.get('/api/relatorios/exportar/filtros', permitirApenas(['admin', 'coordenador', 'tecnico']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                f.id,
+                f.nome,
+                s.nome AS setor_nome,
+                e.nome AS equipamento_nome,
+                e.patrimonio AS equipamento_patrimonio,
+                f.modelo_refil,
+                f.periodicidade_meses,
+                f.data_ultima_troca,
+                DATE_ADD(f.data_ultima_troca, INTERVAL f.periodicidade_meses MONTH) AS data_vencimento,
+                DATEDIFF(DATE_ADD(f.data_ultima_troca, INTERVAL f.periodicidade_meses MONTH), CURDATE()) AS dias_restantes
+            FROM filtros_agua f
+            LEFT JOIN setores s ON f.setor_id = s.id
+            LEFT JOIN equipamentos e ON f.equipamento_id = e.id
+            ORDER BY dias_restantes ASC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Cronograma Filtros');
+
+            worksheet.columns = [
+                { header: 'Ponto / Identificação', key: 'nome', width: 30 },
+                { header: 'Setor / Localização', key: 'setor_nome', width: 25 },
+                { header: 'Ativo Vinculado', key: 'equipamento', width: 30 },
+                { header: 'Modelo do Refil', key: 'modelo_refil', width: 24 },
+                { header: 'Periodicidade (Meses)', key: 'periodicidade', width: 20 },
+                { header: 'Última Troca', key: 'ultima_troca', width: 16 },
+                { header: 'Próximo Vencimento', key: 'vencimento', width: 20 },
+                { header: 'Situação Operacional', key: 'situacao', width: 25 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0284C7' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                let situacao = `Restam ${row.dias_restantes} dias`;
+                if (row.dias_restantes < 0) situacao = `🚨 Vencido há ${Math.abs(row.dias_restantes)} dias`;
+                else if (row.dias_restantes === 0) situacao = `⚠️ Vence Hoje`;
+
+                const equipTexto = row.equipamento_nome 
+                    ? `${row.equipamento_nome} (PAT: ${row.equipamento_patrimonio || 'S/P'})` 
+                    : 'Ponto Avulso / Parede';
+
+                worksheet.addRow({
+                    nome: row.nome,
+                    setor_nome: row.setor_nome || 'Geral',
+                    equipamento: equipTexto,
+                    modelo_refil: row.modelo_refil || 'Padrão',
+                    periodicidade: `${row.periodicidade_meses} meses`,
+                    ultima_troca: row.data_ultima_troca ? new Date(row.data_ultima_troca).toLocaleDateString('pt-BR') : '---',
+                    vencimento: row.data_vencimento ? new Date(row.data_vencimento).toLocaleDateString('pt-BR') : '---',
+                    situacao: situacao
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=cronograma_filtros_agua_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // -------------------------------------------------------------------------
 // LOGÍSTICA / AUXILIARES
 // -------------------------------------------------------------------------

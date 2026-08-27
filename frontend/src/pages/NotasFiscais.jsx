@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react';
 
 export default function NotasFiscais() {
-  // --- ESTADOS DO MÓDULO ---
   const [notas, setNotas] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
   const [estoqueItens, setEstoqueItens] = useState([]);
   const [locaisEstoque, setLocaisEstoque] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [exportando, setExportando] = useState(false);
 
-  // 🔍 ESTADOS DE FILTRO
+  // Filtros
   const [buscaInteligente, setBuscaInteligente] = useState('');
   const [fornecedorFiltro, setFornecedorFiltro] = useState('');
   const [statusFiltro, setStatusFiltro] = useState('todos');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+
+  // Paginação
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const itensPorPagina = 10;
   
   // Modais de Controle
   const [modalNotaAberto, setModalNotaAberto] = useState(false);
@@ -54,7 +58,6 @@ export default function NotasFiscais() {
     return savedUser ? JSON.parse(savedUser).nivel : '';
   };
 
-  // --- BUSCA DE DADOS ---
   const carregarDados = async () => {
     setLoading(true);
     try {
@@ -83,7 +86,7 @@ export default function NotasFiscais() {
       setEstoqueItens(Array.isArray(dataEstoque) ? dataEstoque : []);
       setLocaisEstoque(Array.isArray(dataLocais) ? dataLocais : []);
     } catch (err) {
-      console.error('Erro ao conectar com a API do SEC-H:', err);
+      console.error('Erro ao carregar dados fiscais:', err);
     } finally {
       setLoading(false);
     }
@@ -92,6 +95,32 @@ export default function NotasFiscais() {
   useEffect(() => {
     carregarDados();
   }, []);
+
+  // 📊 EXPORTAR EXCEL (.XLSX)
+  const handleExportarExcel = async () => {
+    setExportando(true);
+    try {
+      const res = await fetch(`${API_URL}/relatorios/exportar/notas-fiscais`, {
+        headers: { 'x-usuario-nivel': obterNivelUsuario() }
+      });
+
+      if (!res.ok) throw new Error("Falha ao gerar arquivo Excel.");
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `notas_fiscais_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      alert("Erro ao exportar Excel: " + err.message);
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const verBoletos = async (nota) => {
     setNotaSelecionada(nota);
@@ -301,26 +330,22 @@ export default function NotasFiscais() {
     }
   };
 
-  // 🔍 LÓGICA DE FILTRAGEM MULTI-CRITÉRIOS (BUSCA INTELIGENTE + DATAS + FORNECEDOR + STATUS)
+  // Filtragem multi-critérios
   const notasFiltradas = notas.filter(nota => {
-    // 1. Busca global (Número da NF, Fornecedor ou Chave de Acesso)
     const termo = buscaInteligente.toLowerCase().trim();
     const matchBusca = !termo || 
       nota.numero_nf?.toLowerCase().includes(termo) ||
       nota.fornecedor_nome?.toLowerCase().includes(termo) ||
       nota.chave_acesso?.toLowerCase().includes(termo);
 
-    // 2. Filtro por Fornecedor
     const matchFornecedor = !fornecedorFiltro || String(nota.fornecedor_id) === String(fornecedorFiltro);
 
-    // 3. Filtro por Intervalo de Data de Emissão
     let matchData = true;
     if (dataInicio && dataFim) {
       const dataEmissao = new Date(nota.data_emissao).toISOString().split('T')[0];
       matchData = dataEmissao >= dataInicio && dataEmissao <= dataFim;
     }
 
-    // 4. Filtro por Status Financeiro dos Boletos
     let matchStatus = true;
     if (statusFiltro === 'atrasados') matchStatus = Number(nota.boletos_atrasados) > 0;
     if (statusFiltro === 'vencendo') matchStatus = Number(nota.boletos_vencendo_breve) > 0;
@@ -329,11 +354,14 @@ export default function NotasFiscais() {
     return matchBusca && matchFornecedor && matchData && matchStatus;
   });
 
-  // 🧮 SOMATÓRIO DINÂMICO DO VALOR DAS NOTAS EXIBIDAS
   const valorTotalFiltrado = notasFiltradas.reduce((acc, n) => acc + Number(n.valor_total || 0), 0);
-
   const totalAtrasados = notas.reduce((acc, n) => acc + Number(n.boletos_atrasados || 0), 0);
   const totalBreve = notas.reduce((acc, n) => acc + Number(n.boletos_vencendo_breve || 0), 0);
+
+  // Paginação
+  const totalPaginas = Math.ceil(notasFiltradas.length / itensPorPagina) || 1;
+  const indexInicio = (paginaAtual - 1) * itensPorPagina;
+  const notasPaginadas = notasFiltradas.slice(indexInicio, indexInicio + itensPorPagina);
 
   const renderizarBadgeAlerta = (nota) => {
     if (Number(nota.total_boletos) === 0) {
@@ -364,23 +392,35 @@ export default function NotasFiscais() {
   };
 
   return (
-    <div className="p-4 font-sans text-slate-800">
+    <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* HEADER DA TELA */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-        <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-          <span className="bg-blue-100 p-2 rounded-lg text-blue-600 text-sm">🧾</span> GESTÃO DE NOTAS E BOLETOS
-        </h1>
-        <div className="flex flex-wrap gap-3 w-full md:w-auto">
-          
-          {/* 🔍 BUSCA GLOBAL INTELIGENTE */}
+      {/* HEADER */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+        <div>
+          <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+            <span className="bg-blue-500 p-2 rounded-xl text-white text-xs">🧾</span> GESTÃO DE NOTAS E BOLETOS
+          </h1>
+          <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Faturamento, compras e controle financeiro de títulos</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <input
             type="text"
-            placeholder="🔍 Buscar por nota, fornecedor ou chave..."
-            className="px-4 py-2 border-2 border-slate-100 rounded-xl w-full md:w-80 outline-none focus:border-blue-500 transition-all text-sm font-medium bg-white text-black"
+            placeholder="🔍 Buscar nota, fornecedor ou chave..."
+            className="px-4 py-2.5 border-2 border-slate-100 rounded-xl w-full md:w-80 outline-none focus:border-blue-500 transition-all text-xs font-bold bg-slate-50 text-slate-800"
             value={buscaInteligente}
-            onChange={e => setBuscaInteligente(e.target.value)}
+            onChange={e => { setBuscaInteligente(e.target.value); setPaginaAtual(1); }}
           />
+
+          <button 
+            type="button"
+            onClick={handleExportarExcel}
+            disabled={exportando}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black shadow-md text-xs uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
+            title="Exportar dados para Excel"
+          >
+            <span>📊</span> {exportando ? "..." : "Excel"}
+          </button>
 
           <button 
             onClick={() => {
@@ -390,51 +430,67 @@ export default function NotasFiscais() {
               setIsNovoCadastroItem(false);
               setModalNotaAberto(true);
             }}
-            className="bg-blue-600 text-white px-6 py-2 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-sm uppercase tracking-wider w-full md:w-auto"
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-blue-100 hover:bg-blue-700 active:scale-95 transition-all text-xs uppercase tracking-wider"
           >
             + Lançar Nova Nota
           </button>
         </div>
       </div>
 
-      {/* CARDS DE MONITORAMENTO DE VENCIMENTOS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+      {/* CARDS DE MONITORAMENTO INTERATIVOS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <button 
+          type="button"
+          onClick={() => { setStatusFiltro(statusFiltro === 'atrasados' ? 'todos' : 'atrasados'); setPaginaAtual(1); }}
+          className={`p-4 rounded-2xl border transition-all text-left flex items-center justify-between ${
+            statusFiltro === 'atrasados' ? 'bg-red-600 text-white border-red-600 shadow-md' : 'bg-white border-slate-100 hover:bg-red-50/50'
+          }`}
+        >
           <div>
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Boletos Vencidos</span>
-            <span className="text-2xl font-black text-red-600">{totalAtrasados} Pendentes</span>
+            <span className={`text-[10px] font-black uppercase tracking-widest block ${statusFiltro === 'atrasados' ? 'text-red-100' : 'text-slate-400'}`}>Boletos Vencidos</span>
+            <span className={`text-2xl font-black ${statusFiltro === 'atrasados' ? 'text-white' : 'text-red-600'}`}>{totalAtrasados} Pendentes</span>
           </div>
-          <span className="text-3xl bg-red-50 p-2.5 rounded-2xl text-red-500">🚨</span>
-        </div>
+          <span className="text-2xl">🚨</span>
+        </button>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+        <button 
+          type="button"
+          onClick={() => { setStatusFiltro(statusFiltro === 'vencendo' ? 'todos' : 'vencendo'); setPaginaAtual(1); }}
+          className={`p-4 rounded-2xl border transition-all text-left flex items-center justify-between ${
+            statusFiltro === 'vencendo' ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-white border-slate-100 hover:bg-amber-50/50'
+          }`}
+        >
           <div>
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Vencem nos Próximos 5 Dias</span>
-            <span className="text-2xl font-black text-amber-600">{totalBreve} Parcela(s)</span>
+            <span className={`text-[10px] font-black uppercase tracking-widest block ${statusFiltro === 'vencendo' ? 'text-amber-100' : 'text-slate-400'}`}>Vencem nos Próx. 5 Dias</span>
+            <span className={`text-2xl font-black ${statusFiltro === 'vencendo' ? 'text-white' : 'text-amber-600'}`}>{totalBreve} Parcela(s)</span>
           </div>
-          <span className="text-3xl bg-amber-50 p-2.5 rounded-2xl text-amber-500">⏳</span>
-        </div>
+          <span className="text-2xl">⏳</span>
+        </button>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+        <button 
+          type="button"
+          onClick={() => { setStatusFiltro('todos'); setFornecedorFiltro(''); setBuscaInteligente(''); setPaginaAtual(1); }}
+          className={`p-4 rounded-2xl border transition-all text-left flex items-center justify-between ${
+            statusFiltro === 'todos' && !fornecedorFiltro && !buscaInteligente ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white border-slate-100 hover:bg-slate-50'
+          }`}
+        >
           <div>
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Notas Cadastradas</span>
-            <span className="text-2xl font-black text-slate-800">{notas.length} Documentos</span>
+            <span className={`text-[10px] font-black uppercase tracking-widest block ${statusFiltro === 'todos' && !fornecedorFiltro && !buscaInteligente ? 'text-slate-400' : 'text-slate-400'}`}>Notas Cadastradas</span>
+            <span className="text-2xl font-black">{notas.length} Documentos</span>
           </div>
-          <span className="text-3xl bg-blue-50 p-2.5 rounded-2xl text-blue-500">📑</span>
-        </div>
+          <span className="text-2xl">📑</span>
+        </button>
       </div>
 
-      {/* 🎛️ BARRA COMPACTA DE FILTROS AVANÇADOS */}
+      {/* BARRA DE FILTROS AVANÇADOS */}
       <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
-          
-          {/* Filtro Fornecedor */}
           <div>
             <label className="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Fornecedor</label>
             <select
-              className="px-3 py-1.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-black outline-none focus:border-blue-500"
+              className="px-3 py-2 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
               value={fornecedorFiltro}
-              onChange={e => setFornecedorFiltro(e.target.value)}
+              onChange={e => { setFornecedorFiltro(e.target.value); setPaginaAtual(1); }}
             >
               <option value="">Todos os Fornecedores</option>
               {fornecedores.map(f => (
@@ -443,13 +499,12 @@ export default function NotasFiscais() {
             </select>
           </div>
 
-          {/* Filtro Status Financeiro */}
           <div>
             <label className="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Status Cobrança</label>
             <select
-              className="px-3 py-1.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-black outline-none focus:border-blue-500"
+              className="px-3 py-2 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
               value={statusFiltro}
-              onChange={e => setStatusFiltro(e.target.value)}
+              onChange={e => { setStatusFiltro(e.target.value); setPaginaAtual(1); }}
             >
               <option value="todos">Todos os Status</option>
               <option value="atrasados">🚨 Atrasados</option>
@@ -458,14 +513,13 @@ export default function NotasFiscais() {
             </select>
           </div>
 
-          {/* Filtro de Datas */}
           <div>
             <label className="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Emissão De</label>
             <input
               type="date"
-              className="px-2.5 py-1.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-black outline-none focus:border-blue-500"
+              className="px-2.5 py-1.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
               value={dataInicio}
-              onChange={e => setDataInicio(e.target.value)}
+              onChange={e => { setDataInicio(e.target.value); setPaginaAtual(1); }}
             />
           </div>
 
@@ -473,9 +527,9 @@ export default function NotasFiscais() {
             <label className="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Até</label>
             <input
               type="date"
-              className="px-2.5 py-1.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-black outline-none focus:border-blue-500"
+              className="px-2.5 py-1.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
               value={dataFim}
-              onChange={e => setDataFim(e.target.value)}
+              onChange={e => { setDataFim(e.target.value); setPaginaAtual(1); }}
             />
           </div>
 
@@ -488,17 +542,17 @@ export default function NotasFiscais() {
                 setDataInicio('');
                 setDataFim('');
                 setBuscaInteligente('');
+                setPaginaAtual(1);
               }}
-              className="mt-4 text-[10px] font-black text-red-500 hover:underline uppercase"
+              className="mt-3 text-[10px] font-black text-red-500 hover:underline uppercase"
             >
               ✕ Limpar Filtros
             </button>
           )}
         </div>
 
-        {/* Totalizador filtrado */}
         <div className="text-right">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total das Notas Filtradas</span>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Filtrado</span>
           <span className="text-lg font-black text-slate-800 font-mono">
             R$ {valorTotalFiltrado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
@@ -506,61 +560,94 @@ export default function NotasFiscais() {
       </div>
 
       {/* LISTAGEM PRINCIPAL */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">Carregando dados financeiros do SEC-H...</div>
+          <div className="p-10 text-center text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 animate-pulse">Carregando dados financeiros...</div>
         ) : notasFiltradas.length === 0 ? (
           <div className="p-10 text-center text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">Nenhuma nota fiscal localizada com os filtros aplicados.</div>
         ) : (
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 text-[10px] font-black text-slate-400 tracking-widest uppercase border-b">
-              <tr>
-                <th className="p-5">Número / Série</th>
-                <th className="p-5">Fornecedor</th>
-                <th className="p-5">Emissão</th>
-                <th className="p-5">Valor Total</th>
-                <th className="p-5">Status dos Boletos</th>
-                <th className="p-5">Arquivos</th>
-                <th className="p-5 text-center">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {notasFiltradas.map((nota) => (
-                <tr key={nota.id} className="hover:bg-slate-50/50 transition-colors group text-dark">
-                  <td className="p-5 font-bold text-slate-700 text-sm">
-                    {nota.numero_nf} <span className="text-slate-400 font-normal text-xs">({nota.serie || 'Única'})</span>
-                  </td>
-                  <td className="p-5 text-sm font-medium text-slate-600 uppercase">{nota.fornecedor_nome}</td>
-                  <td className="p-5 text-xs font-mono">{new Date(nota.data_emissao).toLocaleDateString('pt-BR')}</td>
-                  <td className="p-5 font-bold text-slate-700 text-sm">R$ {Number(nota.valor_total).toFixed(2)}</td>
-                  <td className="p-5">
-                    {renderizarBadgeAlerta(nota)}
-                  </td>
-                  <td className="p-5 space-x-2">
-                    {nota.url_xml && <a href={`${API_URL.replace('/api', '')}${nota.url_xml}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded uppercase hover:bg-blue-600 hover:text-white transition-all">XML</a>}
-                    {nota.url_danfe && <a href={`${API_URL.replace('/api', '')}${nota.url_danfe}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded uppercase hover:bg-purple-600 hover:text-white transition-all">DANFE</a>}
-                  </td>
-                  <td className="p-5">
-                    <div className="flex justify-center gap-2">
-                      <button 
-                        onClick={() => verItensNota(nota)} 
-                        className="px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 text-xs font-black uppercase tracking-wider"
-                        title="Lançar itens e dar entrada no estoque"
-                      >
-                        📦 Itens
-                      </button>
-                      <button onClick={() => verBoletos(nota)} className="px-3 py-2 bg-green-50 text-green-600 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm border border-green-100 text-xs font-black uppercase tracking-wider">
-                        📁 Boletos ({nota.total_boletos || 0})
-                      </button>
-                      <button onClick={() => handleExcluirNota(nota.id)} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100" title="Remover Nota">
-                        <span className="text-sm">🗑️</span>
-                      </button>
-                    </div>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50/70 text-[10px] font-black text-slate-400 tracking-widest uppercase border-b border-slate-100">
+                <tr>
+                  <th className="p-5">Número / Série</th>
+                  <th className="p-5">Fornecedor</th>
+                  <th className="p-5">Emissão</th>
+                  <th className="p-5">Valor Total</th>
+                  <th className="p-5">Status dos Boletos</th>
+                  <th className="p-5">Arquivos</th>
+                  <th className="p-5 text-center">Ações</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs font-medium">
+                {notasPaginadas.map((nota) => (
+                  <tr key={nota.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="p-5 font-bold text-slate-800 text-sm">
+                      {nota.numero_nf} <span className="text-slate-400 font-normal text-xs">({nota.serie || 'Única'})</span>
+                    </td>
+                    <td className="p-5 text-xs font-bold text-slate-700 uppercase">{nota.fornecedor_nome}</td>
+                    <td className="p-5 text-xs font-mono text-slate-500">{new Date(nota.data_emissao).toLocaleDateString('pt-BR')}</td>
+                    <td className="p-5 font-black text-slate-800 font-mono text-sm">
+                      R$ {Number(nota.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-5">
+                      {renderizarBadgeAlerta(nota)}
+                    </td>
+                    <td className="p-5 space-x-1.5">
+                      {nota.url_xml && <a href={`${API_URL.replace('/api', '')}${nota.url_xml}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg uppercase hover:bg-blue-600 hover:text-white transition-all border border-blue-100">XML</a>}
+                      {nota.url_danfe && <a href={`${API_URL.replace('/api', '')}${nota.url_danfe}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase hover:bg-purple-600 hover:text-white transition-all border border-purple-100">DANFE</a>}
+                    </td>
+                    <td className="p-5 text-center">
+                      <div className="flex justify-center gap-2">
+                        <button 
+                          onClick={() => verItensNota(nota)} 
+                          className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 text-[11px] font-black uppercase tracking-wider"
+                          title="Lançar itens e dar entrada no estoque"
+                        >
+                          📦 Itens
+                        </button>
+                        <button onClick={() => verBoletos(nota)} className="px-3 py-1.5 bg-green-50 text-green-700 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm border border-green-100 text-[11px] font-black uppercase tracking-wider">
+                          📁 Boletos ({nota.total_boletos || 0})
+                        </button>
+                        <button onClick={() => handleExcluirNota(nota.id)} className="p-1.5 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100 text-xs" title="Remover Nota">
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* PAGINAÇÃO */}
+        {notasFiltradas.length > 0 && (
+          <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <span className="text-[11px] font-bold text-slate-400">
+              Exibindo <strong>{notasPaginadas.length}</strong> de <strong>{notasFiltradas.length}</strong> notas fiscais
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPaginaAtual(prev => Math.max(prev - 1, 1))}
+                disabled={paginaAtual === 1}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <span className="text-xs font-black text-slate-700 px-2">
+                {paginaAtual} / {totalPaginas}
+              </span>
+              <button
+                onClick={() => setPaginaAtual(prev => Math.min(prev + 1, totalPaginas))}
+                disabled={paginaAtual === totalPaginas}
+                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -574,35 +661,33 @@ export default function NotasFiscais() {
             </div>
 
             <form onSubmit={handleSalvarNota} className="p-8 space-y-6 overflow-y-auto flex-1">
-              
-              {/* BLOCO 1: DADOS DA NOTA FISCAL */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Número da NF *</label>
-                  <input type="text" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-bold text-sm bg-white text-black" value={novaNota.numero_nf} onChange={e => setNovaNota({...novaNota, numero_nf: e.target.value})} />
+                  <input type="text" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 font-bold text-sm bg-white text-slate-800" value={novaNota.numero_nf} onChange={e => setNovaNota({...novaNota, numero_nf: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Série</label>
-                  <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-medium bg-white text-black" value={novaNota.serie} onChange={e => setNovaNota({...novaNota, serie: e.target.value})} />
+                  <input type="text" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-medium bg-white text-slate-800" value={novaNota.serie} onChange={e => setNovaNota({...novaNota, serie: e.target.value})} />
                 </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Chave de Acesso (44 dígitos)</label>
-                  <input type="text" maxLength={44} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-sm bg-white text-black tracking-widest" value={novaNota.chave_acesso} onChange={e => setNovaNota({...novaNota, chave_acesso: e.target.value})} />
+                  <input type="text" maxLength={44} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-sm bg-white text-slate-800 tracking-widest" value={novaNota.chave_acesso} onChange={e => setNovaNota({...novaNota, chave_acesso: e.target.value})} />
                 </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Fornecedor Vinculado *</label>
-                  <select required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-sm text-black" value={novaNota.fornecedor_id} onChange={e => setNovaNota({...novaNota, fornecedor_id: e.target.value})}>
+                  <select required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none bg-white font-bold text-sm text-slate-800" value={novaNota.fornecedor_id} onChange={e => setNovaNota({...novaNota, fornecedor_id: e.target.value})}>
                     <option value="">Selecione o Fornecedor</option>
                     {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome_fantasia}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data de Emissão *</label>
-                  <input type="date" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm bg-white text-black" value={novaNota.data_emissao} onChange={e => setNovaNota({...novaNota, data_emissao: e.target.value})} />
+                  <input type="date" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm bg-white text-slate-800 font-bold" value={novaNota.data_emissao} onChange={e => setNovaNota({...novaNota, data_emissao: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Valor Total (R$) *</label>
-                  <input type="number" step="0.01" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-bold bg-white text-black" value={novaNota.valor_total} onChange={e => setNovaNota({...novaNota, valor_total: e.target.value})} />
+                  <input type="number" step="0.01" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-bold bg-white text-slate-800" value={novaNota.valor_total} onChange={e => setNovaNota({...novaNota, valor_total: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Arquivo XML da Nota</label>
@@ -614,7 +699,7 @@ export default function NotasFiscais() {
                 </div>
               </div>
 
-              {/* 📦 BLOCO 2: LANÇAMENTO / CADASTRO DE ITENS NO ESTOQUE */}
+              {/* BLOCO 2: LANÇAMENTO / CADASTRO DE ITENS NO ESTOQUE */}
               <div className="border-t border-slate-100 pt-6 space-y-4">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
@@ -638,7 +723,7 @@ export default function NotasFiscais() {
                       <div className="sm:col-span-2">
                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Insumo do Almoxarifado</label>
                         <select
-                          className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-blue-500"
+                          className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-blue-500"
                           value={itemTemp.item_id}
                           onChange={e => {
                             if (e.target.value === 'NOVO_ITEM') {
@@ -670,7 +755,7 @@ export default function NotasFiscais() {
                           type="number"
                           min="1"
                           placeholder="Ex: 10"
-                          className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-blue-500"
+                          className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-blue-500"
                           value={itemTemp.quantidade}
                           onChange={e => setItemTemp({ ...itemTemp, quantidade: e.target.value })}
                         />
@@ -696,8 +781,8 @@ export default function NotasFiscais() {
                           <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Nome do Novo Insumo *</label>
                           <input
                             type="text"
-                            placeholder="Ex: Disjuntor Bipolar 32A Siemens..."
-                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-blue-500"
+                            placeholder="Ex: Disjuntor Bipolar 32A..."
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-blue-500"
                             value={itemTemp.nome}
                             onChange={e => setItemTemp({ ...itemTemp, nome: e.target.value })}
                           />
@@ -707,7 +792,7 @@ export default function NotasFiscais() {
                           <input
                             type="text"
                             placeholder="Ex: REF-9908"
-                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-medium focus:border-blue-500"
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-medium focus:border-blue-500"
                             value={itemTemp.referencia}
                             onChange={e => setItemTemp({ ...itemTemp, referencia: e.target.value })}
                           />
@@ -718,7 +803,7 @@ export default function NotasFiscais() {
                         <div>
                           <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Local de Estoque</label>
                           <select
-                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold"
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold"
                             value={itemTemp.local_estoque_id}
                             onChange={e => setItemTemp({ ...itemTemp, local_estoque_id: e.target.value })}
                           >
@@ -734,7 +819,7 @@ export default function NotasFiscais() {
                             type="number"
                             min="1"
                             placeholder="Ex: 5"
-                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-blue-500"
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-blue-500"
                             value={itemTemp.quantidade}
                             onChange={e => setItemTemp({ ...itemTemp, quantidade: e.target.value })}
                           />
@@ -745,7 +830,7 @@ export default function NotasFiscais() {
                             type="number"
                             step="0.01"
                             placeholder="0.00"
-                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-blue-500"
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-blue-500"
                             value={itemTemp.valor_unitario}
                             onChange={e => setItemTemp({ ...itemTemp, valor_unitario: e.target.value })}
                           />
@@ -835,15 +920,15 @@ export default function NotasFiscais() {
                 <div className="col-span-4 font-black text-[10px] text-slate-400 uppercase tracking-widest">Vincular Nova Parcela</div>
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Identificação/Parc</label>
-                  <input type="text" className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold" value={novoBoleto.parcela} onChange={e => setNovoBoleto({...novoBoleto, parcela: e.target.value})} />
+                  <input type="text" className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold" value={novoBoleto.parcela} onChange={e => setNovoBoleto({...novoBoleto, parcela: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Valor da Parcela *</label>
-                  <input type="number" step="0.01" required className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold" value={novoBoleto.valor_boleto} onChange={e => setNovoBoleto({...novoBoleto, valor_boleto: e.target.value})} />
+                  <input type="number" step="0.01" required className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold" value={novoBoleto.valor_boleto} onChange={e => setNovoBoleto({...novoBoleto, valor_boleto: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Data de Vencimento *</label>
-                  <input type="date" required className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black" value={novoBoleto.data_vencimento} onChange={e => setNovoBoleto({...novoBoleto, data_vencimento: e.target.value})} />
+                  <input type="date" required className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold" value={novoBoleto.data_vencimento} onChange={e => setNovoBoleto({...novoBoleto, data_vencimento: e.target.value})} />
                 </div>
                 <div>
                   <button type="submit" className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-50">
@@ -871,7 +956,7 @@ export default function NotasFiscais() {
                               {b.status_pagamento}
                             </span>
                           </div>
-                          <div className="text-xs text-slate-400 font-medium">Vencimento: <span className="font-mono text-slate-500">{new Date(b.data_vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span></div>
+                          <div className="text-xs text-slate-400 font-medium">Vencimento: <span className="font-mono text-slate-500 font-bold">{new Date(b.data_vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span></div>
                           <div className="flex gap-2 pt-1">
                             {b.url_boleto_pdf && <a href={`${API_URL.replace('/api', '')}${b.url_boleto_pdf}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-blue-500 hover:underline">📄 Ver Duplicata</a>}
                             {b.url_comprovante_pdf && <a href={`${API_URL.replace('/api', '')}${b.url_comprovante_pdf}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-green-600 hover:underline">🧾 Ver Recibo/Comprovante</a>}
@@ -880,7 +965,7 @@ export default function NotasFiscais() {
 
                         <div className="flex items-center gap-4">
                           <div className="text-right">
-                            <div className="font-black text-slate-700 text-base">R$ {Number(b.valor_boleto).toFixed(2)}</div>
+                            <div className="font-black text-slate-800 text-base font-mono">R$ {Number(b.valor_boleto).toFixed(2)}</div>
                           </div>
                           {b.status_pagamento !== 'Pago' && (
                             <div className="flex flex-col items-end gap-1.5 bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
@@ -901,7 +986,7 @@ export default function NotasFiscais() {
         </div>
       )}
 
-      {/* --- MODAL 3: ITENS DA NOTA E ENTRADA POSTERIOR EM ESTOQUE --- */}
+      {/* --- MODAL 3: ITENS DA NOTA E ENTRADA EM ESTOQUE --- */}
       {modalItensAberto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -911,7 +996,6 @@ export default function NotasFiscais() {
             </div>
 
             <div className="p-8 space-y-6 max-h-[75vh] overflow-y-auto">
-              
               <form onSubmit={handleLancarItemEstoqueAvulso} className="bg-slate-50 p-5 rounded-2xl border border-slate-100 grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
                 <div className="col-span-1 sm:col-span-4 font-black text-[10px] text-slate-400 uppercase tracking-widest">
                   Lançar Item do Faturamento no Almoxarifado
@@ -921,7 +1005,7 @@ export default function NotasFiscais() {
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Insumo / Peça *</label>
                   <select
                     required
-                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-indigo-500"
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-indigo-500"
                     value={novoItemNota.item_id}
                     onChange={e => {
                       const itemSel = estoqueItens.find(i => String(i.id) === String(e.target.value));
@@ -948,7 +1032,7 @@ export default function NotasFiscais() {
                     min="1"
                     required
                     placeholder="Ex: 10"
-                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-indigo-500"
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-indigo-500"
                     value={novoItemNota.quantidade}
                     onChange={e => setNovoItemNota({ ...novoItemNota, quantidade: e.target.value })}
                   />
@@ -960,7 +1044,7 @@ export default function NotasFiscais() {
                     type="number"
                     step="0.01"
                     placeholder="0.00"
-                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-black font-bold focus:border-indigo-500"
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-indigo-500"
                     value={novoItemNota.valor_unitario}
                     onChange={e => setNovoItemNota({ ...novoItemNota, valor_unitario: e.target.value })}
                   />
@@ -1017,7 +1101,6 @@ export default function NotasFiscais() {
                   </div>
                 )}
               </div>
-
             </div>
           </div>
         </div>

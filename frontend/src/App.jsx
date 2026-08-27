@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 // --- IMPORTAÇÃO DAS PÁGINAS ---
 import Login from './pages/Login';
 import Equipamentos from './pages/Equipamentos';
+import { TiposEquipamentos } from './pages/TiposEquipamentos'; // 🏷️ Nova Página de Tipos/Famílias
 import Chamados from './pages/Chamados';
 import PainelChamados from './pages/PainelChamados'; // 📺 Painel TV / Monitoramento
 import Prontuario from './pages/Prontuario';
@@ -122,8 +123,9 @@ function App() {
                       } 
                     />
 
-                    {/* --- 2. MÓDULO EQUIPAMENTOS & PREVENTIVAS --- */}
+                    {/* --- 2. MÓDULO EQUIPAMENTOS, TIPOS & PREVENTIVAS --- */}
                     <Route path="/equipamentos" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Equipamentos /></RotaProtegida>} />
+                    <Route path="/tipos-equipamentos" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><TiposEquipamentos /></RotaProtegida>} />
                     <Route path="/prontuario/:id" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Prontuario /></RotaProtegida>} />
                     <Route path="/preventivas" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Preventivas /></RotaProtegida>} />
                     <Route path="/equipamentos/novo" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NovoEquipamento /></RotaProtegida>} />
