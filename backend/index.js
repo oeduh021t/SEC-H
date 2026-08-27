@@ -1449,6 +1449,138 @@ app.get('/api/relatorios/chamados-setor', permitirApenas(['admin', 'coordenador'
     });
 });
 
+// EXPORTAR CRONOGRAMA DE PREVENTIVAS / PMOC (.XLSX)
+app.get('/api/relatorios/exportar/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico']), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                e.id, 
+                e.nome, 
+                e.patrimonio, 
+                s.nome as setor_nome,
+                IFNULL(t.nome, 'Geral') as tipo_nome,
+                e.periodicidade_preventiva,
+                e.data_ultima_preventiva, 
+                DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY) as data_vencimento,
+                DATEDIFF(DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY), CURDATE()) as dias_restantes
+            FROM equipamentos e
+            LEFT JOIN setores s ON e.setor_id = s.id
+            LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
+            WHERE e.status IN ('Ativo', 'Em Manutenção', 'Inoperante', 'Reserva')
+              AND e.periodicidade_preventiva > 0
+            ORDER BY dias_restantes ASC
+        `;
+
+        db.query(query, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Cronograma PMOC');
+
+            worksheet.columns = [
+                { header: 'Equipamento', key: 'nome', width: 35 },
+                { header: 'Patrimônio', key: 'patrimonio', width: 16 },
+                { header: 'Setor / Localização', key: 'setor_nome', width: 25 },
+                { header: 'Tipo / Categoria', key: 'tipo_nome', width: 20 },
+                { header: 'Ciclo (Dias)', key: 'periodicidade', width: 14 },
+                { header: 'Última Preventiva', key: 'ultima', width: 18 },
+                { header: 'Próximo Vencimento', key: 'vencimento', width: 20 },
+                { header: 'Situação Operacional', key: 'status_prazo', width: 25 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF16A34A' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                let statusPrazo = `Restam ${row.dias_restantes} dias`;
+                if (row.dias_restantes < 0) statusPrazo = `Atrasada há ${Math.abs(row.dias_restantes)} dias`;
+                else if (row.dias_restantes === 0) statusPrazo = `Vence Hoje`;
+
+                worksheet.addRow({
+                    nome: row.nome,
+                    patrimonio: row.patrimonio || 'S/P',
+                    setor_nome: row.setor_nome || 'Não definido',
+                    tipo_nome: row.tipo_nome,
+                    periodicidade: `${row.periodicidade_preventiva} dias`,
+                    ultima: row.data_ultima_preventiva ? new Date(row.data_ultima_preventiva).toLocaleDateString('pt-BR') : 'Pendente',
+                    vencimento: row.data_vencimento ? new Date(row.data_vencimento).toLocaleDateString('pt-BR') : '---',
+                    status_prazo: statusPrazo
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=cronograma_preventivas_pmoc_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// EXPORTAR ESTRUTURA DE SETORES E ORGANOGRAMA (.XLSX)
+app.get('/api/relatorios/exportar/setores', permitirApenas(['admin', 'coordenador']), async (req, res) => {
+    try {
+        const sql = `
+            WITH RECURSIVE ArvoreSetores AS (
+                SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho, 1 as nivel
+                FROM setores
+                WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+                
+                UNION ALL
+                
+                SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome), pai.nivel + 1
+                FROM setores filho
+                INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+            )
+            SELECT id, nome, caminho, nivel
+            FROM ArvoreSetores
+            ORDER BY caminho ASC;
+        `;
+
+        db.query(sql, async (err, results) => {
+            if (err) return res.status(500).json({ error: err.message });
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Setores e Localizações');
+
+            worksheet.columns = [
+                { header: 'ID', key: 'id', width: 8 },
+                { header: 'Nome da Sala / Local', key: 'nome', width: 28 },
+                { header: 'Árvore Completa de Localização', key: 'caminho', width: 45 },
+                { header: 'Nível Hierárquico', key: 'nivel', width: 18 }
+            ];
+
+            worksheet.getRow(1).eachCell((cell) => {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+                cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            });
+
+            results.forEach(row => {
+                worksheet.addRow({
+                    id: row.id,
+                    nome: row.nome,
+                    caminho: row.caminho,
+                    nivel: row.nivel === 1 ? 'Prédio / Principal' : `Nível ${row.nivel} (Subsetor)`
+                });
+            });
+
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename=estrutura_setores_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+            await workbook.xlsx.write(res);
+            res.end();
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // -------------------------------------------------------------------------
 // LOGÍSTICA / AUXILIARES
 // -------------------------------------------------------------------------

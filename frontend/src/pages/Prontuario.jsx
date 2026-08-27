@@ -7,6 +7,7 @@ const Prontuario = () => {
     const [dados, setDados] = useState(null);
     const [erroAutenticacao, setErroAutenticacao] = useState(false);
     const [imagemModal, setImagemModal] = useState(null);
+    const [filtroTimeline, setFiltroTimeline] = useState('todos');
     
     // 🚚 ESTADOS PARA SAÍDA DE MANUTENÇÃO EXTERNA
     const [modalSaidaExterna, setModalSaidaExterna] = useState(false);
@@ -25,7 +26,7 @@ const Prontuario = () => {
     const [arquivoLaudo, setArquivoLaudo] = useState(null);
     const [enviandoRetorno, setEnviandoRetorno] = useState(false);
 
-    // 🖨️ CONTROLE DE TIPO DE IMPRESSÃO ('prontuario' OU 'guia')
+    // 🖨️ CONTROLE DE MODO DE IMPRESSÃO
     const [modoImpressao, setModoImpressao] = useState('prontuario');
 
     const API_URL = 'http://192.168.5.101:3000/api';
@@ -34,6 +35,11 @@ const Prontuario = () => {
     const obterUsuario = () => {
         const savedUser = localStorage.getItem('user');
         return savedUser ? JSON.parse(savedUser) : null;
+    };
+
+    const gerarLinkQRCodeLocal = (equipId) => {
+        const urlDestino = `${window.location.origin}/prontuario/${equipId}`;
+        return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(urlDestino)}`;
     };
 
     const carregarProntuario = () => {
@@ -83,13 +89,11 @@ const Prontuario = () => {
         });
     };
 
-    // 🖨️ FUNÇÃO DE IMPRESSÃO DA FICHA TÉCNICA (PRONTUÁRIO)
     const handleImprimirFicha = () => {
         setModoImpressao('prontuario');
         setTimeout(() => window.print(), 150);
     };
 
-    // 🖨️ FUNÇÃO DE IMPRESSÃO DA GUIA DE SAÍDA EXTERNA
     const handleImprimirGuiaSaida = () => {
         if (!guiaImpressao) {
             alert("Nenhuma guia de saída foi gerada recentemente nesta sessão.");
@@ -99,7 +103,6 @@ const Prontuario = () => {
         setTimeout(() => window.print(), 150);
     };
 
-    // 🚚 PROCESSAR SAÍDA PARA MANUTENÇÃO EXTERNA
     const handleConfirmarSaidaExterna = async (e) => {
         e.preventDefault();
         if (!fornecedorId || !descricaoMotivo) {
@@ -157,7 +160,6 @@ const Prontuario = () => {
         }
     };
 
-    // 🛬 PROCESSAR RETORNO DE MANUTENÇÃO EXTERNA
     const handleConfirmarRetorno = async (e) => {
         e.preventDefault();
         setEnviandoRetorno(true);
@@ -230,10 +232,20 @@ const Prontuario = () => {
     }
 
     if (!dados || !dados.dados) {
-        return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">Carregando prontuário...</div>;
+        return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse text-center">Carregando prontuário técnico...</div>;
     }
 
     const equip = dados.dados;
+    const timelineFiltrada = (dados.timeline || []).filter(item => {
+        if (filtroTimeline === 'todos') return true;
+        if (filtroTimeline === 'os') return item.tipo?.toLowerCase().includes('abertura') || item.tipo?.toLowerCase().includes('intervenção');
+        if (filtroTimeline === 'preventiva') return item.tipo?.toLowerCase().includes('preventiva');
+        if (filtroTimeline === 'movimentacao') return item.tipo?.toLowerCase().includes('movimentação') || item.tipo?.toLowerCase().includes('saída') || item.tipo?.toLowerCase().includes('retorno');
+        return true;
+    });
+
+    const totalChamados = (dados.timeline || []).filter(t => t.tipo?.toLowerCase().includes('abertura')).length;
+    const totalPreventivas = (dados.timeline || []).filter(t => t.tipo?.toLowerCase().includes('preventiva')).length;
 
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
@@ -289,91 +301,129 @@ const Prontuario = () => {
                 }
             `}</style>
 
-            {/* BOTÕES DE CONTROLE DA TELA */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100 hide-print">
+            {/* BARRA DE AÇÕES SUPERIOR */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-white p-5 rounded-3xl shadow-sm border border-slate-100 hide-print">
                 <div className="flex items-center gap-3">
-                    <span className="text-2xl bg-blue-100 p-2.5 rounded-xl">📋</span>
+                    <button 
+                        onClick={() => navigate('/equipamentos')} 
+                        className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black uppercase transition-all flex items-center gap-1 active:scale-95"
+                    >
+                        ← Voltar
+                    </button>
                     <div>
-                        <h1 className="text-xl font-black text-slate-800 uppercase tracking-tight">Prontuário e Histórico do Ativo</h1>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Rastreabilidade técnica e ciclo de vida do equipamento</p>
+                        <div className="flex items-center gap-2">
+                            <span className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 rounded-md">
+                                PAT: {equip.patrimonio || 'S/P'}
+                            </span>
+                            <h1 className="text-xl font-black text-slate-800 uppercase tracking-tight truncate max-w-lg">
+                                {equip.nome}
+                            </h1>
+                        </div>
+                        <p className="text-[11px] text-slate-400 font-bold uppercase mt-0.5">
+                            📍 {equip.setor_nome || 'Setor não definido'} • {equip.fabricante || 'Fabricante não informado'}
+                        </p>
                     </div>
                 </div>
+
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
-                    
-                    {/* IMPRIMIR PRONTUÁRIO COMPLETO */}
                     <button 
                         type="button"
                         onClick={handleImprimirFicha}
                         className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                     >
-                        🖨️ IMPRIMIR FICHA
+                        🖨️ Imprimir Ficha
                     </button>
 
-                    {/* GUIA DE SAÍDA GERADA ANTERIORMENTE */}
                     {guiaImpressao && (
                         <button 
                             type="button"
                             onClick={handleImprimirGuiaSaida}
                             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                         >
-                            🖨️ IMPRIMIR GUIA DE SAÍDA
+                            🖨️ Guia de Saída
                         </button>
                     )}
                     
-                    {/* 🟢 BOTÃO REGISTRAR RETORNO (Aparece apenas quando estiver Em Manutenção) */}
-                    {equip.status === 'Em Manutenção' && (
+                    {equip.status === 'Em Manutenção' ? (
                         <button 
                             type="button"
                             onClick={() => setModalRetorno(true)}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-emerald-100 flex items-center gap-1.5"
                         >
-                            🛬 DAR ENTRADA / RETORNO
+                            🛬 Retorno de Manutenção
                         </button>
-                    )}
-
-                    {/* 🟢 BOTÃO REGISTRAR SAÍDA EXTERNA (Aparece se não estiver Em Manutenção) */}
-                    {equip.status !== 'Em Manutenção' && (
+                    ) : (
                         <button 
                             type="button"
                             onClick={() => setModalSaidaExterna(true)}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-indigo-100 flex items-center gap-1.5"
                         >
-                            🚚 SAÍDA EXTERNA
+                            🚚 Saída Externa
                         </button>
                     )}
 
                     <button 
                         type="button"
                         onClick={handleCriarChamadoContextualizado}
-                        className="bg-amber-500 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase hover:bg-amber-600 transition-all active:scale-95 shadow-md shadow-amber-100"
+                        className="bg-amber-500 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase hover:bg-amber-600 transition-all active:scale-95 shadow-md shadow-amber-100 flex items-center gap-1.5"
                     >
-                        + ABRIR OS
+                        <span>🚨</span> Abrir OS
                     </button>
-                    <Link to="/equipamentos" className="bg-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-xs uppercase hover:bg-slate-300 transition-all">
-                        VOLTAR
-                    </Link>
                 </div>
             </div>
 
-            {/* CONTAINER ALVO DA IMPRESSÃO DO PRONTUÁRIO */}
+            {/* CONTAINER PRINCIPAL DO PRONTUÁRIO */}
             <div className="relatorio-container space-y-6">
 
                 {/* CABEÇALHO IMPRESSÃO PRONTUÁRIO */}
-                <div className="hidden print:block bg-white p-4 border-b border-slate-200 mb-4">
+                <div className="hidden print:block bg-white p-4 border-b-2 border-slate-900 mb-4">
                     <div className="flex justify-between items-center">
                         <div>
-                            <h1 className="text-lg font-black text-slate-800 uppercase">CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO</h1>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase">Ficha Técnica e Prontuário de Manutenções do Ativo</p>
+                            <h1 className="text-base font-black text-slate-900 uppercase">HOSPITAL DOMINGOS LOURENÇO — ENGENHARIA CLÍNICA</h1>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase">Prontuário Técnico e Histórico de Manutenções do Ativo</p>
                         </div>
-                        <div className="text-right text-[9px] text-slate-400 font-mono">
+                        <div className="text-right text-[9px] text-slate-500 font-mono">
                             Emissão: {new Date().toLocaleString('pt-BR')}
                         </div>
                     </div>
                 </div>
 
+                {/* CARDS DE RESUMO OPERACIONAL (DASHBOARD DO ATIVO) */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 hide-print">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Status Operacional</span>
+                        <div className="mt-1">
+                            <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider inline-block ${
+                                equip.status === 'Ativo' ? 'bg-green-100 text-green-700' :
+                                equip.status === 'Em Manutenção' ? 'bg-red-100 text-red-700' :
+                                equip.status === 'Reserva' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                                ● {equip.status || 'Ativo'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Histórico de OSs</span>
+                        <p className="text-lg font-black text-slate-800 mt-0.5">{totalChamados} Chamados</p>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Preventivas Realizadas</span>
+                        <p className="text-lg font-black text-blue-600 mt-0.5">{totalPreventivas} Rotinas</p>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Custo Total Acumulado</span>
+                        <p className="text-lg font-black text-emerald-600 mt-0.5">
+                            R$ {Number(dados.custoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 impressao-grid">
                     
-                    {/* LADO ESQUERDO: FICHA TÉCNICA */}
+                    {/* COLUNA ESQUERDA: FICHA TÉCNICA E QR CODE */}
                     <div className="lg:col-span-4 space-y-6">
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:border print:border-slate-200">
                             <div className="p-6 text-center">
@@ -393,131 +443,205 @@ const Prontuario = () => {
 
                                 <h2 className="font-black text-slate-800 text-xl uppercase leading-tight">{equip.nome}</h2>
                                 <p className="text-slate-400 font-bold text-[11px] mt-1 tracking-widest uppercase">{equip.modelo || 'Modelo não cadastrado'}</p>
-                                
-                                <div className="mt-3">
-                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                        equip.status === 'Ativo' ? 'bg-green-100 text-green-700' :
-                                        equip.status === 'Em Manutenção' ? 'bg-red-100 text-red-700' :
-                                        equip.status === 'Reserva' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
-                                    }`}>
-                                        ● {equip.status || 'Ativo'}
-                                    </span>
-                                </div>
                             </div>
 
-                            <div className="border-t border-slate-100 p-5 space-y-3 bg-slate-50/50">
-                                <div className="flex justify-between text-xs">
+                            <div className="border-t border-slate-100 p-5 space-y-3 bg-slate-50/50 text-xs">
+                                <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Localização:</span>
                                     <span className="text-blue-600 font-black uppercase">{equip.setor_nome || 'Sem Setor'}</span>
                                 </div>
-                                <div className="flex justify-between text-xs">
+                                <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Patrimônio:</span>
                                     <span className="font-mono font-bold text-slate-700">{equip.patrimonio || 'S/P'}</span>
                                 </div>
-                                <div className="flex justify-between text-xs">
+                                <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Nº de Série:</span>
                                     <span className="font-mono font-bold text-slate-700">{equip.num_serie || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between text-xs">
+                                <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Fabricante:</span>
                                     <span className="font-bold text-slate-700">{equip.fabricante || 'Não informado'}</span>
                                 </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400 font-bold uppercase text-[10px]">Valor Inicial de Compra:</span>
+                                    <span className="font-mono font-bold text-slate-700">R$ {Number(equip.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400 font-bold uppercase text-[10px]">Ciclo PMOC:</span>
+                                    <span className="font-bold text-slate-700">{equip.periodicidade_preventiva ? `${equip.periodicidade_preventiva} dias` : 'Não configurado'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400 font-bold uppercase text-[10px]">Última Preventiva:</span>
+                                    <span className="font-bold text-slate-700">{equip.data_ultima_preventiva ? new Date(equip.data_ultima_preventiva).toLocaleDateString('pt-BR') : 'Pendente'}</span>
+                                </div>
 
-                                <div className="flex justify-between items-center p-3.5 bg-red-50 rounded-2xl border border-red-100 mt-4 print:bg-none print:border-slate-200">
-                                    <div>
-                                        <span className="text-red-400 font-black text-[9px] uppercase block tracking-wider print:text-slate-600">Custo Total em Manutenção</span>
-                                        <span className="text-[9px] text-red-300 font-bold block print:text-slate-400">(Peças + Serviços + Valor Ativo)</span>
+                                <div className="p-3.5 bg-red-50 rounded-2xl border border-red-100 mt-4 print:bg-none print:border-slate-200">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <span className="text-red-500 font-black text-[9px] uppercase block tracking-wider print:text-slate-600">Custo Total Acumulado</span>
+                                            <span className="text-[8px] text-red-400 font-bold block print:text-slate-400">(Aquisição + Peças + Serviços)</span>
+                                        </div>
+                                        <span className="text-red-600 font-black text-base font-mono print:text-slate-900">
+                                            R$ {Number(dados.custoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
                                     </div>
-                                    <span className="text-red-600 font-black text-lg font-mono print:text-slate-900">
-                                        R$ {Number(dados.custoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </span>
+                                </div>
+
+                                {/* QR CODE DO ATIVO */}
+                                <div className="mt-4 pt-4 border-t border-slate-200 text-center hide-print">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-2">QR Code de Rastreio Rápido</span>
+                                    <img 
+                                        src={gerarLinkQRCodeLocal(equip.id)} 
+                                        alt="QR Code" 
+                                        className="w-28 h-28 mx-auto p-1 bg-white border border-slate-200 rounded-2xl shadow-sm"
+                                    />
+                                    <p className="text-[9px] text-slate-400 mt-1 font-mono">ID #{equip.id}</p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* LADO DIREITO: TIMELINE */}
-                    <div className="lg:col-span-8 space-y-6">
-                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:border print:border-slate-200">
-                            <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                                <h3 className="font-black text-slate-800 text-xs uppercase tracking-widest flex items-center gap-2">
-                                    <span>🕒</span> Cronologia Completa de Intervenções
-                                </h3>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">
-                                    {dados.timeline ? dados.timeline.length : 0} Eventos Registrados
-                                </span>
+                    {/* COLUNA DIREITA: LINHA DO TEMPO & CRONOLOGIA VERTICAL */}
+                    <div className="lg:col-span-8 space-y-4">
+                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 print:border print:border-slate-200">
+                            
+                            {/* CABEÇALHO DO FEED COM FILTROS */}
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-slate-100 gap-3">
+                                <div>
+                                    <h3 className="font-black text-slate-800 text-sm uppercase tracking-widest flex items-center gap-2">
+                                        <span>🕒</span> Linha do Tempo e Intervenções
+                                    </h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                        {timelineFiltrada.length} evento(s) listados
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-1.5 hide-print">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setFiltroTimeline('todos')}
+                                        className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase transition-all ${filtroTimeline === 'todos' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        Todos
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setFiltroTimeline('os')}
+                                        className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase transition-all ${filtroTimeline === 'os' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        OS / Chamados
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setFiltroTimeline('preventiva')}
+                                        className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase transition-all ${filtroTimeline === 'preventiva' ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        Preventivas
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setFiltroTimeline('movimentacao')}
+                                        className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase transition-all ${filtroTimeline === 'movimentacao' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        Movimentações
+                                    </button>
+                                </div>
                             </div>
 
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
-                                    <thead>
-                                        <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-wider border-b border-slate-100 print:text-slate-700">
-                                            <th className="p-3.5">Data / Hora</th>
-                                            <th className="p-3.5">Descrição do Evento / Laudo</th>
-                                            <th className="p-3.5">Tipo</th>
-                                            <th className="p-3.5">Responsável</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="text-xs font-medium text-slate-600 divide-y divide-slate-100 print:divide-slate-200">
-                                        {dados.timeline && dados.timeline.map((item, i) => (
-                                            <tr key={i} className="hover:bg-slate-50/60 transition-colors print:text-[10px]">
-                                                <td className="p-3.5 whitespace-nowrap font-bold text-slate-500 font-mono text-[11px]">
-                                                    {formatarDataHora(item.data)}
-                                                </td>
-                                                <td className="p-3.5">
-                                                    <div className="font-bold text-slate-700">{item.evento}</div>
-                                                    {item.url_anexo && (
-                                                        <div className="mt-2">
-                                                            {isImagem(item.url_anexo) ? (
-                                                                <div className="flex items-center gap-2">
-                                                                    <img 
-                                                                        src={`${BASE_URL}${item.url_anexo}`} 
-                                                                        alt="Anexo do evento" 
-                                                                        className="w-12 h-12 object-cover rounded-xl border-2 border-slate-200 cursor-pointer hover:scale-105 transition-transform"
-                                                                        onClick={() => setImagemModal(`${BASE_URL}${item.url_anexo}`)}
-                                                                    />
-                                                                    <button 
-                                                                        type="button" 
-                                                                        onClick={() => setImagemModal(`${BASE_URL}${item.url_anexo}`)}
-                                                                        className="text-[10px] font-black text-blue-600 hover:underline uppercase hide-print"
-                                                                    >
-                                                                        🔍 Expandir Foto
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <a 
-                                                                    href={`${BASE_URL}${item.url_anexo}`} 
-                                                                    target="_blank" 
-                                                                    rel="noopener noreferrer" 
-                                                                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black hover:bg-blue-100 transition-colors border border-blue-100 uppercase"
-                                                                >
-                                                                    <span>📄</span> Abrir Documento PDF
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                                <td className="p-3.5 whitespace-nowrap">
-                                                    <span className={`px-2 py-1 rounded text-[9px] font-black text-white uppercase tracking-wider inline-block ${
-                                                        item.tipo && item.tipo.includes('Abertura') ? 'bg-amber-500' :
-                                                        item.tipo && item.tipo.includes('Preventiva') ? 'bg-emerald-600' :
-                                                        item.tipo && item.tipo.includes('Retorno') ? 'bg-emerald-500' :
-                                                        item.tipo && item.tipo.includes('Movimentação') ? 'bg-purple-600' : 'bg-blue-600'
-                                                    }`}>
-                                                        {item.tipo || 'Intervenção'}
+                            {/* FEED VERTICAL DA CRONOLOGIA */}
+                            <div className="space-y-4 pt-4">
+                                {timelineFiltrada.map((item, i) => (
+                                    <div key={i} className="flex gap-4 group">
+                                        
+                                        {/* ÍCONE CONTEXTUAL */}
+                                        <div className="flex flex-col items-center shrink-0">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                                                item.tipo?.includes('Abertura') ? 'bg-amber-500' :
+                                                item.tipo?.includes('Preventiva') ? 'bg-emerald-600' :
+                                                item.tipo?.includes('Retorno') ? 'bg-emerald-500' :
+                                                item.tipo?.includes('Movimentação') ? 'bg-purple-600' : 'bg-blue-600'
+                                            }`}>
+                                                {item.tipo?.includes('Abertura') ? '🚨' :
+                                                 item.tipo?.includes('Preventiva') ? '📅' :
+                                                 item.tipo?.includes('Retorno') ? '🛬' :
+                                                 item.tipo?.includes('Movimentação') ? '🔄' : '🔧'}
+                                            </div>
+                                            {i < timelineFiltrada.length - 1 && (
+                                                <div className="w-0.5 bg-slate-200 flex-1 my-1"></div>
+                                            )}
+                                        </div>
+
+                                        {/* CONTEÚDO DO EVENTO */}
+                                        <div className="flex-1 bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1.5 group-hover:bg-slate-100/70 transition-colors">
+                                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-1 text-xs">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-black text-slate-800 uppercase tracking-tight">
+                                                        {item.tipo || 'Intervenção Técnica'}
                                                     </span>
-                                                </td>
-                                                <td className="p-3.5 italic text-slate-500 font-bold whitespace-nowrap">
-                                                    {item.responsavel}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                                    {item.ref_id > 0 && (
+                                                        <span className="bg-slate-200 text-slate-700 text-[9px] font-black px-1.5 py-0.5 rounded">
+                                                            OS #{item.ref_id}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="font-mono text-[10px] text-slate-400 font-bold">
+                                                    {formatarDataHora(item.data)}
+                                                </span>
+                                            </div>
+
+                                            <p className="text-xs font-medium text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                                {item.evento}
+                                            </p>
+
+                                            <div className="text-[10px] text-slate-400 font-bold flex items-center justify-between pt-1 border-t border-slate-200/50">
+                                                <span>👤 Responsável: <strong className="text-slate-600">{item.responsavel || 'Sistema'}</strong></span>
+                                                {item.status && <span className="uppercase text-[9px] font-black text-blue-600">{item.status}</span>}
+                                            </div>
+
+                                            {/* ANEXOS / LAUDOS FIXADOS AO EVENTO */}
+                                            {item.url_anexo && (
+                                                <div className="pt-2">
+                                                    {isImagem(item.url_anexo) ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <img 
+                                                                src={`${BASE_URL}${item.url_anexo}`} 
+                                                                alt="Anexo" 
+                                                                className="w-14 h-14 object-cover rounded-xl border-2 border-slate-200 cursor-pointer hover:scale-105 transition-transform"
+                                                                onClick={() => setImagemModal(`${BASE_URL}${item.url_anexo}`)}
+                                                            />
+                                                            <span className="text-[10px] font-bold text-blue-600 cursor-pointer hover:underline" onClick={() => setImagemModal(`${BASE_URL}${item.url_anexo}`)}>
+                                                                🔍 Ampliar Foto
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <a 
+                                                            href={`${BASE_URL}${item.url_anexo}`} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer" 
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl text-[10px] font-black hover:bg-blue-100 transition-colors border border-blue-200 uppercase shadow-sm"
+                                                        >
+                                                            <span>📄</span> Visualizar Laudo / PDF
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                    </div>
+                                ))}
+
+                                {timelineFiltrada.length === 0 && (
+                                    <p className="text-xs font-bold text-slate-400 italic text-center py-10">
+                                        Nenhum evento registrado nesta categoria.
+                                    </p>
+                                )}
                             </div>
+
                         </div>
                     </div>
+
                 </div>
+
             </div>
 
             {/* 🚚 MODAL DE SAÍDA EXTERNA */}
@@ -616,7 +740,7 @@ const Prontuario = () => {
                                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Anexar Laudo Técnico / Relatório (PDF ou Foto)</label>
                                 <input 
                                     type="file" 
-                                    accept="image/*,application/pdf"
+                                    accept="image/*,application/pdf" 
                                     onChange={e => setArquivoLaudo(e.target.files[0])}
                                     className="w-full p-2 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-500 bg-slate-50"
                                 />
@@ -708,7 +832,7 @@ const Prontuario = () => {
                 </div>
             )}
 
-            {/* MODAL DE VISUALIZAÇÃO DE IMAGENS */}
+            {/* MODAL DE EXPANSÃO DE IMAGENS */}
             {imagemModal && (
                 <div 
                     className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer animate-in fade-in duration-150 hide-print"
