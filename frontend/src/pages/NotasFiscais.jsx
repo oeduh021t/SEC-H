@@ -96,6 +96,115 @@ export default function NotasFiscais() {
     carregarDados();
   }, []);
 
+  // ⚡ LEITOR AUTOMÁTICO DE XML (PARSER SEFAZ / NFE)
+  const handleImportarXML = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setArquivosNota(prev => ({ ...prev, xml: file }));
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, "text/xml");
+
+        // 1. Dados Básicos da NF-e
+        const nNF = xmlDoc.querySelector("nNF")?.textContent || '';
+        const serie = xmlDoc.querySelector("serie")?.textContent || '';
+        const dhEmi = xmlDoc.querySelector("dhEmi")?.textContent || xmlDoc.querySelector("dEmi")?.textContent || '';
+        const dataFormatada = dhEmi ? dhEmi.split('T')[0] : '';
+        const vNF = xmlDoc.querySelector("vNF")?.textContent || '';
+        
+        // Chave de Acesso (ID da infNFe)
+        const infNFe = xmlDoc.querySelector("infNFe");
+        let chaveAcesso = '';
+        if (infNFe && infNFe.getAttribute("Id")) {
+          chaveAcesso = infNFe.getAttribute("Id").replace(/\D/g, '');
+        }
+
+        // 2. Dados do Fornecedor (Emitente)
+        const emitCNPJ = xmlDoc.querySelector("emit > CNPJ")?.textContent || '';
+        const emitNome = xmlDoc.querySelector("emit > xNome")?.textContent || '';
+
+        // Tenta cruzar com fornecedor já existente na base
+        let idFornecedorEncontrado = '';
+        if (emitCNPJ) {
+          const fEncontrado = fornecedores.find(f => f.cnpj && f.cnpj.replace(/\D/g, '') === emitCNPJ.replace(/\D/g, ''));
+          if (fEncontrado) idFornecedorEncontrado = fEncontrado.id;
+        }
+        if (!idFornecedorEncontrado && emitNome) {
+          const fEncontrado = fornecedores.find(f => f.nome_fantasia?.toLowerCase().includes(emitNome.toLowerCase().trim()) || f.razao_social?.toLowerCase().includes(emitNome.toLowerCase().trim()));
+          if (fEncontrado) idFornecedorEncontrado = fEncontrado.id;
+        }
+
+        // Preenche o formulário da Nota
+        setNovaNota(prev => ({
+          ...prev,
+          numero_nf: nNF,
+          serie: serie,
+          chave_acesso: chaveAcesso,
+          data_emissao: dataFormatada,
+          valor_total: vNF,
+          fornecedor_id: idFornecedorEncontrado ? String(idFornecedorEncontrado) : prev.fornecedor_id,
+          descricao: `Importada via XML [Emitente: ${emitNome} - CNPJ: ${emitCNPJ}]`
+        }));
+
+        // 3. Extração dos Itens / Produtos da NF
+        const detList = xmlDoc.querySelectorAll("det");
+        const itensLidos = [];
+
+        detList.forEach(det => {
+          const xProd = det.querySelector("prod > xProd")?.textContent || 'Produto';
+          const cProd = det.querySelector("prod > cProd")?.textContent || '';
+          const qCom = Number(det.querySelector("prod > qCom")?.textContent || 0);
+          const vUnCom = Number(det.querySelector("prod > vUnCom")?.textContent || 0);
+
+          if (qCom > 0) {
+            // Tenta casar com algum item já cadastrado no estoque por nome ou referência
+            const itemEstoqueCasado = estoqueItens.find(ei => 
+              (ei.referencia && cProd && ei.referencia.trim() === cProd.trim()) ||
+              (ei.nome && ei.nome.toLowerCase().trim() === xProd.toLowerCase().trim())
+            );
+
+            if (itemEstoqueCasado) {
+              itensLidos.push({
+                item_id: itemEstoqueCasado.id,
+                nome: itemEstoqueCasado.nome,
+                referencia: itemEstoqueCasado.referencia || cProd,
+                local_estoque_id: itemEstoqueCasado.local_estoque_id || null,
+                quantidade: qCom,
+                valor_unitario: vUnCom || itemEstoqueCasado.valor_unitario,
+                isNovo: false
+              });
+            } else {
+              itensLidos.push({
+                item_id: null,
+                nome: xProd,
+                referencia: cProd,
+                local_estoque_id: null,
+                quantidade: qCom,
+                valor_unitario: vUnCom,
+                isNovo: true
+              });
+            }
+          }
+        });
+
+        if (itensLidos.length > 0) {
+          setItensNovosNota(itensLidos);
+        }
+
+        alert(`✅ XML lido com sucesso!\n• NF nº: ${nNF}\n• Emitente: ${emitNome}\n• Total de Itens Carregados: ${itensLidos.length}`);
+      } catch (err) {
+        console.error("Erro ao processar XML:", err);
+        alert("❌ Erro ao ler a estrutura do arquivo XML.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // 📊 EXPORTAR EXCEL (.XLSX)
   const handleExportarExcel = async () => {
     setExportando(true);
@@ -602,7 +711,7 @@ export default function NotasFiscais() {
                         <button 
                           onClick={() => verItensNota(nota)} 
                           className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 text-[11px] font-black uppercase tracking-wider"
-                          title="Lançar itens e dar entrada no estoque"
+                          title="Ver insumos lançados no estoque"
                         >
                           📦 Itens
                         </button>
@@ -651,7 +760,7 @@ export default function NotasFiscais() {
         )}
       </div>
 
-      {/* --- MODAL 1: CADASTRAR NOTA + SELEÇÃO / CADASTRO RÁPIDO DE INSUMOS --- */}
+      {/* --- MODAL 1: CADASTRAR NOTA + IMPORTAÇÃO AUTOMÁTICA DE XML --- */}
       {modalNotaAberto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 max-h-[92vh] flex flex-col">
@@ -660,7 +769,27 @@ export default function NotasFiscais() {
               <button onClick={() => setModalNotaAberto(false)} className="hover:scale-110 transition-transform text-sm font-sans font-bold">✕</button>
             </div>
 
-            <form onSubmit={handleSalvarNota} className="p-8 space-y-6 overflow-y-auto flex-1">
+            <form onSubmit={handleSalvarNota} className="p-6 sm:p-8 space-y-6 overflow-y-auto flex-1">
+              
+              {/* ⚡ BOTÃO DE LEITURA RÁPIDA DE XML */}
+              <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 p-4 rounded-2xl border-2 border-dashed border-blue-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-left">
+                  <span className="text-xs font-black text-blue-700 uppercase block flex items-center gap-1.5">
+                    <span>⚡</span> Auto-Preenchimento via XML
+                  </span>
+                  <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                    Selecione o arquivo XML da NF-e para carregar todos os dados e peças automaticamente.
+                  </p>
+                </div>
+                <div>
+                  <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 inline-block text-center shrink-0">
+                    📥 Carregar XML
+                    <input type="file" accept=".xml" className="hidden" onChange={handleImportarXML} />
+                  </label>
+                </div>
+              </div>
+
+              {/* BLOCO 1: DADOS DA NOTA */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Número da NF *</label>
@@ -672,7 +801,7 @@ export default function NotasFiscais() {
                 </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Chave de Acesso (44 dígitos)</label>
-                  <input type="text" maxLength={44} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-sm bg-white text-slate-800 tracking-widest" value={novaNota.chave_acesso} onChange={e => setNovaNota({...novaNota, chave_acesso: e.target.value})} />
+                  <input type="text" maxLength={44} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-mono text-xs bg-white text-slate-800 tracking-wider font-bold" value={novaNota.chave_acesso} onChange={e => setNovaNota({...novaNota, chave_acesso: e.target.value})} />
                 </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Fornecedor Vinculado *</label>
@@ -689,12 +818,8 @@ export default function NotasFiscais() {
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Valor Total (R$) *</label>
                   <input type="number" step="0.01" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-bold bg-white text-slate-800" value={novaNota.valor_total} onChange={e => setNovaNota({...novaNota, valor_total: e.target.value})} />
                 </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Arquivo XML da Nota</label>
-                  <input type="file" accept=".xml" className="w-full text-xs font-mono p-1" onChange={e => setArquivosNota({...arquivosNota, xml: e.target.files[0]})} />
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Arquivo PDF DANFE</label>
+                <div className="col-span-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Arquivo PDF DANFE (Opcional)</label>
                   <input type="file" accept=".pdf" className="w-full text-xs font-mono p-1" onChange={e => setArquivosNota({...arquivosNota, danfe: e.target.files[0]})} />
                 </div>
               </div>
@@ -703,7 +828,7 @@ export default function NotasFiscais() {
               <div className="border-t border-slate-100 pt-6 space-y-4">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
-                    <span>📦</span> Adicionar Itens / Dar Entrada em Estoque
+                    <span>📦</span> Itens a Dar Entrada em Estoque ({itensNovosNota.length})
                   </h4>
                   <button
                     type="button"
@@ -713,7 +838,7 @@ export default function NotasFiscais() {
                     }}
                     className="text-[10px] font-black text-blue-600 hover:underline uppercase bg-blue-50 px-3 py-1 rounded-lg border border-blue-100"
                   >
-                    {isNovoCadastroItem ? '← Selecionar Insumo Existente' : '➕ Cadastrar Novo Insumo'}
+                    {isNovoCadastroItem ? '← Selecionar Insumo Existente' : '➕ Incluir Manualmente'}
                   </button>
                 </div>
 
@@ -767,14 +892,14 @@ export default function NotasFiscais() {
                           onClick={handleAdicionarItemTemp}
                           className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-indigo-100"
                         >
-                          + Incluir Item
+                          + Incluir
                         </button>
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="text-[10px] font-black text-blue-600 uppercase flex items-center gap-1">
-                        <span>✨</span> Cadastrando Novo Insumo que não existe no estoque
+                        <span>✨</span> Cadastrando Novo Insumo
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="sm:col-span-2">
@@ -843,18 +968,18 @@ export default function NotasFiscais() {
                           onClick={handleAdicionarItemTemp}
                           className="py-2.5 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-emerald-100"
                         >
-                          ✓ Adicionar Novo Insumo à Nota
+                          ✓ Adicionar Insumo
                         </button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* TABELA DE ITENS INCLUÍDOS NO FORMULÁRIO */}
+                {/* TABELA DE ITENS INCLUÍDOS */}
                 {itensNovosNota.length > 0 && (
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-60 overflow-y-auto">
                     <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-100 text-[9px] font-black text-slate-500 uppercase">
+                      <thead className="bg-slate-100 text-[9px] font-black text-slate-500 uppercase sticky top-0">
                         <tr>
                           <th className="p-3">Insumo</th>
                           <th className="p-3 text-center">Tipo</th>
