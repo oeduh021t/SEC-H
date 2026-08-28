@@ -480,8 +480,10 @@ const Chamados = ({ user: userProp }) => {
         const custoPecas = chamadoSelecionado.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0) || 0;
         const custoServico = Number(chamadoSelecionado.custo_servico || 0);
         const custoTotalOS = custoServico + custoPecas;
-        const isConcluido = chamadoSelecionado.status === 'Concluído';
+        
+        const isAberto = chamadoSelecionado.status === 'Aberto';
         const isEmAtendimento = chamadoSelecionado.status === 'Em Atendimento';
+        const isConcluido = chamadoSelecionado.status === 'Concluído';
 
         return (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4">
@@ -511,18 +513,22 @@ const Chamados = ({ user: userProp }) => {
                   </div>
                 </div>
 
-                {/* STEPPER DE ETAPAS DO CHAMADO */}
+                {/* STEPPER DINÂMICO CORRIGIDO */}
                 <div className="flex items-center gap-2 bg-slate-800/90 px-4 py-1.5 rounded-2xl border border-slate-700">
-                  <div className="flex items-center gap-1.5 text-[10px] font-black uppercase">
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-                    <span className="text-red-400">Aberto</span>
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isAberto ? 'text-red-400' : 'text-slate-400'}`}>
+                    <span className={`w-2 h-2 rounded-full ${isAberto ? 'bg-red-500 animate-ping' : 'bg-slate-600'}`}></span>
+                    <span>Aberto</span>
                   </div>
+
                   <span className="text-slate-600 text-xs">➔</span>
-                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isEmAtendimento || isConcluido ? 'text-amber-400' : 'text-slate-500'}`}>
-                    <span className={`w-2 h-2 rounded-full ${isEmAtendimento || isConcluido ? 'bg-amber-400' : 'bg-slate-600'}`}></span>
+
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isEmAtendimento ? 'text-amber-400' : isConcluido ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <span className={`w-2 h-2 rounded-full ${isEmAtendimento ? 'bg-amber-400 animate-ping' : isConcluido ? 'bg-amber-500/50' : 'bg-slate-600'}`}></span>
                     <span>Em Atendimento</span>
                   </div>
+
                   <span className="text-slate-600 text-xs">➔</span>
+
                   <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isConcluido ? 'text-emerald-400' : 'text-slate-500'}`}>
                     <span className={`w-2 h-2 rounded-full ${isConcluido ? 'bg-emerald-400' : 'bg-slate-600'}`}></span>
                     <span>Concluído</span>

@@ -104,7 +104,7 @@ function App() {
         <Route
           path="/*"
           element={
-            <div className="min-h-screen bg-gray-100 flex overflow-x-hidden">
+            <div className="min-h-screen bg-slate-50 flex overflow-x-hidden w-full">
               <Sidebar 
                 user={user} 
                 onLogout={handleLogout} 
@@ -112,8 +112,13 @@ function App() {
                 setSidebarAberta={setSidebarAberta} 
               />
 
-              <main className={`flex-1 p-4 md:p-6 transition-all duration-300 ease-in-out min-w-0 overflow-y-auto print:overflow-visible print:p-0 print:m-0 ${sidebarAberta ? 'md:ml-64' : 'md:ml-16'}`}>
-                <div className="w-full max-w-[1600px] mx-auto">
+              {/* 🛠️ AJUSTADO: Margem ativa apenas em telas grandes (lg:), liberando o espaço em tablets */}
+              <main 
+                className={`flex-1 p-3 sm:p-4 md:p-6 transition-all duration-300 ease-in-out min-w-0 w-full overflow-x-hidden print:overflow-visible print:p-0 print:m-0 ${
+                  sidebarAberta ? 'ml-0 lg:ml-64' : 'ml-0 lg:ml-16'
+                }`}
+              >
+                <div className="w-full max-w-[1600px] mx-auto overflow-x-hidden">
                   <Routes>
                     {/* --- 1. DASHBOARD --- */}
                     <Route 

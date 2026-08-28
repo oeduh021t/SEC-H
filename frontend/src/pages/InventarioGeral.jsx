@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const InventarioGeral = () => {
     const [equipamentos, setEquipamentos] = useState([]);
@@ -6,6 +7,7 @@ const InventarioGeral = () => {
     const [tiposEquipamentos, setTiposEquipamentos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [exportando, setExportando] = useState(false);
+    const [busca, setBusca] = useState('');
 
     // Estados dos filtros dinâmicos
     const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
@@ -14,15 +16,17 @@ const InventarioGeral = () => {
     const [statusSelecionado, setStatusSelecionado] = useState("todos");
     const [tipoSelecionado, setTipoSelecionado] = useState("todos");
 
+    // Paginação
+    const [paginaAtual, setPaginaAtual] = useState(1);
+    const itensPorPagina = 12;
+
     const API_URL = 'http://192.168.5.101:3000/api';
 
-    // AUXILIAR: Captura dinamicamente o privilégio operacional do operador logado
     const obterNivelUsuario = () => {
         const savedUser = localStorage.getItem('user');
         return savedUser ? JSON.parse(savedUser).nivel : '';
     };
 
-    // Busca a lista de setores cadastrados
     const carregarSetores = async () => {
         try {
             const res = await fetch(`${API_URL}/setores`, {
@@ -34,7 +38,6 @@ const InventarioGeral = () => {
         }
     };
 
-    // Busca a lista de tipos de equipamentos cadastrados
     const carregarTiposEquipamentos = async () => {
         try {
             const res = await fetch(`${API_URL}/tipos-equipamentos`, {
@@ -46,7 +49,6 @@ const InventarioGeral = () => {
         }
     };
 
-    // Puxa os dados refinados do inventário aplicando as query strings de filtro
     const carregarInventarioFiltrado = async () => {
         setLoading(true);
         try {
@@ -70,6 +72,7 @@ const InventarioGeral = () => {
     
     useEffect(() => { 
         carregarInventarioFiltrado(); 
+        setPaginaAtual(1);
     }, [dataInicio, dataFim, setorSelecionado, statusSelecionado, tipoSelecionado]);
 
     // 📊 EXPORTAÇÃO DIRETA PARA EXCEL (.XLSX)
@@ -100,16 +103,34 @@ const InventarioGeral = () => {
         }
     };
 
-    const investimentoTotal = equipamentos.reduce((acc, curr) => {
-        const valor = parseFloat(curr.total_gasto) || 0;
-        return acc + valor;
-    }, 0);
-
     const formatarDataBR = (dataStr) => {
         if (!dataStr) return "";
         const [ano, mes, dia] = dataStr.split("-");
         return `${dia}/${mes}/${ano}`;
     };
+
+    // Filtragem por busca rápida
+    const equipamentosFiltrados = equipamentos.filter(e => {
+        const termo = busca.toLowerCase().trim();
+        if (!termo) return true;
+        return (
+            (e.nome && e.nome.toLowerCase().includes(termo)) ||
+            (e.patrimonio && String(e.patrimonio).toLowerCase().includes(termo)) ||
+            (e.setor_nome && e.setor_nome.toLowerCase().includes(termo)) ||
+            (e.marca && e.marca.toLowerCase().includes(termo))
+        );
+    });
+
+    const investimentoTotal = equipamentosFiltrados.reduce((acc, curr) => {
+        return acc + (parseFloat(curr.total_gasto) || 0);
+    }, 0);
+
+    const mediaInvestimento = equipamentosFiltrados.length > 0 ? (investimentoTotal / equipamentosFiltrados.length) : 0;
+
+    // Paginação
+    const totalPaginas = Math.ceil(equipamentosFiltrados.length / itensPorPagina) || 1;
+    const indexInicio = (paginaAtual - 1) * itensPorPagina;
+    const equipamentosPaginados = equipamentosFiltrados.slice(indexInicio, indexInicio + itensPorPagina);
 
     if (loading) return (
         <div className="p-10 text-center animate-pulse text-slate-500 font-black tracking-widest uppercase text-xs">
@@ -140,15 +161,14 @@ const InventarioGeral = () => {
             `}</style>
 
             {/* BARRA DE FERRAMENTAS E FILTROS */}
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4 mb-6 hide-print">
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4 mb-6 hide-print">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-50 pb-3 gap-3">
                     <div>
                         <h3 className="text-sm font-black uppercase text-slate-700 tracking-wider">Filtros de Auditoria</h3>
                         <p className="text-[10px] text-slate-400 font-bold uppercase">Refine os custos aplicados por intervalo de tempo, localidade, tipo ou status</p>
                     </div>
                     
-                    {/* BOTÕES DE EXPORTAÇÃO E IMPRESSÃO */}
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button 
                             onClick={handleExportarExcel} 
                             disabled={exportando || loading}
@@ -166,18 +186,27 @@ const InventarioGeral = () => {
                     </div>
                 </div>
 
-                {/* Grid adaptado para 5 colunas em telas maiores */}
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Inicial</label>
-                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
+                        <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Busca Rápida</label>
+                        <input 
+                            type="text" 
+                            placeholder="🔍 Nome ou Pat..." 
+                            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-800" 
+                            value={busca} 
+                            onChange={e => { setBusca(e.target.value); setPaginaAtual(1); }} 
+                        />
                     </div>
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Período Final</label>
-                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+                        <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Período Inicial</label>
+                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-800" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
                     </div>
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Centro de Custo / Setor</label>
+                        <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Período Final</label>
+                        <input type="date" className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-800" value={dataFim} onChange={e => setDataFim(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Centro de Custo / Setor</label>
                         <select className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" value={setorSelecionado} onChange={e => setSetorSelecionado(e.target.value)}>
                             <option value="todos">⭐ Todos os Setores</option>
                             {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
@@ -185,7 +214,7 @@ const InventarioGeral = () => {
                     </div>
 
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Tipo de Equipamento</label>
+                        <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Tipo de Equipamento</label>
                         <select 
                             className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" 
                             value={tipoSelecionado} 
@@ -199,7 +228,7 @@ const InventarioGeral = () => {
                     </div>
 
                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Status do Ativo</label>
+                        <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Status do Ativo</label>
                         <select 
                             className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700" 
                             value={statusSelecionado} 
@@ -219,7 +248,7 @@ const InventarioGeral = () => {
             <div id="area-impressao" className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 print:p-0 print:border-none print:shadow-none">
                 
                 {/* HEADER RELATÓRIO */}
-                <header className="flex justify-between items-start border-b-4 border-slate-900 pb-6 mb-8 print:mb-4">
+                <header className="flex flex-col sm:flex-row justify-between items-start border-b-4 border-slate-900 pb-6 mb-6 gap-4">
                     <div>
                         <h1 className="text-2xl font-black uppercase tracking-tighter leading-none mb-1 text-slate-800">
                             Inventário Patrimonial Geral
@@ -233,9 +262,14 @@ const InventarioGeral = () => {
                         </p>
                     </div>
 
-                    <div className="text-right">
-                        <div className="bg-red-600 text-white p-4 rounded-2xl shadow-xl min-w-[260px] print:p-2 print:border print:text-slate-900 print:bg-none print:shadow-none">
-                            <p className="text-[9px] font-black uppercase tracking-widest leading-none mb-1.5 opacity-90 print:text-slate-400">
+                    <div className="flex flex-wrap gap-3 w-full sm:w-auto">
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 min-w-[160px] print:p-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Ativos Mapeados</p>
+                            <p className="text-xl font-black text-slate-800 mt-0.5">{equipamentosFiltrados.length}</p>
+                        </div>
+
+                        <div className="bg-red-600 text-white p-4 rounded-2xl shadow-xl min-w-[220px] print:p-2 print:border print:text-slate-900 print:bg-none print:shadow-none">
+                            <p className="text-[9px] font-black uppercase tracking-widest leading-none mb-1 opacity-90 print:text-slate-400">
                                 Investimento no Período
                             </p>
                             <p className="text-xl font-black tabular-nums print:text-red-600">
@@ -255,11 +289,12 @@ const InventarioGeral = () => {
                                 <th className="p-3 text-[10px] font-black uppercase tracking-wider">Localização</th>
                                 <th className="p-3 text-[10px] font-black uppercase tracking-wider text-right">Custo Acumulado</th>
                                 <th className="p-3 text-[10px] font-black uppercase tracking-wider text-center hide-print">Status</th>
+                                <th className="p-3 text-[10px] font-black uppercase tracking-wider text-center hide-print">Prontuário</th>
                             </tr>
                         </thead>
                         <tbody className="text-xs divide-y divide-slate-100">
-                            {equipamentos.length > 0 ? (
-                                equipamentos.map(e => (
+                            {equipamentosPaginados.length > 0 ? (
+                                equipamentosPaginados.map(e => (
                                     <tr key={e.id} className="hover:bg-slate-50 transition-colors print:text-[10px]">
                                         <td className="p-3 font-black text-blue-600 tracking-tighter print:text-slate-800">{e.patrimonio || '---'}</td>
                                         <td className="p-3">
@@ -274,20 +309,29 @@ const InventarioGeral = () => {
                                             <span className={`px-2 py-1 rounded-md font-black text-[9px] uppercase tracking-tighter border ${
                                                 e.status === 'Ativo' 
                                                     ? 'bg-green-100 text-green-700 border-green-200' 
-                                                    : e.status === 'Em Manutenção'
-                                                    ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse'
-                                                    : e.status === 'Reserva'
-                                                    ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                                    : e.status === 'Em Manutenção' 
+                                                    ? 'bg-amber-100 text-amber-700 border-amber-200 animate-pulse' 
+                                                    : e.status === 'Reserva' 
+                                                    ? 'bg-blue-100 text-blue-700 border-blue-200' 
                                                     : 'bg-red-100 text-red-700 border-red-200'
                                             }`}>
                                                 {e.status}
                                             </span>
                                         </td>
+                                        <td className="p-3 text-center hide-print">
+                                            <Link 
+                                                to={`/prontuario/${e.id}`}
+                                                className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg border border-blue-100 transition-all text-xs inline-block"
+                                                title="Ver Prontuário do Equipamento"
+                                            >
+                                                📋
+                                            </Link>
+                                        </td>
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan="5" className="p-10 text-center font-bold text-slate-400 uppercase italic">
+                                    <td colSpan="6" className="p-10 text-center font-bold text-slate-400 uppercase italic">
                                         Nenhum registro de custo mapeado para os filtros selecionados.
                                     </td>
                                 </tr>
@@ -295,6 +339,35 @@ const InventarioGeral = () => {
                         </tbody>
                     </table>
                 </main>
+
+                {/* PAGINAÇÃO */}
+                {equipamentosFiltrados.length > 0 && (
+                    <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 mt-4 rounded-2xl hide-print">
+                        <span className="text-[11px] font-bold text-slate-400">
+                            Exibindo <strong>{equipamentosPaginados.length}</strong> de <strong>{equipamentosFiltrados.length}</strong> ativos mapeados
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setPaginaAtual(prev => Math.max(prev - 1, 1))}
+                                disabled={paginaAtual === 1}
+                                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                            >
+                                Anterior
+                            </button>
+                            <span className="text-xs font-black text-slate-700 px-2">
+                                {paginaAtual} / {totalPaginas}
+                            </span>
+                            <button
+                                onClick={() => setPaginaAtual(prev => Math.min(prev + 1, totalPaginas))}
+                                disabled={paginaAtual === totalPaginas}
+                                className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                            >
+                                Próxima
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* ASSINATURAS PARA AUDITORIA */}
                 <footer className="hidden print:block mt-24">
@@ -305,7 +378,7 @@ const InventarioGeral = () => {
                         </div>
                         <div className="flex flex-col gap-1">
                             <div className="border-t border-slate-900 pt-2 w-56">Direção Administrativa</div>
-                            <span className="text-slate-400 text-[7px] lowercase font-normal">SEC-H Engenharia Clínica</span>
+                            <span className="text-slate-400 text-[7px] lowercase font-normal">Hospital Domingos Lourenço</span>
                         </div>
                     </div>
                 </footer>
