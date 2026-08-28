@@ -2062,27 +2062,139 @@ app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador'
     });
 });
 
+// 🚀 ROTA CORRIGIDA: INSERE A NOTA, CRIA/ATUALIZA O ESTOQUE E REGISTRA AS ENTRADAS
 app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
     { name: 'xml', maxCount: 1 },
     { name: 'danfe', maxCount: 1 }
 ]), (req, res) => {
-    const { numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao } = req.body;
+    const { numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, itens } = req.body;
 
-    const url_xml = req.files['xml'] ? `/uploads/${req.files['xml'][0].filename}` : null;
-    const url_danfe = req.files['danfe'] ? `/uploads/${req.files['danfe'][0].filename}` : null;
+    const url_xml = req.files && req.files['xml'] && req.files['xml'][0] ? `/uploads/${req.files['xml'][0].filename}` : null;
+    const url_danfe = req.files && req.files['danfe'] && req.files['danfe'][0] ? `/uploads/${req.files['danfe'][0].filename}` : null;
 
-    const query = `
-        INSERT INTO notas_fiscais (numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, url_xml, url_danfe)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const values = [numero_nf, serie || null, chave_acesso || null, Number(fornecedor_id), data_emissao, data_recebimento || null, Number(valor_total), descricao || null, url_xml, url_danfe];
-
-    db.query(query, values, (err, result) => {
-        if (err) {
-            console.error("❌ Erro ao inserir nota fiscal:", err.message);
-            return res.status(500).json({ error: err.message });
+    let listaItens = [];
+    if (itens) {
+        try {
+            listaItens = typeof itens === 'string' ? JSON.parse(itens) : itens;
+        } catch (e) {
+            console.error("Erro no JSON.parse dos itens da NF:", e);
+            listaItens = [];
         }
-        res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: result.insertId });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const queryNF = `
+            INSERT INTO notas_fiscais (numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, url_xml, url_danfe)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        const valuesNF = [
+            numero_nf, 
+            serie || null, 
+            chave_acesso || null, 
+            Number(fornecedor_id), 
+            data_emissao, 
+            data_recebimento || null, 
+            Number(valor_total), 
+            descricao || null, 
+            url_xml, 
+            url_danfe
+        ];
+
+        conn.query(queryNF, valuesNF, async (errNF, resultNF) => {
+            if (errNF) {
+                return conn.rollback(() => {
+                    conn.release();
+                    console.error("❌ Erro ao inserir nota fiscal:", errNF.message);
+                    res.status(500).json({ error: errNF.message });
+                });
+            }
+
+            const notaFiscalId = resultNF.insertId;
+
+            // Se não tiver itens, finaliza salvando só a nota
+            if (!listaItens || !Array.isArray(listaItens) || listaItens.length === 0) {
+                return conn.commit((errCommit) => {
+                    if (errCommit) {
+                        return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    }
+                    conn.release();
+                    return res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: notaFiscalId });
+                });
+            }
+
+            // Processa e atualiza o estoque para cada item
+            try {
+                for (const item of listaItens) {
+                    const qtd = Number(item.quantidade || 0);
+                    const vUnit = Number(item.valor_unitario || 0);
+
+                    if (qtd <= 0) continue;
+
+                    let finalItemId = item.item_id ? Number(item.item_id) : null;
+
+                    // Se for item existente: atualiza quantidade e valor no estoque
+                    if (finalItemId) {
+                        await new Promise((resolve, reject) => {
+                            const qUpdate = `
+                                UPDATE itens_estoque 
+                                SET quantidade = quantidade + ?, 
+                                    valor_unitario = IF(? > 0, ?, valor_unitario),
+                                    data_atualizacao = NOW()
+                                WHERE id = ?
+                            `;
+                            conn.query(qUpdate, [qtd, vUnit, vUnit, finalItemId], (errUp) => {
+                                if (errUp) return reject(errUp);
+                                resolve();
+                            });
+                        });
+                    } else {
+                        // Se for novo insumo: cadastra na tabela itens_estoque
+                        const nomeInsumo = (item.nome || 'Novo Insumo').trim();
+                        const refInsumo = item.referencia && item.referencia.trim() !== '' ? item.referencia.trim() : null;
+                        const localEstoqueId = item.local_estoque_id ? Number(item.local_estoque_id) : null;
+
+                        finalItemId = await new Promise((resolve, reject) => {
+                            const qInsert = `
+                                INSERT INTO itens_estoque (nome, referencia, quantidade, valor_unitario, local_estoque_id, data_cadastro, data_atualizacao)
+                                VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+                            `;
+                            conn.query(qInsert, [nomeInsumo, refInsumo, qtd, vUnit, localEstoqueId], (errIns, resIns) => {
+                                if (errIns) return reject(errIns);
+                                resolve(resIns.insertId);
+                            });
+                        });
+                    }
+
+                    // Registra no histórico de entradas de estoque (itens_estoque_entradas)
+                    await new Promise((resolve, reject) => {
+                        const qEntrada = `
+                            INSERT INTO itens_estoque_entradas (item_id, nota_fiscal_id, quantidade, valor_unitario, num_nota, data_entrada)
+                            VALUES (?, ?, ?, ?, ?, NOW())
+                        `;
+                        conn.query(qEntrada, [finalItemId, notaFiscalId, qtd, vUnit, numero_nf], (errEnt) => {
+                            if (errEnt) return reject(errEnt);
+                            resolve();
+                        });
+                    });
+                }
+
+                conn.commit((errCommit) => {
+                    if (errCommit) {
+                        return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    }
+                    conn.release();
+                    res.status(201).json({ message: "Nota Fiscal, itens e estoque lançados com sucesso! 📦🧾", id: notaFiscalId });
+                });
+            } catch (errProcess) {
+                conn.rollback(() => {
+                    conn.release();
+                    console.error("❌ Erro no processamento de itens do estoque:", errProcess.message);
+                    res.status(500).json({ error: errProcess.message });
+                });
+            }
+        });
     });
 });
 
