@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
+  const fileInputCameraRef = useRef(null);
+  const fileInputGaleriaRef = useRef(null);
+
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
@@ -28,8 +31,12 @@ const Chamados = ({ user: userProp }) => {
   const [fotoAbertura, setFotoAbertura] = useState(null);
 
   const [form, setForm] = useState({
-    setor_id: '', equipamento_id: '', titulo: '',
-    descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção'
+    setor_id: '',
+    equipamento_id: '',
+    titulo: '',
+    descricao_problema: '',
+    prioridade: 'Média',
+    categoria: 'Manutenção'
   });
 
   const [textoObs, setTextoObs] = useState('');
@@ -87,8 +94,8 @@ const Chamados = ({ user: userProp }) => {
     fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()).then(setEquipamentos).catch(err => console.error(err));
   };
 
-  useEffect(() => { 
-    carregarDados(); 
+  useEffect(() => {
+    carregarDados();
   }, []);
 
   useEffect(() => {
@@ -121,7 +128,7 @@ const Chamados = ({ user: userProp }) => {
       .then(data => {
         setChamadoSelecionado(data);
         setModalDetalhesAberta(true);
-        
+
         fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
           .then(res => res.json())
           .then(setListaDocumentos)
@@ -139,7 +146,7 @@ const Chamados = ({ user: userProp }) => {
     formData.append('descricao_problema', form.descricao_problema);
     formData.append('prioridade', form.prioridade);
     formData.append('categoria', form.categoria);
-    formData.append('usuario_id', user?.id || ''); 
+    formData.append('usuario_id', user?.id || '');
     if (fotoAbertura) formData.append('foto', fotoAbertura);
 
     fetch(`${API_URL}/chamados`, {
@@ -226,26 +233,26 @@ const Chamados = ({ user: userProp }) => {
     }
 
     fetch(`${API_URL}/chamados/${chamadoSelecionado.id}/observacao`, {
-        method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-usuario-nivel': obterNivelUsuario()
-        },
-        body: JSON.stringify({
-            nova_obs: textoObs,
-            usuario_nome: user.nome,
-            usuario_nivel: user.nivel
-        })
+      method: 'PATCH',
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-usuario-nivel': obterNivelUsuario()
+      },
+      body: JSON.stringify({
+        nova_obs: textoObs,
+        usuario_nome: user.nome,
+        usuario_nivel: user.nivel
+      })
     })
     .then(res => {
-        if (res.ok) {
-            setModalObsAberta(false);
-            setTextoObs('');
-            carregarDados();
-            if (modalDetalhesAberta) abrirDetalhes(chamadoSelecionado.id);
-        } else {
-            alert("Erro nas permissões.");
-        }
+      if (res.ok) {
+        setModalObsAberta(false);
+        setTextoObs('');
+        carregarDados();
+        if (modalDetalhesAberta) abrirDetalhes(chamadoSelecionado.id);
+      } else {
+        alert("Erro nas permissões.");
+      }
     }).catch(err => console.error("Erro ao salvar observação:", err));
   };
 
@@ -299,11 +306,19 @@ const Chamados = ({ user: userProp }) => {
             </Link>
           )}
 
-          <button onClick={() => { setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); setModalAberta(true); }} className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all">+ NOVO CHAMADO</button>
+          <button 
+            onClick={() => { 
+              setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); 
+              setModalAberta(true); 
+            }} 
+            className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all"
+          >
+            + NOVO CHAMADO
+          </button>
         </div>
       </div>
 
-      {/* 🚀 GRID DE CARDS OPERACIONAIS REMODELADOS */}
+      {/* GRID DE CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {filtrados.map(c => {
           const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
@@ -318,8 +333,6 @@ const Chamados = ({ user: userProp }) => {
               }`}
             >
               <div className="p-5 flex-1 flex flex-col justify-between">
-                
-                {/* TOPO: TÍTULO, IDENTIFICAÇÃO E STATUS */}
                 <div>
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <div className="flex-1 min-w-0">
@@ -352,7 +365,6 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   </div>
 
-                  {/* BARRA DE PROGRESSO DO SLA */}
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 mb-3 flex justify-between items-center text-[10px]">
                     <div className="flex items-center gap-1.5 font-black text-slate-600">
                       <span>⏱️ SLA:</span>
@@ -363,7 +375,6 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   </div>
 
-                  {/* EQUIPAMENTO VINCULADO (SE HOUVER) */}
                   {c.equip_nome && (
                     <div className="mb-3 p-2 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center gap-2 text-xs">
                       <span className="text-blue-600">🤖</span>
@@ -373,7 +384,6 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   )}
 
-                  {/* PREVIEW DO PROBLEMA RELATADO & FOTO DE ABERTURA */}
                   <div className="flex gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-100 mb-3">
                     {c.foto_abertura ? (
                       <img 
@@ -398,7 +408,6 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   </div>
 
-                  {/* OBSERVAÇÕES DA COORDENAÇÃO (EXIBE SE EXISTIR) */}
                   {c.observacao_coordenador && (
                     <div className="mb-3 p-2.5 bg-cyan-50 border border-cyan-100 rounded-xl text-xs flex items-start gap-2">
                       <span className="text-cyan-600 text-sm">💬</span>
@@ -412,7 +421,6 @@ const Chamados = ({ user: userProp }) => {
                   )}
                 </div>
 
-                {/* RODAPÉ DO CARD COM AÇÕES OPERACIONAIS */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 mt-2">
                   <div className="text-[10px] text-slate-400 font-bold">
                     👤 Por: <strong className="text-slate-600">{c.solicitante_nome || 'Usuário'}</strong>
@@ -474,7 +482,7 @@ const Chamados = ({ user: userProp }) => {
         })}
       </div>
 
-      {/* 🚀 MODAL: CENTRAL DE DETALHES & HISTÓRICO DA OS */}
+      {/* MODAL: DETALHES DO CHAMADO */}
       {modalDetalhesAberta && chamadoSelecionado && (() => {
         const slaModal = calcularTempoSLA(chamadoSelecionado.data_abertura, chamadoSelecionado.data_conclusao, chamadoSelecionado.prioridade);
         const custoPecas = chamadoSelecionado.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0) || 0;
@@ -489,7 +497,6 @@ const Chamados = ({ user: userProp }) => {
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4">
             <div className="bg-white w-full max-w-6xl h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200 border border-slate-100">
               
-              {/* CABEÇALHO SUPERIOR */}
               <div className="bg-slate-900 text-white px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
                 <div className="flex items-center gap-3">
                   <button 
@@ -513,7 +520,6 @@ const Chamados = ({ user: userProp }) => {
                   </div>
                 </div>
 
-                {/* STEPPER DINÂMICO CORRIGIDO */}
                 <div className="flex items-center gap-2 bg-slate-800/90 px-4 py-1.5 rounded-2xl border border-slate-700">
                   <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isAberto ? 'text-red-400' : 'text-slate-400'}`}>
                     <span className={`w-2 h-2 rounded-full ${isAberto ? 'bg-red-500 animate-ping' : 'bg-slate-600'}`}></span>
@@ -536,7 +542,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* GRID DE 4 CARDS DE FICHA TÉCNICA */}
               <div className="bg-slate-100/70 p-4 grid grid-cols-2 md:grid-cols-4 gap-3 border-b border-slate-200 shrink-0">
                 <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
                   <span className="text-[9px] font-black text-slate-400 uppercase block">Solicitante:</span>
@@ -563,14 +568,12 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* CORPO PRINCIPAL COM DIVISÃO 2 COLUNAS */}
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   
-                  {/* COLUNA ESQUERDA: DADOS TÉCNICOS, ANEXOS E FOTOS */}
+                  {/* COLUNA ESQUERDA */}
                   <div className="lg:col-span-5 space-y-4">
                     
-                    {/* CARD DO ATIVO VINCULADO */}
                     <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                       <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
                         <span>🤖</span> Equipamento / Ativo
@@ -593,7 +596,6 @@ const Chamados = ({ user: userProp }) => {
                       )}
                     </div>
 
-                    {/* CARD DE FOTOS DE ABERTURA E CONCLUSÃO */}
                     <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                       <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
                         <span>📷</span> Evidências Fotográficas
@@ -633,7 +635,6 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {/* CARD DE DOCUMENTOS E ANEXOS DE AUDITORIA */}
                     <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                       <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
                         <span>📎</span> Laudos & Arquivos ({listaDocumentos.length})
@@ -675,10 +676,9 @@ const Chamados = ({ user: userProp }) => {
 
                   </div>
 
-                  {/* COLUNA DIREITA: FEED/TIMELINE, PEÇAS UTILIZADAS E ASSINATURAS */}
+                  {/* COLUNA DIREITA */}
                   <div className="lg:col-span-7 space-y-4">
                     
-                    {/* PROBLEMA REPORTADO */}
                     <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-1.5">
                       <span className="text-[10px] font-black text-red-500 uppercase tracking-wider block">🚨 Problema Reportado na Abertura:</span>
                       <div className="p-3 bg-red-50/50 rounded-xl text-xs font-medium text-slate-700 border border-red-100 leading-relaxed whitespace-pre-wrap">
@@ -686,7 +686,6 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {/* PEÇAS E INSUMOS APLICADOS */}
                     {chamadoSelecionado.itens_vinculados?.length > 0 && (
                       <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-2.5">
                         <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
@@ -719,7 +718,6 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     )}
 
-                    {/* TIMELINE / FEED DE INTERVENÇÕES TÉCNICAS */}
                     <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                       <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
                         <span>🕒</span> Linha do Tempo & Histórico da Intervenção
@@ -743,7 +741,6 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {/* ASSINATURAS DIGITAIS COLETADAS */}
                     {isConcluido && (chamadoSelecionado.assinatura_tecnico || chamadoSelecionado.assinatura_setor) && (
                       <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                         <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
@@ -778,7 +775,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* BARRA INFERIOR DE AÇÕES RÁPIDAS DA MODAL */}
               <div className="bg-white px-6 py-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2 shrink-0">
                 <div className="text-[11px] font-bold text-slate-500">
                   Status Atual: <strong className="text-slate-800 uppercase">{chamadoSelecionado.status}</strong>
@@ -847,35 +843,156 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* MODAL: NOVO CHAMADO */}
+      {/* MODAL: NOVO CHAMADO COM ACESSO DIRETO À CÂMERA */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
-          <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
+          <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
             <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">
               <span>📣 Nova Solicitação</span>
-              <button type="button" onClick={() => setModalAberta(false)} className="text-xl text-white">✕</button>
+              <button type="button" onClick={() => { setModalAberta(false); setFotoAbertura(null); }} className="text-xl text-white">✕</button>
             </div>
-            <div className="p-8 space-y-4">
-              <select required className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.setor_id} onChange={e => setForm({...form, setor_id: e.target.value, equipamento_id: ''})}>
-                <option value="">-- Selecione o Setor --</option>
-                {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-              </select>
-              <select className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white" value={form.equipamento_id} onChange={e => setForm({...form, equipamento_id: e.target.value})}>
-                <option value="">Equipamento (Opcional)</option>
-                {equipamentos.filter(eq => String(eq.setor_id) === String(form.setor_id)).map(eq => (
-                  <option key={eq.id} value={eq.id}>[{eq.patrimonio}] {eq.nome}</option>
-                ))}
-              </select>
-              <input type="text" placeholder="Assunto" className="w-full border-2 border-slate-100 p-3 rounded-xl" required value={form.titulo} onChange={e => setForm({...form, titulo: e.target.value})} />
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">Anexar Foto do Problema</label>
-                  <input type="file" accept="image/*" className="text-xs w-full" onChange={(e) => setFotoAbertura(e.target.files[0])} />
+            <div className="p-6 sm:p-8 space-y-4 max-h-[85vh] overflow-y-auto">
+              
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Setor Solicitante</label>
+                <select 
+                  required 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-amber-400" 
+                  value={form.setor_id} 
+                  onChange={e => setForm({...form, setor_id: e.target.value, equipamento_id: ''})}
+                >
+                  <option value="">-- Selecione o Setor --</option>
+                  {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
               </div>
-              <textarea placeholder="Relato do problema..." className="w-full border-2 border-slate-100 p-3 rounded-xl h-24" required value={form.descricao_problema} onChange={e => setForm({...form, descricao_problema: e.target.value})} />
-              <div className="flex gap-3">
-                <button type="button" onClick={() => {setModalAberta(false); setFotoAbertura(null);}} className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl font-black text-xs uppercase">Cancelar</button>
-                <button type="submit" className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white py-4 rounded-2xl font-black text-lg shadow-xl uppercase transition-all">ABRIR CHAMADO</button>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Equipamento (Opcional)</label>
+                <select 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-amber-400" 
+                  value={form.equipamento_id} 
+                  onChange={e => setForm({...form, equipamento_id: e.target.value})}
+                >
+                  <option value="">Sem equipamento específico</option>
+                  {equipamentos.filter(eq => String(eq.setor_id) === String(form.setor_id)).map(eq => (
+                    <option key={eq.id} value={eq.id}>[{eq.patrimonio || 'S/P'}] {eq.nome}</option>
+                  ))}
+                </select>
               </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assunto do Chamado</label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Vazamento no ar-condicionado, Computador não liga..." 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-amber-400" 
+                  required 
+                  value={form.titulo} 
+                  onChange={e => setForm({...form, titulo: e.target.value})} 
+                />
+              </div>
+
+              {/* SELEÇÃO DE EVIDÊNCIA / FOTO (CÂMERA OU ARQUIVO) */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  Foto ou Evidência do Problema
+                </label>
+
+                {/* Inputs de arquivo ocultos */}
+                <input 
+                  ref={fileInputCameraRef}
+                  type="file" 
+                  accept="image/*" 
+                  capture="environment"
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setFotoAbertura(e.target.files[0]);
+                    }
+                  }} 
+                />
+                <input 
+                  ref={fileInputGaleriaRef}
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setFotoAbertura(e.target.files[0]);
+                    }
+                  }} 
+                />
+
+                {/* Botões para acionamento direto no mobile */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputCameraRef.current?.click()}
+                    className="flex items-center justify-center gap-2 p-3 bg-white border-2 border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-sm active:scale-95 transition-all"
+                  >
+                    <span className="text-base">📸</span> Tirar Foto
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputGaleriaRef.current?.click()}
+                    className="flex items-center justify-center gap-2 p-3 bg-white border-2 border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-sm active:scale-95 transition-all"
+                  >
+                    <span className="text-base">📁</span> Galeria/Arquivo
+                  </button>
+                </div>
+
+                {/* Preview e remoção da foto selecionada */}
+                {fotoAbertura && (
+                  <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-amber-200">
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <img 
+                        src={URL.createObjectURL(fotoAbertura)} 
+                        alt="Preview" 
+                        className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" 
+                      />
+                      <span className="text-xs font-bold text-slate-700 truncate max-w-[180px]">
+                        {fotoAbertura.name}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFotoAbertura(null)}
+                      className="text-xs text-rose-500 font-black hover:text-rose-700 px-2 py-1"
+                    >
+                      Remover ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Descrição do Problema</label>
+                <textarea 
+                  placeholder="Descreva com detalhes o que aconteceu..." 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl h-24 text-sm font-medium text-slate-700 outline-none focus:border-amber-400 resize-none" 
+                  required 
+                  value={form.descricao_problema} 
+                  onChange={e => setForm({...form, descricao_problema: e.target.value})} 
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => { setModalAberta(false); setFotoAbertura(null); }} 
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-500 py-3.5 rounded-2xl font-black text-xs uppercase transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-black text-sm shadow-lg shadow-amber-100 uppercase tracking-wider transition-all active:scale-[0.98]"
+                >
+                  Abrir Chamado
+                </button>
+              </div>
+
             </div>
           </form>
         </div>

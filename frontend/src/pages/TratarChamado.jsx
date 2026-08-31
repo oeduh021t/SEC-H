@@ -170,13 +170,24 @@ export function TratarChamado() {
     .catch(err => console.error("Erro ao anexar documento:", err))
   }
 
-  const handleSalvarAtendimento = (e) => {
-    e.preventDefault()
+  const handleSalvarAtendimento = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
-    const tecnicoSelecionado = tecnicos.find(t => Number(t.id) === Number(tecnicoId));
-    const nomeTecnicoFinal = tecnicoSelecionado 
-      ? tecnicoSelecionado.nome 
-      : (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')).nome : "Técnico");
+    const usuarioSalvo = localStorage.getItem('user');
+    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
+    const autorNome = usuarioLogado?.nome || "Operador";
+
+    let executorFinal = "";
+    if (tipoAtendimento === "Externo") {
+      const fornecedorSelecionado = fornecedores.find(f => Number(f.id) === Number(fornecedorId));
+      executorFinal = fornecedorSelecionado ? `Terceirizado (${fornecedorSelecionado.nome_fantasia})` : "Fornecedor Externo";
+    } else {
+      const tecnicoSelecionado = tecnicos.find(t => Number(t.id) === Number(tecnicoId));
+      executorFinal = tecnicoSelecionado ? tecnicoSelecionado.nome : autorNome;
+    }
 
     const dadosParaSalvar = {
       status,
@@ -187,21 +198,34 @@ export function TratarChamado() {
       custo_servico: tipoAtendimento === "Externo" ? Number(custoServico) : 0,
       custo_pecas: totalPecas,
       tecnico_id: tipoAtendimento === "Interno" ? tecnicoId : null,
-      tecnico_responsavel: nomeTecnicoFinal
+      tecnico_responsavel: executorFinal,
+      registrado_por_nome: autorNome,
+      registrado_por_id: usuarioLogado?.id || null
     }
 
-    fetch(`${API_URL}/chamados/${id}/atualizar`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(dadosParaSalvar)
-    }).then((res) => {
+    try {
+      const res = await fetch(`${API_URL}/chamados/${id}/atualizar`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dadosParaSalvar)
+      });
+
       if (res.ok) {
-        alert("Atendimento salvo com sucesso! 🎉")
-        navigate("/chamados")
+        if (status === "Concluído") {
+          alert("Chamado concluído com sucesso! 🎉");
+          navigate("/chamados");
+        } else {
+          alert("Andamento registrado com sucesso! 📝");
+          setDescricaoSolucao("");
+          await carregarTodosOsDados();
+        }
       } else {
-        alert("Erro ao salvar o atendimento no servidor.")
+        alert("Erro ao salvar o atendimento no servidor.");
       }
-    })
+    } catch (err) {
+      console.error("Erro na requisição:", err);
+      alert("Erro ao conectar com o servidor.");
+    }
   }
 
   const handleTrocaEquipamento = async (e) => {
@@ -672,13 +696,29 @@ export function TratarChamado() {
             <div className="overflow-y-auto max-h-56 pr-1 space-y-3">
               {chamado?.historico?.map((h, i) => (
                 <div key={i} className="flex gap-3 text-xs">
-                  <div className="w-2 rounded-full bg-blue-500 shrink-0 mt-1"></div>
+                  <div className={`w-2 rounded-full shrink-0 mt-1 ${h.tecnico_nome?.includes('Terceirizado') ? 'bg-amber-500' : 'bg-blue-500'}`}></div>
                   <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400 mb-1">
-                      <span className="text-slate-700 font-black">{h.tecnico_nome}</span>
-                      <span>{new Date(h.data_registro).toLocaleString('pt-BR')}</span>
+                    <div className="flex flex-wrap justify-between items-center gap-1 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-800 font-black text-[11px] uppercase">
+                          🛠️ {h.tecnico_nome || "Atendimento"}
+                        </span>
+                        
+                        {h.registrado_por_nome && (
+                          <span className="text-[10px] text-slate-400 font-semibold lowercase">
+                            (lançado por <strong className="text-slate-600">{h.registrado_por_nome}</strong>)
+                          </span>
+                        )}
+                      </div>
+
+                      <span className="text-[10px] text-slate-400 font-bold">
+                        {new Date(h.data_registro).toLocaleString('pt-BR')}
+                      </span>
                     </div>
-                    <p className="text-slate-600 font-medium whitespace-pre-wrap">{h.texto_historico}</p>
+
+                    <p className="text-slate-600 font-medium whitespace-pre-wrap leading-relaxed">
+                      {h.texto_historico}
+                    </p>
                   </div>
                 </div>
               ))}
