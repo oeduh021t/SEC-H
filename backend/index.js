@@ -871,6 +871,19 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
             FROM equipamentos_historico 
             WHERE equipamento_id = ?
         )
+        UNION
+        (
+            SELECT 
+                data_programada as data, 
+                CONCAT('[PLANEJADA] ', titulo, ' (Motivo: ', IFNULL(motivo_janela, 'Não informado'), ')') as evento, 
+                'Manutenção Planejada' as tipo, 
+                criado_por_nome as responsavel, 
+                status, 
+                IFNULL(chamado_execucao_id, 0) as ref_id, 
+                NULL as url_anexo
+            FROM manutencoes_planejadas 
+            WHERE equipamento_id = ?
+        )
         ORDER BY data DESC
     `;
 
@@ -878,7 +891,8 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
         if (err) return res.status(500).json(err);
         if (equip.length === 0) return res.status(404).json({ message: "Não encontrado" });
         
-        db.query(queryTimeline, [id, id, id, id], (errTimeline, timeline) => {
+        // 5 parâmetros do ID (um para cada SELECT do UNION)
+        db.query(queryTimeline, [id, id, id, id, id], (errTimeline, timeline) => {
             if (errTimeline) return res.status(500).json(errTimeline);
             
             const queryCusto = `
@@ -4282,6 +4296,56 @@ app.patch('/api/manutencoes-planejadas/:id/status', permitirApenas(['admin', 'co
         res.json({ message: `Planejamento alterado para ${status} com sucesso!` });
     });
 });
+
+// EDITAR DADOS PRINCIPAIS DO CHAMADO (SETOR, ATIVO, ASSUNTO, PRIORIDADE)
+app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, usuario_nome } = req.body;
+
+    if (!setor_id || !titulo || !descricao_problema) {
+        return res.status(400).json({ error: "Setor, Título e Descrição são campos obrigatórios." });
+    }
+
+    const v_setor = Number(setor_id);
+    const v_equip = equipamento_id && equipamento_id !== "null" && equipamento_id !== "" ? Number(equipamento_id) : null;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const queryUpdate = `
+            UPDATE chamados 
+            SET setor_id = ?, 
+                equipamento_id = ?, 
+                titulo = ?, 
+                descricao_problema = ?, 
+                prioridade = ?, 
+                categoria = ? 
+            WHERE id = ?
+        `;
+
+        conn.query(queryUpdate, [v_setor, v_equip, titulo.trim(), descricao_problema, prioridade || 'Média', categoria || 'Manutenção', id], (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+            const msgHist = `[✏️ DADOS DA OS EDITADOS] Setor ID: ${v_setor} | Equipamento ID: ${v_equip || 'Nenhum'} | Prioridade: ${prioridade || 'Média'}`;
+            const queryHist = `
+                INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
+                VALUES (?, ?, ?, 'Em Atendimento', NOW())
+            `;
+
+            conn.query(queryHist, [id, usuario_nome || 'Gestor', msgHist], (errHist) => {
+                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.json({ message: "Dados do chamado atualizados com sucesso!" });
+                });
+            });
+        });
+    });
+});
+
+
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

@@ -23,6 +23,7 @@ const Chamados = ({ user: userProp }) => {
   const [modalAberta, setModalAberta] = useState(false);
   const [modalObsAberta, setModalObsAberta] = useState(false);
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
+  const [modalEditarAberta, setModalEditarAberta] = useState(false); // ✏️ Novo estado de Edição
 
   const [filtroStatus, setFiltroStatus] = useState('Todos');
   const [busca, setBusca] = useState('');
@@ -31,6 +32,17 @@ const Chamados = ({ user: userProp }) => {
   const [fotoAbertura, setFotoAbertura] = useState(null);
 
   const [form, setForm] = useState({
+    setor_id: '',
+    equipamento_id: '',
+    titulo: '',
+    descricao_problema: '',
+    prioridade: 'Média',
+    categoria: 'Manutenção'
+  });
+
+  // Estado do formulário de edição
+  const [formEdicao, setFormEdicao] = useState({
+    id: null,
     setor_id: '',
     equipamento_id: '',
     titulo: '',
@@ -48,6 +60,7 @@ const Chamados = ({ user: userProp }) => {
   const [listaDocumentos, setListaDocumentos] = useState([]);
 
   const obterNivelUsuario = () => user?.nivel || '';
+  const isAdminOuCoord = ['admin', 'coordenador'].includes(user?.nivel?.toLowerCase().trim());
 
   useEffect(() => {
     const timer = setInterval(() => setAgora(new Date()), 60000);
@@ -135,6 +148,51 @@ const Chamados = ({ user: userProp }) => {
           .catch(err => console.error("Erro ao buscar documentos:", err));
       })
       .catch(err => console.error("Erro ao buscar detalhes:", err));
+  };
+
+  const abrirModalEdicao = (c) => {
+    setFormEdicao({
+      id: c.id,
+      setor_id: c.setor_id || '',
+      equipamento_id: c.equipamento_id || '',
+      titulo: c.titulo || '',
+      descricao_problema: c.descricao_problema || '',
+      prioridade: c.prioridade || 'Média',
+      categoria: c.categoria || 'Manutenção'
+    });
+    setModalEditarAberta(true);
+  };
+
+  const salvarEdicaoChamado = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_URL}/chamados/${formEdicao.id}/editar-dados`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-usuario-nivel': obterNivelUsuario()
+        },
+        body: JSON.stringify({
+          ...formEdicao,
+          usuario_nome: user?.nome || 'Administrador'
+        })
+      });
+
+      if (res.ok) {
+        alert("Chamado atualizado com sucesso! ✏️✅");
+        setModalEditarAberta(false);
+        carregarDados();
+        if (modalDetalhesAberta && chamadoSelecionado?.id === formEdicao.id) {
+          abrirDetalhes(formEdicao.id);
+        }
+      } else {
+        const errData = await res.json();
+        alert(errData.error || "Erro ao salvar alterações.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro de conexão ao atualizar chamado.");
+    }
   };
 
   const enviarChamado = (e) => {
@@ -226,8 +284,7 @@ const Chamados = ({ user: userProp }) => {
 
   const salvarObs = (e) => {
     e.preventDefault();
-    const nivel = user?.nivel?.toLowerCase();
-    if (nivel !== 'admin' && nivel !== 'coordenador') {
+    if (!isAdminOuCoord) {
       alert("Acesso negado.");
       return;
     }
@@ -434,6 +491,17 @@ const Chamados = ({ user: userProp }) => {
                       Detalhes
                     </button>
 
+                    {/* ✏️ BOTÃO DE EDITAR (ADMIN / COORDENADOR) */}
+                    {isAdminOuCoord && !isConcluido && (
+                      <button
+                        onClick={() => abrirModalEdicao(c)}
+                        className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-[10px] font-black uppercase transition-all"
+                        title="Editar setor, equipamento ou detalhes da solicitação"
+                      >
+                        ✏️ Editar
+                      </button>
+                    )}
+
                     {c.status !== 'Concluído' && user?.nivel?.toLowerCase() !== 'usuario' && (
                       <button
                         onClick={() => navigate(`/chamados/${c.id}/tratar`)}
@@ -464,7 +532,7 @@ const Chamados = ({ user: userProp }) => {
                       </Link>
                     )}
 
-                    {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
+                    {isAdminOuCoord && (
                       <button 
                         onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} 
                         className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 rounded-xl text-[10px] font-black uppercase transition-all"
@@ -781,7 +849,17 @@ const Chamados = ({ user: userProp }) => {
                 </div>
 
                 <div className="flex gap-2">
-                  {(user?.nivel === 'admin' || user?.nivel === 'coordenador') && (
+                  {/* ✏️ BOTÃO EDITAR NO DETALHES */}
+                  {isAdminOuCoord && !isConcluido && (
+                    <button 
+                      onClick={() => abrirModalEdicao(chamadoSelecionado)}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1"
+                    >
+                      <span>✏️</span> Editar OS
+                    </button>
+                  )}
+
+                  {isAdminOuCoord && (
                     <button 
                       onClick={() => { setTextoObs(''); setModalObsAberta(true); }} 
                       className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95"
@@ -817,6 +895,102 @@ const Chamados = ({ user: userProp }) => {
           </div>
         );
       })()}
+
+      {/* ✏️ MODAL: EDITAR CHAMADO (SETOR, ATIVO, RELATO, PRIORIDADE) */}
+      {modalEditarAberta && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
+          <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
+            <div className="bg-slate-900 p-5 text-white font-black flex justify-between items-center text-base uppercase">
+              <span>✏️ Editar Ordem de Serviço #{formEdicao.id}</span>
+              <button type="button" onClick={() => setModalEditarAberta(false)} className="text-xl">✕</button>
+            </div>
+            
+            <div className="p-6 sm:p-8 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Setor / Quarto *</label>
+                <select 
+                  required 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-blue-500" 
+                  value={formEdicao.setor_id} 
+                  onChange={e => setFormEdicao({ ...formEdicao, setor_id: e.target.value })}
+                >
+                  <option value="">-- Selecione o Setor --</option>
+                  {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Equipamento Vinculado</label>
+                  <select 
+                    className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-blue-500" 
+                    value={formEdicao.equipamento_id} 
+                    onChange={e => setFormEdicao({ ...formEdicao, equipamento_id: e.target.value })}
+                  >
+                    <option value="">Sem ativo específico</option>
+                    {equipamentos
+                      .filter(eq => !formEdicao.setor_id || String(eq.setor_id) === String(formEdicao.setor_id))
+                      .map(eq => (
+                        <option key={eq.id} value={eq.id}>[{eq.patrimonio || 'S/P'}] {eq.nome}</option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Prioridade</label>
+                  <select 
+                    className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-blue-500" 
+                    value={formEdicao.prioridade} 
+                    onChange={e => setFormEdicao({ ...formEdicao, prioridade: e.target.value })}
+                  >
+                    <option value="Baixa">Baixa</option>
+                    <option value="Média">Média</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Urgente">Urgente</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assunto do Chamado *</label>
+                <input 
+                  type="text" 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-blue-500" 
+                  required 
+                  value={formEdicao.titulo} 
+                  onChange={e => setFormEdicao({ ...formEdicao, titulo: e.target.value })} 
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Relato Descritivo do Problema *</label>
+                <textarea 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl h-28 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 resize-none" 
+                  required 
+                  value={formEdicao.descricao_problema} 
+                  onChange={e => setFormEdicao({ ...formEdicao, descricao_problema: e.target.value })} 
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setModalEditarAberta(false)} 
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-500 py-3.5 rounded-2xl font-black text-xs uppercase transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
+                >
+                  Salvar Alterações
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* MODAL: OBSERVAÇÃO COORDENADOR */}
       {modalObsAberta && (
