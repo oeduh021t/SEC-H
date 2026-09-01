@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { FiMenu, FiChevronLeft, FiChevronDown } from 'react-icons/fi';
 
@@ -8,6 +8,9 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const [menuSuprimentosAberto, setMenuSuprimentosAberto] = useState(false);
   const [menuUtilidadesAberto, setMenuUtilidadesAberto] = useState(false);
   const [menuRelatAberto, setMenuRelatAberto] = useState(false);
+
+  // Contador de Notificações de Manutenções Planejadas do Dia
+  const [totalAlertasPlanejadas, setTotalAlertasPlanejadas] = useState(0);
 
   // Modal de Configurações / Senha
   const [modalConfigAberta, setModalConfigAberta] = useState(false);
@@ -25,6 +28,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   // Permissões de Acesso (RBAC)
   const podeVerDashboard = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerEquipamentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
+  const podeVerPlanejadas = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeVerDocumentos = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeSolicitarCompras = ['admin', 'coordenador', 'tecnico'].includes(nivelUsuario);
   const podeGerenciarInfraestoque = ['admin', 'coordenador'].includes(nivelUsuario);
@@ -35,10 +39,33 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeGerenciarUsuarios = nivelUsuario === 'admin';
 
   // Verificadores de submenus ativos
-  const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('tipos-equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
+  const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('tipos-equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('manutencoes-planejadas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
   const isSuprimentosActive = location.pathname.includes('estoque') || location.pathname.includes('compras') || location.pathname.includes('fornecedores') || location.pathname.includes('notas-fiscais') || location.pathname.includes('locais-estoque');
   const isUtilidadesActive = location.pathname.includes('filtros') || location.pathname.includes('gases') || location.pathname.includes('controle-epi');
   const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
+
+  // Buscar alertas de manutenções programadas para o dia
+  useEffect(() => {
+    if (isUsuarioComum) return;
+
+    const carregarContadorAlertas = async () => {
+      try {
+        const res = await fetch(`${API_URL}/manutencoes-planejadas/alertas-hoje`, {
+          headers: { 'x-usuario-nivel': user?.nivel || '' }
+        });
+        if (res.ok) {
+          const dados = await res.json();
+          setTotalAlertasPlanejadas(Array.isArray(dados) ? dados.length : 0);
+        }
+      } catch (err) {
+        console.error("Erro ao verificar alertas de manutenção:", err);
+      }
+    };
+
+    carregarContadorAlertas();
+    const interval = setInterval(carregarContadorAlertas, 3 * 60 * 1000); // Checa a cada 3 minutos
+    return () => clearInterval(interval);
+  }, [user, isUsuarioComum]);
 
   const handleMudarSenha = async (e) => {
     e.preventDefault();
@@ -144,6 +171,34 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             <span className="text-base shrink-0">🎫</span>
             {sidebarAberta && <span className="truncate">Chamados / OS</span>}
           </Link>
+
+          {/* 📅 MANUTENÇÕES PLANEJADAS COM BADGE DE NOTIFICAÇÃO */}
+          {podeVerPlanejadas && (
+            <Link 
+              to="/manutencoes-planejadas" 
+              title="Manutenções Planejadas & Janelas" 
+              onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
+              className={`flex items-center justify-between p-2.5 rounded-xl font-bold text-sm transition-all ${
+                isActive('/manutencoes-planejadas') ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 text-slate-300'
+              }`}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-base shrink-0">📅</span>
+                {sidebarAberta && <span className="truncate">Manutenção Planejada</span>}
+              </div>
+              
+              {/* Badge com contagem de preventivas/planejadas de hoje */}
+              {totalAlertasPlanejadas > 0 && (
+                sidebarAberta ? (
+                  <span className="bg-amber-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse shadow-sm">
+                    {totalAlertasPlanejadas}
+                  </span>
+                ) : (
+                  <span className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping shrink-0" />
+                )
+              )}
+            </Link>
+          )}
 
           {/* SEÇÕES RESTRITAS */}
           {!isUsuarioComum && (

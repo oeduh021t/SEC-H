@@ -31,6 +31,7 @@ import Gases from './pages/Gases';
 import SolicitacaoCompras from './pages/SolicitacaoCompras';
 import ProntuarioSetor from './pages/ProntuarioSetor';
 import ControleEpi from './pages/ControleEpi';
+import ManutencaoPlanejada from './pages/ManutencaoPlanejada';
 
 // --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
 function RotaProtegida({ children, user, niveisPermitidos }) {
@@ -112,7 +113,7 @@ function App() {
                 setSidebarAberta={setSidebarAberta} 
               />
 
-              {/* 🛠️ AJUSTADO: Margem ativa apenas em telas grandes (lg:), liberando o espaço em tablets */}
+              {/* 🛠️ Margem ativa apenas em telas grandes (lg:), liberando o espaço em tablets */}
               <main 
                 className={`flex-1 p-3 sm:p-4 md:p-6 transition-all duration-300 ease-in-out min-w-0 w-full overflow-x-hidden print:overflow-visible print:p-0 print:m-0 ${
                   sidebarAberta ? 'ml-0 lg:ml-64' : 'ml-0 lg:ml-16'
@@ -141,6 +142,16 @@ function App() {
                     <Route
                       path="/chamados/:id/tratar"
                       element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><TratarChamado /></RotaProtegida>}
+                    />
+
+                    {/* 📅 NOVO MÓDULO: MANUTENÇÕES PLANEJADAS & JANELAS */}
+                    <Route 
+                      path="/manutencoes-planejadas" 
+                      element={
+                        <RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}>
+                          <ManutencaoPlanejada user={user} />
+                        </RotaProtegida>
+                      } 
                     />
 
                     {/* --- REPOSITÓRIO DE DOCUMENTOS AUDITÁVEIS --- */}

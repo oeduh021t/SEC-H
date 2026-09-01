@@ -34,14 +34,17 @@ const storage = multer.diskStorage({
 });
 
 const filtroDocumentos = (req, file, cb) => {
-    const extensoesPermitidas = /jpeg|jpg|png|pdf/;
-    const extname = extensoesPermitidas.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = extensoesPermitidas.test(file.mimetype);
+    // Adiciona suporte a extensões e mimetypes de XML
+    const extensoesPermitidas = /jpeg|jpg|png|pdf|xml/;
+    const mimetypesPermitidos = /image\/(jpeg|jpg|png)|application\/pdf|application\/xml|text\/xml/;
 
-    if (mimetype && extname) {
+    const extname = extensoesPermitidas.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = mimetypesPermitidos.test(file.mimetype);
+
+    if (mimetype || extname) {
         return cb(null, true);
     } else {
-        cb(new Error('Erro: O sistema aceita apenas arquivos no formato PDF ou Imagem (JPEG, JPG, PNG)!'));
+        cb(new Error('Erro: O sistema aceita apenas arquivos no formato PDF, XML ou Imagem (JPEG, JPG, PNG)!'));
     }
 };
 
@@ -4058,6 +4061,227 @@ app.get('/api/relatorios/exportar/custos-setor', permitirApenas(['admin', 'coord
     }
 });
 
+// =========================================================================
+// MÓDULO: MANUTENÇÃO PLANEJADA (PREVENTIVAS / CORRETIVAS PROGRAMADAS)
+// =========================================================================
+
+// 1. Listar todas as manutenções planejadas
+app.get('/api/manutencoes-planejadas', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const query = `
+        SELECT 
+            mp.*,
+            e.nome AS equipamento_nome,
+            e.patrimonio AS equipamento_patrimonio,
+            s.nome AS setor_nome,
+            u.nome AS tecnico_nome,
+            f.nome_fantasia AS fornecedor_nome
+        FROM manutencoes_planejadas mp
+        LEFT JOIN equipamentos e ON e.id = mp.equipamento_id
+        LEFT JOIN setores s ON s.id = mp.setor_id
+        LEFT JOIN usuarios u ON u.id = mp.tecnico_id
+        LEFT JOIN fornecedores f ON f.id = mp.fornecedor_id
+        ORDER BY mp.data_programada ASC, mp.hora_programada ASC
+    `;
+
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error("❌ Erro ao listar manutenções planejadas:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(results || []);
+    });
+});
+
+// 2. Alertas do dia (Hoje ou Atrasadas pendentes de execução)
+app.get('/api/manutencoes-planejadas/alertas-hoje', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const query = `
+        SELECT 
+            mp.*,
+            e.nome AS equipamento_nome,
+            e.patrimonio AS equipamento_patrimonio,
+            s.nome AS setor_nome,
+            u.nome AS tecnico_nome,
+            f.nome_fantasia AS fornecedor_nome
+        FROM manutencoes_planejadas mp
+        LEFT JOIN equipamentos e ON e.id = mp.equipamento_id
+        LEFT JOIN setores s ON s.id = mp.setor_id
+        LEFT JOIN usuarios u ON u.id = mp.tecnico_id
+        LEFT JOIN fornecedores f ON f.id = mp.fornecedor_id
+        WHERE mp.status = 'Agendado'
+          AND mp.data_programada <= CURDATE()
+        ORDER BY mp.data_programada ASC, mp.hora_programada ASC
+    `;
+
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error("❌ Erro ao buscar alertas de manutenções planejadas:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(results || []);
+    });
+});
+
+// 3. Cadastrar novo planejamento
+app.post('/api/manutencoes-planejadas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const {
+        titulo,
+        descricao_planejamento,
+        tipo,
+        equipamento_id,
+        setor_id,
+        chamado_origem_id,
+        data_programada,
+        hora_programada,
+        motivo_janela,
+        prioridade,
+        tipo_responsavel,
+        tecnico_id,
+        fornecedor_id,
+        criado_por_nome
+    } = req.body;
+
+    if (!titulo || !descricao_planejamento || !data_programada) {
+        return res.status(400).json({ error: "Título, detalhamento e data programada são obrigatórios." });
+    }
+
+    const v_equip = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" ? Number(equipamento_id) : null;
+    const v_setor = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
+    const v_chamado_origem = chamado_origem_id && chamado_origem_id !== "" && chamado_origem_id !== "null" ? Number(chamado_origem_id) : null;
+    const v_tecnico = tecnico_id && tecnico_id !== "" && tecnico_id !== "null" ? Number(tecnico_id) : null;
+    const v_fornecedor = fornecedor_id && fornecedor_id !== "" && fornecedor_id !== "null" ? Number(fornecedor_id) : null;
+
+    const query = `
+        INSERT INTO manutencoes_planejadas (
+            titulo, descricao_planejamento, tipo, equipamento_id, setor_id,
+            chamado_origem_id, data_programada, hora_programada, motivo_janela,
+            prioridade, tipo_responsavel, tecnico_id, fornecedor_id, criado_por_nome, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Agendado')
+    `;
+
+    const values = [
+        titulo.trim(),
+        descricao_planejamento,
+        tipo || 'Corretiva Programada',
+        v_equip,
+        v_setor,
+        v_chamado_origem,
+        data_programada,
+        hora_programada || null,
+        motivo_janela || null,
+        prioridade || 'Média',
+        tipo_responsavel || 'Interno',
+        v_tecnico,
+        v_fornecedor,
+        criado_por_nome || 'Sistema'
+    ];
+
+    db.query(query, values, (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao cadastrar manutenção planejada:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ message: "Manutenção planejada cadastrada com sucesso! 📅✅", id: result.insertId });
+    });
+});
+
+// 4. Iniciar Execução (Converte Planejamento em OS / Chamado ativo)
+app.post('/api/manutencoes-planejadas/:id/gerar-os', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { usuario_id } = req.body;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        conn.query("SELECT * FROM manutencoes_planejadas WHERE id = ?", [id], (errPlano, resPlano) => {
+            if (errPlano || resPlano.length === 0) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(404).json({ error: "Planejamento não encontrado." });
+                });
+            }
+
+            const plano = resPlano[0];
+            const descProblema = `[MANUTENÇÃO PLANEJADA #${plano.id}]\n${plano.descricao_planejamento}\n\nJanela / Motivo Operacional: ${plano.motivo_janela || 'Nenhum'}`;
+            const tipoChamado = plano.tipo === 'Preventiva' ? 'Preventiva' : 'Corretiva';
+
+            const sqlInsertOS = `
+                INSERT INTO chamados (
+                    setor_id, equipamento_id, titulo, descricao_problema,
+                    prioridade, categoria, status, data_abertura, usuario_abertura_id,
+                    tipo_manutencao, tipo_atendimento, tecnico_id, fornecedor_id
+                ) VALUES (?, ?, ?, ?, ?, 'Manutenção', 'Em Atendimento', NOW(), ?, ?, ?, ?, ?)
+            `;
+
+            const valuesOS = [
+                plano.setor_id,
+                plano.equipamento_id,
+                `[Planejada] ${plano.titulo}`,
+                descProblema,
+                plano.prioridade || 'Média',
+                Number(usuario_id || 1),
+                tipoChamado,
+                plano.tipo_responsavel || 'Interno',
+                plano.tecnico_id,
+                plano.fornecedor_id
+            ];
+
+            conn.query(sqlInsertOS, valuesOS, (errOS, resOS) => {
+                if (errOS) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        console.error("❌ Erro ao criar chamado da planejada:", errOS.message);
+                        res.status(500).json({ error: errOS.message });
+                    });
+                }
+
+                const novoChamadoId = resOS.insertId;
+
+                const sqlUpdatePlano = `
+                    UPDATE manutencoes_planejadas 
+                    SET status = 'Em Andamento', chamado_execucao_id = ? 
+                    WHERE id = ?
+                `;
+
+                conn.query(sqlUpdatePlano, [novoChamadoId, id], (errUp) => {
+                    if (errUp) {
+                        return conn.rollback(() => {
+                            conn.release();
+                            res.status(500).json({ error: errUp.message });
+                        });
+                    }
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) {
+                            return conn.rollback(() => {
+                                conn.release();
+                                res.status(500).json({ error: errCommit.message });
+                            });
+                        }
+                        conn.release();
+                        res.json({ message: "Ordem de Serviço gerada com sucesso!", chamado_id: novoChamadoId });
+                    });
+                });
+            });
+        });
+    });
+});
+
+// 5. Cancelar ou Concluir Planejamento diretamente
+app.patch('/api/manutencoes-planejadas/:id/status', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const statusValidos = ['Agendado', 'Em Andamento', 'Concluído', 'Cancelado'];
+    if (!statusValidos.includes(status)) {
+        return res.status(400).json({ error: "Status inválido." });
+    }
+
+    const query = `UPDATE manutencoes_planejadas SET status = ? WHERE id = ?`;
+    db.query(query, [status, id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: `Planejamento alterado para ${status} com sucesso!` });
+    });
+});
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
