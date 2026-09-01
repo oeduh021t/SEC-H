@@ -29,8 +29,8 @@ const Fornecedores = () => {
   const [form, setForm] = useState(estadoInicial);
   const [arquivoContrato, setArquivoContrato] = useState(null);
 
-  const API_URL = 'http://192.168.5.101:3000/api';
-  const BASE_URL = 'http://192.168.5.101:3000';
+  const API_URL = '/api';
+  const BASE_URL = '';
 
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');

@@ -38,8 +38,8 @@ export function TratarChamado() {
   const [nfReferencia, setNfReferencia] = useState("")
   const [custoServico, setCustoServico] = useState(0)
 
-  const API_URL = "http://192.168.5.101:3000/api"
-  const BASE_URL = "http://192.168.5.101:3000"
+  const API_URL = "/api"
+  const BASE_URL = ""
 
   const totalPecas = chamado?.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade) * Number(item.valor_unitario)), 0) || 0;
   const custoTotalOS = (Number(custoServico) || 0) + totalPecas;

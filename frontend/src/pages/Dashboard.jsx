@@ -17,7 +17,7 @@ const Dashboard = ({ user }) => {
     const [dataFim, setDataFim] = useState(dataAtual);
     const [periodoAtivo, setPeriodoAtivo] = useState('30d');
 
-    const API_URL = 'http://192.168.5.101:3000/api';
+    const API_URL = '/api';
     const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
 
     const carregarStats = useCallback(async (inicio = dataInicio, fim = dataFim) => {

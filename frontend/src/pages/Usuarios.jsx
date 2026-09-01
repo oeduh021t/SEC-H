@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 const Usuarios = () => {
     const [usuarios, setUsuarios] = useState([]);
     const [modal, setModal] = useState({ aberto: false, modo: 'novo', dados: {} });
-    const API_URL = 'http://192.168.5.101:3000/api';
+    const API_URL = '/api';
 
     // 🔑 AUXILIAR: Captura dinamicamente o privilégio operacional do administrador logado
     const obterNivelUsuario = () => {

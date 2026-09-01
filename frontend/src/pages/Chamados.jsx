@@ -53,8 +53,8 @@ const Chamados = ({ user: userProp }) => {
 
   const [textoObs, setTextoObs] = useState('');
 
-  const API_URL = 'http://192.168.5.101:3000/api';
-  const BASE_URL = 'http://192.168.5.101:3000';
+  const API_URL = '/api';
+  const BASE_URL = '';
 
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);

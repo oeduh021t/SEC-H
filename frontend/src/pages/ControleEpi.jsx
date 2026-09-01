@@ -18,8 +18,8 @@ export default function ControleEpi() {
   const [arquivo, setArquivo] = useState(null);
   const [enviando, setEnviando] = useState(false);
 
-  const API_URL = 'http://192.168.5.101:3000/api';
-  const BASE_URL = 'http://192.168.5.101:3000';
+  const API_URL = '/api';
+  const BASE_URL = '';
 
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');

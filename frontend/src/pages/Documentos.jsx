@@ -20,8 +20,8 @@ export default function Documentos() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 12;
 
-  const API_URL = 'http://192.168.5.101:3000/api';
-  const BASE_URL = 'http://192.168.5.101:3000';
+  const API_URL = '/api';
+  const BASE_URL = '';
 
   const carregarFiltrosEDados = async () => {
     try {

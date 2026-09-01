@@ -7,7 +7,7 @@ const NovoEquipamento = () => {
   const [tipos, setTipos] = useState([]);
   const [locaisEstoque, setLocaisEstoque] = useState([]); // 🆕 Estado para carregar locais de estoque dinâmicos
   const [fotoEquipamento, setFotoEquipamento] = useState(null);
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
 
   const [form, setForm] = useState({
     nome: '', 

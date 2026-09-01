@@ -19,7 +19,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const [confirmaSenha, setConfirmaSenha] = useState('');
 
   const location = useLocation();
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
 
   const isActive = (path) => location.pathname === path;
   const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';

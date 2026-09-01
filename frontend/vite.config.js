@@ -9,5 +9,17 @@ export default defineConfig({
     watch: {
       usePolling: true, // Garante que o Docker perceba quando você salvar um arquivo
     },
+    proxy: {
+      '/api': {
+        target: 'http://api:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/uploads': {
+        target: 'http://api:3000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
   },
 })

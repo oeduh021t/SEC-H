@@ -12,7 +12,7 @@ export function RelatorioEstoqueLocal() {
   const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
 
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
 
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');

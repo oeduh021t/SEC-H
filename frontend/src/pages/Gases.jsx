@@ -31,8 +31,8 @@ const Gases = () => {
     
     const [obsVirada, setObsVirada] = useState('');
 
-    const API_URL = 'http://192.168.5.101:3000/api';
-    const BASE_URL = 'http://192.168.5.101:3000';
+    const API_URL = '/api';
+    const BASE_URL = '';
     
     const usuarioSalvo = localStorage.getItem('user');
     const user = usuarioSalvo ? JSON.parse(usuarioSalvo) : { nome: 'Técnico', nivel: '' };

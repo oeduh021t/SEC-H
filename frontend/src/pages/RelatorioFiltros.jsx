@@ -10,7 +10,7 @@ const RelatorioFiltros = () => {
     const [loading, setLoading] = useState(true);
     const [exportando, setExportando] = useState(false);
 
-    const API_URL = 'http://192.168.5.101:3000/api';
+    const API_URL = '/api';
 
     const buscarRelatorio = useCallback(async () => {
         setLoading(true);

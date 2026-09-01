@@ -13,7 +13,7 @@ const RelatorioCustosConsolidados = () => {
     const [dados, setDados] = useState(null);
     const [loading, setLoading] = useState(false);
 
-    const API_URL = 'http://192.168.5.101:3000/api';
+    const API_URL = '/api';
 
     // Carrega a listagem de setores no carregamento inicial
     useEffect(() => {

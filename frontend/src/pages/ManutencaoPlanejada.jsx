@@ -43,7 +43,7 @@ export function ManutencaoPlanejada({ user: userProp }) {
     fornecedor_id: ''
   });
 
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
 
   const obterHeaders = () => ({
     'Content-Type': 'application/json',

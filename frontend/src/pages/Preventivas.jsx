@@ -24,7 +24,7 @@ const Preventivas = () => {
     const [paginaAtual, setPaginaAtual] = useState(1);
     const itensPorPagina = 15;
 
-    const API_URL = 'http://192.168.5.101:3000/api';
+    const API_URL = '/api';
 
     const obterNivelUsuario = () => {
         const savedUser = localStorage.getItem('user');

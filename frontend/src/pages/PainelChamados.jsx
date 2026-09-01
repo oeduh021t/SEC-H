@@ -21,7 +21,7 @@ const PainelChamados = () => {
   const scrollContainerAbertosRef = useRef(null);
   const scrollContainerAndamentoRef = useRef(null);
 
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
 
   // 🗣️ SÍNTESE DE VOZ
   const falarTexto = (texto) => {

@@ -39,7 +39,7 @@ export function GestaoEstoque() {
 
   const [modalEtiqueta, setModalEtiqueta] = useState(null);
 
-  const API_URL = "http://192.168.5.101:3000/api";
+  const API_URL = "/api";
 
   const obterNivelUsuario = () => {
     const userLogado = localStorage.getItem("user");

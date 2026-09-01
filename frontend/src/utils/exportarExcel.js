@@ -1,6 +1,6 @@
 // src/utils/exportarExcel.js
 export const baixarRelatorioExcel = async (tipoRelatorio, nomeArquivo) => {
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
   const savedUser = localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
 

@@ -9,7 +9,7 @@ export function ImprimirOS() {
   const [loading, setLoading] = useState(true);
   const [nomes, setNomes] = useState({ tecnico: "", setor: "" });
 
-  const API_URL = "http://192.168.5.101:3000/api";
+  const API_URL = "/api";
   const padTecnico = useRef(null);
   const padSetor = useRef(null);
 

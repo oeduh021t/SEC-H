@@ -11,7 +11,7 @@ export function TiposEquipamentos() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 12;
 
-  const API_URL = "http://192.168.5.101:3000/api";
+  const API_URL = "/api";
 
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem("user");

@@ -51,7 +51,7 @@ export default function NotasFiscais() {
   const [novoItemNota, setNovoItemNota] = useState({ item_id: '', quantidade: '', valor_unitario: '' });
   const [salvandoItem, setSalvandoItem] = useState(false);
 
-  const API_URL = 'http://192.168.5.101:3000/api';
+  const API_URL = '/api';
 
   const obterNivelUsuario = () => {
     const savedUser = localStorage.getItem('user');

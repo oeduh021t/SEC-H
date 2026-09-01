@@ -12,7 +12,7 @@ const ProntuarioSetor = () => {
     const [loading, setLoading] = useState(true);
     const [erroAutenticacao, setErroAutenticacao] = useState(false);
 
-    const API_URL = 'http://192.168.5.101:3000/api';
+    const API_URL = '/api';
 
     const obterUsuario = () => {
         const savedUser = localStorage.getItem('user');

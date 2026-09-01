@@ -29,8 +29,8 @@ const Prontuario = () => {
     // 🖨️ CONTROLE DE MODO DE IMPRESSÃO
     const [modoImpressao, setModoImpressao] = useState('prontuario');
 
-    const API_URL = 'http://192.168.5.101:3000/api';
-    const BASE_URL = 'http://192.168.5.101:3000'; 
+    const API_URL = '/api';
+    const BASE_URL = ''; 
 
     const obterUsuario = () => {
         const savedUser = localStorage.getItem('user');
