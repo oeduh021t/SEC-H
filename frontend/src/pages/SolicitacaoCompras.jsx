@@ -279,18 +279,24 @@ const SolicitacaoCompras = () => {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
 
-      {/* ESTILO DE IMPRESSÃO A4 */}
+      {/* ESTILO DE IMPRESSÃO PADRÃO DO SISTEMA (IGUAL AO PRONTUÁRIO) */}
       <style>{`
         @media print {
-          body * { visibility: hidden; background: white !important; }
+          body * { visibility: hidden; }
           #documento-impressao, #documento-impressao * { visibility: visible; }
-          #documento-impressao { position: absolute; left: 0; top: 0; width: 100%; padding: 10px; }
+          #documento-impressao { 
+            position: absolute; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            background: white !important;
+          }
           @page { size: A4; margin: 10mm; }
         }
       `}</style>
 
       {/* HEADER */}
-      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 flex flex-col md:flex-row justify-between md:items-center gap-4">
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6 flex flex-col md:flex-row justify-between md:items-center gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2.5">
             <span className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-md shadow-blue-200 text-base">🛒</span> 
@@ -327,7 +333,7 @@ const SolicitacaoCompras = () => {
       </div>
 
       {/* PAINEL DE MÉTRICAS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 print:hidden">
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Total de Pedidos</span>
           <div className="flex items-baseline justify-between">
@@ -352,7 +358,7 @@ const SolicitacaoCompras = () => {
       </div>
 
       {/* FILTROS RÁPIDOS POR STATUS */}
-      <div className="flex flex-wrap gap-2 mb-4 items-center">
+      <div className="flex flex-wrap gap-2 mb-4 items-center print:hidden">
         {['Todos', 'Pendente', 'Aprovado', 'Comprado', 'Entregue', 'Negado'].map(st => (
           <button
             key={st}
@@ -369,7 +375,7 @@ const SolicitacaoCompras = () => {
       </div>
 
       {/* TABELA DE SOLICITAÇÕES */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
@@ -385,124 +391,96 @@ const SolicitacaoCompras = () => {
             </thead>
             <tbody className="divide-y divide-slate-50 text-xs">
               {solicitacoesPaginadas.map(s => (
-                <>
-                  <tr key={s.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="p-5">
-                      <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
-                      <div className="text-[10px] text-slate-400 font-bold mt-1.5">
-                        {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
-                      </div>
-                    </td>
-                    <td className="p-5">
-                      <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
-                      <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
-                      {s.motivo && (
-                        <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 font-medium" title={s.motivo}>
-                          📝 {renderizarMotivoComLinks(s.motivo)}
-                        </p>
-                      )}
-                    </td>
-                    <td className="p-5 font-bold text-slate-700">
-                      {s.fornecedor_nome ? (
-                        <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
-                      ) : (
-                        <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
-                      )}
-                      {s.equipamento_nome && (
-                        <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
-                      )}
-                    </td>
-                    <td className="p-5 font-black text-slate-800">
-                      <div>R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                      <button 
-                        onClick={() => setItemExpandidoId(itemExpandidoId === s.id ? null : s.id)}
-                        className="text-[10px] text-blue-500 hover:text-blue-700 font-bold mt-1 flex items-center gap-1"
+                <tr key={s.id} className="hover:bg-slate-50/60 transition-colors">
+                  <td className="p-5">
+                    <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
+                    <div className="text-[10px] text-slate-400 font-bold mt-1.5">
+                      {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
+                    </div>
+                  </td>
+                  <td className="p-5">
+                    <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
+                    <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
+                    {s.motivo && (
+                      <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 font-medium" title={s.motivo}>
+                        📝 {renderizarMotivoComLinks(s.motivo)}
+                      </p>
+                    )}
+                  </td>
+                  <td className="p-5 font-bold text-slate-700">
+                    {s.fornecedor_nome ? (
+                      <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
+                    ) : (
+                      <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
+                    )}
+                    {s.equipamento_nome && (
+                      <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
+                    )}
+                  </td>
+                  <td className="p-5 font-black text-slate-800">
+                    <div>R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <button 
+                      onClick={() => setItemExpandidoId(itemExpandidoId === s.id ? null : s.id)}
+                      className="text-[10px] text-blue-500 hover:text-blue-700 font-bold mt-1 flex items-center gap-1"
+                    >
+                      <span>{s.total_itens || 1} item(ns)</span>
+                      <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ ver itens'}</span>
+                    </button>
+                  </td>
+                  <td className="p-5">
+                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                      s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse' :
+                      s.urgencia === 'Alta' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {s.urgencia}
+                    </span>
+                  </td>
+                  
+                  {/* SELECT DINÂMICO PARA BAIXA */}
+                  <td className="p-5">
+                    <select
+                      value={s.status}
+                      onChange={e => handleAlterarStatus(s.id, e.target.value)}
+                      className={`p-2 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer transition-all shadow-sm ${
+                        s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' :
+                        s.status === 'Aprovado' ? 'bg-blue-50 text-blue-800 border-blue-300' :
+                        s.status === 'Negado' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      <option value="Pendente">🟡 Pendente</option>
+                      <option value="Aprovado">🔵 Aprovado</option>
+                      <option value="Comprado">📦 Comprado</option>
+                      <option value="Entregue">🟢 Entregue / Baixado</option>
+                      <option value="Negado">🔴 Negado / Cancelado</option>
+                    </select>
+                  </td>
+
+                  <td className="p-5 text-center">
+                    <div className="flex justify-center gap-1.5">
+                      <button
+                        onClick={() => handleAbrirEdicao(s)}
+                        className="p-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
+                        title="Editar Solicitação"
                       >
-                        <span>{s.total_itens || 1} item(ns)</span>
-                        <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ ver itens'}</span>
+                        ✏️
                       </button>
-                    </td>
-                    <td className="p-5">
-                      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                        s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse' :
-                        s.urgencia === 'Alta' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {s.urgencia}
-                      </span>
-                    </td>
-                    
-                    {/* SELECT DINÂMICO PARA BAIXA */}
-                    <td className="p-5">
-                      <select
-                        value={s.status}
-                        onChange={e => handleAlterarStatus(s.id, e.target.value)}
-                        className={`p-2 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer transition-all shadow-sm ${
-                          s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' :
-                          s.status === 'Aprovado' ? 'bg-blue-50 text-blue-800 border-blue-300' :
-                          s.status === 'Negado' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-amber-50 text-amber-800 border-amber-300'
-                        }`}
+                      <button
+                        onClick={() => handleImprimir(s.id)}
+                        className="p-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
+                        title="Imprimir Requisição"
                       >
-                        <option value="Pendente">🟡 Pendente</option>
-                        <option value="Aprovado">🔵 Aprovado</option>
-                        <option value="Comprado">📦 Comprado</option>
-                        <option value="Entregue">🟢 Entregue / Baixado</option>
-                        <option value="Negado">🔴 Negado / Cancelado</option>
-                      </select>
-                    </td>
-
-                    <td className="p-5 text-center">
-                      <div className="flex justify-center gap-1.5">
-                        <button
-                          onClick={() => handleAbrirEdicao(s)}
-                          className="p-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
-                          title="Editar Solicitação"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => handleImprimir(s.id)}
-                          className="p-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
-                          title="Imprimir Requisição"
-                        >
-                          🖨️
-                        </button>
-                        <button
-                          onClick={() => handleExcluir(s.id)}
-                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all"
-                          title="Excluir Solicitação"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* ACCORDION EXPANSÍVEL: DETALHAMENTO DOS ITENS */}
-                  {itemExpandidoId === s.id && (
-                    <tr className="bg-slate-50/80 border-b border-slate-100">
-                      <td colSpan="7" className="p-4 pl-14">
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm max-w-3xl">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Detalhamento dos Itens da OS #{s.id}</span>
-                          <div className="space-y-1.5">
-                            {s.itens && s.itens.length > 0 ? (
-                              s.itens.map((it, idx) => (
-                                <div key={idx} className="flex justify-between items-center text-xs border-b border-slate-100 pb-1.5 last:border-0 last:pb-0">
-                                  <span className="font-bold text-slate-700">• {it.descricao}</span>
-                                  <div className="flex gap-4 font-mono">
-                                    <span className="text-slate-500 font-bold">{it.quantidade}x</span>
-                                    <span className="text-slate-800 font-black">R$ {Number(it.valor_estimado || 0).toFixed(2)}</span>
-                                  </div>
-                                </div>
-                              ))
-                            ) : (
-                              <span className="text-xs text-slate-400 italic">Nenhum item listado individualmente.</span>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
+                        🖨️
+                      </button>
+                      <button
+                        onClick={() => handleExcluir(s.id)}
+                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all"
+                        title="Excluir Solicitação"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ))}
               {solicitacoesFiltradas.length === 0 && (
                 <tr>
@@ -547,7 +525,7 @@ const SolicitacaoCompras = () => {
 
       {/* MODAL DE NOVA / EDITAR SOLICITAÇÃO */}
       {modalNova && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
               <span>{editandoId ? `✏️ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
@@ -655,31 +633,31 @@ const SolicitacaoCompras = () => {
         </div>
       )}
 
-      {/* BLOCO PARA IMPRESSÃO A4 */}
+      {/* BLOCO PARA IMPRESSÃO A4 (EXIBIDO APENAS NO PRINT, MESMO PADRÃO VISUAL DO PRONTUÁRIO) */}
       {solicitacaoImpressao && (
         <div id="documento-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-4">
-          <div className="border-b-2 border-slate-900 pb-4 mb-4 flex justify-between items-center">
+          <div className="border-b-2 border-slate-900 pb-3 mb-4 flex justify-between items-center">
             <div>
-              <h1 className="text-lg font-black uppercase tracking-tight">HOSPITAL DOMINGOS LOURENÇO</h1>
-              <p className="text-xs font-bold text-slate-600 uppercase">Setor de Engenharia Clínica & Infraestrutura — Requisição de Compras</p>
+              <h1 className="text-base font-black uppercase tracking-tight">HOSPITAL DOMINGOS LOURENÇO</h1>
+              <p className="text-[10px] font-bold text-slate-600 uppercase">Setor de Engenharia Clínica & Infraestrutura — Requisição de Compras</p>
             </div>
             <div className="text-right">
-              <span className="text-base font-mono font-black border border-slate-900 px-2 py-1 rounded">REQUISIÇÃO Nº #{solicitacaoImpressao.id}</span>
-              <p className="text-xs font-bold text-slate-500 mt-1">{new Date(solicitacaoImpressao.data_solicitacao).toLocaleDateString('pt-BR')}</p>
+              <span className="text-sm font-mono font-black border border-slate-900 px-2 py-0.5 rounded">REQUISIÇÃO Nº #{solicitacaoImpressao.id}</span>
+              <p className="text-[10px] font-bold text-slate-500 mt-0.5">{new Date(solicitacaoImpressao.data_solicitacao).toLocaleDateString('pt-BR')}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-xs mb-6 border-2 border-slate-200 p-4 rounded-xl bg-slate-50/50">
+          <div className="grid grid-cols-2 gap-2 text-xs mb-4 border-2 border-slate-200 p-3 rounded-xl bg-slate-50/50">
             <div><strong>Solicitante:</strong> {solicitacaoImpressao.solicitante_nome}</div>
             <div><strong>Setor Alvo:</strong> {solicitacaoImpressao.setor_nome || 'Geral'}</div>
             <div><strong>Fornecedor Sugerido:</strong> {solicitacaoImpressao.fornecedor_nome || 'A definir / Cotação'}</div>
             <div><strong>Urgência:</strong> <span className="uppercase font-bold">{solicitacaoImpressao.urgencia}</span></div>
             <div className="col-span-2"><strong>Ativo Vinculado:</strong> {solicitacaoImpressao.equipamento_nome ? `${solicitacaoImpressao.equipamento_nome} (PAT: ${solicitacaoImpressao.equipamento_patrimonio || 'S/P'})` : 'Nenhum'}</div>
-            <div className="col-span-2 border-t pt-2 mt-1"><strong>Motivo / Justificativa:</strong> {solicitacaoImpressao.motivo}</div>
+            <div className="col-span-2 border-t pt-1.5 mt-0.5 break-all"><strong>Motivo / Justificativa:</strong> {solicitacaoImpressao.motivo}</div>
           </div>
 
-          <h3 className="text-xs font-black uppercase mb-2">Itens Solicitados</h3>
-          <table className="w-full text-xs border-collapse border border-slate-300 mb-8">
+          <h3 className="text-xs font-black uppercase mb-1.5">Itens Solicitados</h3>
+          <table className="w-full text-xs border-collapse border border-slate-300 mb-6">
             <thead>
               <tr className="bg-slate-100">
                 <th className="border border-slate-300 p-2 text-left">Item / Descrição</th>
@@ -694,13 +672,13 @@ const SolicitacaoCompras = () => {
                   <td className="border border-slate-300 p-2 font-bold">{it.descricao}</td>
                   <td className="border border-slate-300 p-2 text-center">{it.quantidade}</td>
                   <td className="border border-slate-300 p-2 text-right">R$ {Number(it.valor_estimado).toFixed(2)}</td>
-                  <td className="border border-slate-300 p-2 text-right font-bold">R$ {(it.quantidade * it.valor_estimado).toFixed(2)}</td>
+                  <td className="border border-slate-300 p-2 text-right font-bold">R$ {(Number(it.quantidade) * Number(it.valor_estimado)).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <div className="grid grid-cols-2 gap-12 text-center mt-24 pt-4 max-w-2xl mx-auto">
+          <div className="grid grid-cols-2 gap-12 text-center mt-16 pt-2 max-w-xl mx-auto">
             <div>
               <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
               <p className="text-[10px] text-slate-500 uppercase font-bold">Gestor da Área / Coordenação</p>

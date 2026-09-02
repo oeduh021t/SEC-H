@@ -26,6 +26,26 @@ const Prontuario = () => {
     const [arquivoLaudo, setArquivoLaudo] = useState(null);
     const [enviandoRetorno, setEnviandoRetorno] = useState(false);
 
+    // ⚙️ ESTADOS PARA EDIÇÃO DO ATIVO
+    const [modalEditarEquip, setModalEditarEquip] = useState(false);
+    const [setores, setSetores] = useState([]);
+    const [tiposEquipamentos, setTiposEquipamentos] = useState([]);
+    const [novaFotoEquip, setNovaFotoEquip] = useState(null);
+    const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+    const [formEquip, setFormEquip] = useState({
+        nome: '',
+        modelo: '',
+        patrimonio: '',
+        num_serie: '',
+        fabricante: '',
+        setor_id: '',
+        status: 'Ativo',
+        tipo_id: '',
+        periodicidade_preventiva: 0,
+        data_ultima_preventiva: '',
+        valor: 0
+    });
+
     // 🖨️ CONTROLE DE MODO DE IMPRESSÃO
     const [modoImpressao, setModoImpressao] = useState('prontuario');
 
@@ -37,13 +57,15 @@ const Prontuario = () => {
         return savedUser ? JSON.parse(savedUser) : null;
     };
 
+    const user = obterUsuario();
+    const isAdminOuCoord = ['admin', 'coordenador'].includes(user?.nivel?.toLowerCase().trim());
+
     const gerarLinkQRCodeLocal = (equipId) => {
         const urlDestino = `${window.location.origin}/prontuario/${equipId}`;
         return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(urlDestino)}`;
     };
 
     const carregarProntuario = () => {
-        const user = obterUsuario();
         const nivel = user ? user.nivel : '';
 
         fetch(`${API_URL}/equipamentos/${id}/prontuario`, {
@@ -69,13 +91,89 @@ const Prontuario = () => {
     useEffect(() => {
         carregarProntuario();
         
-        fetch(`${API_URL}/fornecedores`, {
-            headers: { 'x-usuario-nivel': obterUsuario()?.nivel || '' }
-        })
-        .then(res => res.json())
-        .then(data => setFornecedores(data || []))
-        .catch(err => console.error("Erro ao carregar fornecedores:", err));
+        const nivel = user?.nivel || '';
+        fetch(`${API_URL}/fornecedores`, { headers: { 'x-usuario-nivel': nivel } })
+            .then(res => res.json())
+            .then(data => setFornecedores(data || []))
+            .catch(err => console.error("Erro ao carregar fornecedores:", err));
+
+        fetch(`${API_URL}/setores`, { headers: { 'x-usuario-nivel': nivel } })
+            .then(res => res.json())
+            .then(data => setSetores(data || []))
+            .catch(err => console.error("Erro ao carregar setores:", err));
+
+        fetch(`${API_URL}/tipos-equipamentos`, { headers: { 'x-usuario-nivel': nivel } })
+            .then(res => res.json())
+            .then(data => setTiposEquipamentos(data || []))
+            .catch(err => console.error("Erro ao carregar tipos de equipamentos:", err));
     }, [id]);
+
+    const handleAbrirModalEdicao = () => {
+        if (!dados || !dados.dados) return;
+        const eq = dados.dados;
+
+        setFormEquip({
+            nome: eq.nome || '',
+            modelo: eq.modelo || '',
+            patrimonio: eq.patrimonio || '',
+            num_serie: eq.num_serie || '',
+            fabricante: eq.fabricante || '',
+            setor_id: eq.setor_id || '',
+            status: eq.status || 'Ativo',
+            tipo_id: eq.tipo_id || '',
+            periodicidade_preventiva: eq.periodicidade_preventiva || 0,
+            data_ultima_preventiva: eq.data_ultima_preventiva ? eq.data_ultima_preventiva.split('T')[0] : '',
+            valor: eq.valor || 0
+        });
+        setNovaFotoEquip(null);
+        setModalEditarEquip(true);
+    };
+
+    const handleSalvarEdicaoAtivo = async (e) => {
+        e.preventDefault();
+        setSalvandoEdicao(true);
+
+        const formData = new FormData();
+        formData.append('nome', formEquip.nome);
+        formData.append('modelo', formEquip.modelo);
+        formData.append('patrimonio', formEquip.patrimonio);
+        formData.append('num_serie', formEquip.num_serie);
+        formData.append('fabricante', formEquip.fabricante);
+        formData.append('setor_id', formEquip.setor_id || '');
+        formData.append('status', formEquip.status);
+        formData.append('tipo_id', formEquip.tipo_id || '');
+        formData.append('periodicidade_preventiva', formEquip.periodicidade_preventiva || 0);
+        formData.append('data_ultima_preventiva', formEquip.data_ultima_preventiva || '');
+        formData.append('valor', formEquip.valor || 0);
+
+        if (novaFotoEquip) {
+            formData.append('foto_equipamento', novaFotoEquip);
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/equipamentos/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'x-usuario-nivel': user?.nivel || ''
+                },
+                body: formData
+            });
+
+            if (res.ok) {
+                alert("Dados do ativo atualizados com sucesso! ⚙️✅");
+                setModalEditarEquip(false);
+                carregarProntuario();
+            } else {
+                const errData = await res.json();
+                alert(errData.error || "Erro ao atualizar dados do ativo.");
+            }
+        } catch (err) {
+            console.error("Erro na atualização do ativo:", err);
+            alert("Erro de conexão ao salvar alterações.");
+        } finally {
+            setSalvandoEdicao(false);
+        }
+    };
 
     const handleCriarChamadoContextualizado = () => {
         if (!dados || !dados.dados) return;
@@ -111,7 +209,6 @@ const Prontuario = () => {
         }
 
         setEnviandoSaida(true);
-        const user = obterUsuario();
 
         try {
             const response = await fetch(`${API_URL}/equipamentos/${id}/saida-externa`, {
@@ -163,7 +260,6 @@ const Prontuario = () => {
     const handleConfirmarRetorno = async (e) => {
         e.preventDefault();
         setEnviandoRetorno(true);
-        const user = obterUsuario();
 
         const formData = new FormData();
         formData.append('numero_nf', numeroNF);
@@ -239,7 +335,7 @@ const Prontuario = () => {
     const timelineFiltrada = (dados.timeline || []).filter(item => {
         if (filtroTimeline === 'todos') return true;
         if (filtroTimeline === 'os') return item.tipo?.toLowerCase().includes('abertura') || item.tipo?.toLowerCase().includes('intervenção');
-        if (filtroTimeline === 'preventiva') return item.tipo?.toLowerCase().includes('preventiva');
+        if (filtroTimeline === 'preventiva') return item.tipo?.toLowerCase().includes('preventiva') || item.tipo?.toLowerCase().includes('planejada');
         if (filtroTimeline === 'movimentacao') return item.tipo?.toLowerCase().includes('movimentação') || item.tipo?.toLowerCase().includes('saída') || item.tipo?.toLowerCase().includes('retorno');
         return true;
     });
@@ -271,7 +367,7 @@ const Prontuario = () => {
                             top: 0 !important; 
                             width: 100% !important; 
                             padding: 0 !important;
-                            margin: 0 !important;
+                            margin: 0 !important; 
                         }
                         #guia-saida-impressao { display: none !important; }
                     ` : ''}
@@ -287,7 +383,7 @@ const Prontuario = () => {
                             top: 0 !important; 
                             width: 100% !important; 
                             padding: 10px !important;
-                            margin: 0 !important;
+                            margin: 0 !important; 
                         }
                         .relatorio-container { display: none !important; }
                     ` : ''}
@@ -326,6 +422,18 @@ const Prontuario = () => {
                 </div>
 
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                    {/* ✏️ BOTÃO DE EDITAR ATIVO */}
+                    {isAdminOuCoord && (
+                        <button
+                            type="button"
+                            onClick={handleAbrirModalEdicao}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1.5 shadow-sm"
+                            title="Editar dados cadastrais deste ativo"
+                        >
+                            <span>⚙️</span> Editar Ativo
+                        </button>
+                    )}
+
                     <button 
                         type="button"
                         onClick={handleImprimirFicha}
@@ -558,11 +666,13 @@ const Prontuario = () => {
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
                                                 item.tipo?.includes('Abertura') ? 'bg-amber-500' :
                                                 item.tipo?.includes('Preventiva') ? 'bg-emerald-600' :
+                                                item.tipo?.includes('Planejada') ? 'bg-indigo-600' :
                                                 item.tipo?.includes('Retorno') ? 'bg-emerald-500' :
                                                 item.tipo?.includes('Movimentação') ? 'bg-purple-600' : 'bg-blue-600'
                                             }`}>
                                                 {item.tipo?.includes('Abertura') ? '🚨' :
                                                  item.tipo?.includes('Preventiva') ? '📅' :
+                                                 item.tipo?.includes('Planejada') ? '🗓️' :
                                                  item.tipo?.includes('Retorno') ? '🛬' :
                                                  item.tipo?.includes('Movimentação') ? '🔄' : '🔧'}
                                             </div>
@@ -643,6 +753,155 @@ const Prontuario = () => {
                 </div>
 
             </div>
+
+            {/* ⚙️ MODAL DE EDIÇÃO RÁPIDA DO ATIVO */}
+            {modalEditarEquip && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
+                    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 flex flex-col max-h-[90vh]">
+                        <div className="bg-slate-900 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center shrink-0">
+                            <span>⚙️ Editar Dados do Ativo (ID #{id})</span>
+                            <button onClick={() => setModalEditarEquip(false)} className="text-lg hover:text-red-400">✕</button>
+                        </div>
+
+                        <form onSubmit={handleSalvarEdicaoAtivo} className="p-6 space-y-4 overflow-y-auto text-xs">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Nome do Equipamento *</label>
+                                <input 
+                                    type="text" 
+                                    required 
+                                    value={formEquip.nome} 
+                                    onChange={e => setFormEquip({ ...formEquip, nome: e.target.value })}
+                                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Patrimônio</label>
+                                    <input 
+                                        type="text" 
+                                        value={formEquip.patrimonio} 
+                                        onChange={e => setFormEquip({ ...formEquip, patrimonio: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Nº de Série</label>
+                                    <input 
+                                        type="text" 
+                                        value={formEquip.num_serie} 
+                                        onChange={e => setFormEquip({ ...formEquip, num_serie: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fabricante / Marca</label>
+                                    <input 
+                                        type="text" 
+                                        value={formEquip.fabricante} 
+                                        onChange={e => setFormEquip({ ...formEquip, fabricante: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Modelo</label>
+                                    <input 
+                                        type="text" 
+                                        value={formEquip.modelo} 
+                                        onChange={e => setFormEquip({ ...formEquip, modelo: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Status Operacional</label>
+                                    <select 
+                                        value={formEquip.status} 
+                                        onChange={e => setFormEquip({ ...formEquip, status: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    >
+                                        <option value="Ativo">🟢 Ativo</option>
+                                        <option value="Em Manutenção">🟡 Em Manutenção</option>
+                                        <option value="Inoperante">🔴 Inoperante</option>
+                                        <option value="Reserva">🔵 Reserva</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Setor de Localização</label>
+                                    <select 
+                                        value={formEquip.setor_id} 
+                                        onChange={e => setFormEquip({ ...formEquip, setor_id: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    >
+                                        <option value="">Sem Setor / Reserva</option>
+                                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Tipo / Categoria</label>
+                                    <select 
+                                        value={formEquip.tipo_id} 
+                                        onChange={e => setFormEquip({ ...formEquip, tipo_id: e.target.value })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    >
+                                        <option value="">Geral / Sem Tipo</option>
+                                        {tiposEquipamentos.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Ciclo PMOC (Dias)</label>
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        value={formEquip.periodicidade_preventiva} 
+                                        onChange={e => setFormEquip({ ...formEquip, periodicidade_preventiva: Number(e.target.value) })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor de Compra (R$)</label>
+                                    <input 
+                                        type="number" 
+                                        step="0.01" 
+                                        min="0"
+                                        value={formEquip.valor} 
+                                        onChange={e => setFormEquip({ ...formEquip, valor: Number(e.target.value) })}
+                                        className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono font-bold text-xs bg-slate-50 outline-none focus:border-blue-500 text-slate-800"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Substituir Foto do Equipamento (Opcional)</label>
+                                <input 
+                                    type="file" 
+                                    accept="image/*" 
+                                    onChange={e => setNovaFotoEquip(e.target.files[0])}
+                                    className="w-full p-2 border-2 border-dashed border-slate-200 rounded-xl text-xs font-bold text-slate-500 bg-slate-50"
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-3">
+                                <button type="button" onClick={() => setModalEditarEquip(false)} className="flex-1 bg-slate-100 py-3 rounded-xl font-black text-xs uppercase text-slate-500">Cancelar</button>
+                                <button type="submit" disabled={salvandoEdicao} className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-black text-xs uppercase shadow-lg shadow-blue-100 active:scale-95 transition-all">
+                                    {salvandoEdicao ? 'Salvando...' : 'Salvar Alterações'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {/* 🚚 MODAL DE SAÍDA EXTERNA */}
             {modalSaidaExterna && (
