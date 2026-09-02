@@ -5,6 +5,7 @@ export default function NotasFiscais() {
   const [fornecedores, setFornecedores] = useState([]);
   const [estoqueItens, setEstoqueItens] = useState([]);
   const [locaisEstoque, setLocaisEstoque] = useState([]);
+  const [solicitacoesPendentes, setSolicitacoesPendentes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState(false);
 
@@ -30,7 +31,7 @@ export default function NotasFiscais() {
   // Estados dos Formulários
   const [novaNota, setNovaNota] = useState({
     numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '',
-    data_emissao: '', data_recebimento: '', valor_total: '', descricao: ''
+    data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: ''
   });
   const [arquivosNota, setArquivosNota] = useState({ xml: null, danfe: null });
 
@@ -69,22 +70,26 @@ export default function NotasFiscais() {
         }
       };
 
-      const [resNotas, resFornecedores, resEstoque, resLocais] = await Promise.all([
+      const [resNotas, resFornecedores, resEstoque, resLocais, resSolicitacoes] = await Promise.all([
         fetch(`${API_URL}/notas-fiscais`, opcoesFetch),
         fetch(`${API_URL}/fornecedores`, opcoesFetch),
         fetch(`${API_URL}/estoque`, opcoesFetch),
-        fetch(`${API_URL}/locais-estoque`, opcoesFetch)
+        fetch(`${API_URL}/locais-estoque`, opcoesFetch),
+        fetch(`${API_URL}/solicitacoes-compra`, opcoesFetch)
       ]);
       
       const dataNotas = await resNotas.json();
       const dataFornecedores = await resFornecedores.json();
       const dataEstoque = await resEstoque.json();
       const dataLocais = await resLocais.json();
+      const dataSolicitacoes = await resSolicitacoes.json();
       
       setNotas(Array.isArray(dataNotas) ? dataNotas : []);
       setFornecedores(Array.isArray(dataFornecedores) ? dataFornecedores : []);
       setEstoqueItens(Array.isArray(dataEstoque) ? dataEstoque : []);
       setLocaisEstoque(Array.isArray(dataLocais) ? dataLocais : []);
+      // Filtra apenas as solicitações que ainda não foram entregues
+      setSolicitacoesPendentes(Array.isArray(dataSolicitacoes) ? dataSolicitacoes.filter(s => s.status !== 'Entregue') : []);
     } catch (err) {
       console.error('Erro ao carregar dados fiscais:', err);
     } finally {
@@ -110,25 +115,21 @@ export default function NotasFiscais() {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, "text/xml");
 
-        // 1. Dados Básicos da NF-e
         const nNF = xmlDoc.querySelector("nNF")?.textContent || '';
         const serie = xmlDoc.querySelector("serie")?.textContent || '';
         const dhEmi = xmlDoc.querySelector("dhEmi")?.textContent || xmlDoc.querySelector("dEmi")?.textContent || '';
         const dataFormatada = dhEmi ? dhEmi.split('T')[0] : '';
         const vNF = xmlDoc.querySelector("vNF")?.textContent || '';
         
-        // Chave de Acesso (ID da infNFe)
         const infNFe = xmlDoc.querySelector("infNFe");
         let chaveAcesso = '';
         if (infNFe && infNFe.getAttribute("Id")) {
           chaveAcesso = infNFe.getAttribute("Id").replace(/\D/g, '');
         }
 
-        // 2. Dados do Fornecedor (Emitente)
         const emitCNPJ = xmlDoc.querySelector("emit > CNPJ")?.textContent || '';
         const emitNome = xmlDoc.querySelector("emit > xNome")?.textContent || '';
 
-        // Tenta cruzar com fornecedor já existente na base
         let idFornecedorEncontrado = '';
         if (emitCNPJ) {
           const fEncontrado = fornecedores.find(f => f.cnpj && f.cnpj.replace(/\D/g, '') === emitCNPJ.replace(/\D/g, ''));
@@ -139,7 +140,6 @@ export default function NotasFiscais() {
           if (fEncontrado) idFornecedorEncontrado = fEncontrado.id;
         }
 
-        // Preenche o formulário da Nota
         setNovaNota(prev => ({
           ...prev,
           numero_nf: nNF,
@@ -151,7 +151,6 @@ export default function NotasFiscais() {
           descricao: `Importada via XML [Emitente: ${emitNome} - CNPJ: ${emitCNPJ}]`
         }));
 
-        // 3. Extração dos Itens / Produtos da NF
         const detList = xmlDoc.querySelectorAll("det");
         const itensLidos = [];
 
@@ -162,7 +161,6 @@ export default function NotasFiscais() {
           const vUnCom = Number(det.querySelector("prod > vUnCom")?.textContent || 0);
 
           if (qCom > 0) {
-            // Tenta casar com algum item já cadastrado no estoque por nome ou referência
             const itemEstoqueCasado = estoqueItens.find(ei => 
               (ei.referencia && cProd && ei.referencia.trim() === cProd.trim()) ||
               (ei.nome && ei.nome.toLowerCase().trim() === xProd.toLowerCase().trim())
@@ -205,7 +203,6 @@ export default function NotasFiscais() {
     reader.readAsText(file);
   };
 
-  // 📊 EXPORTAR EXCEL (.XLSX)
   const handleExportarExcel = async () => {
     setExportando(true);
     try {
@@ -327,9 +324,9 @@ export default function NotasFiscais() {
         body: formData
       });
       if (res.ok) {
-        alert('Nota Fiscal e estoque salvos com sucesso! 📦🧾');
+        alert('Nota Fiscal, estoque e vínculo salvos com sucesso! 📦🧾');
         setModalNotaAberto(false);
-        setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '' });
+        setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '' });
         setArquivosNota({ xml: null, danfe: null });
         setItensNovosNota([]);
         carregarDados();
@@ -439,7 +436,6 @@ export default function NotasFiscais() {
     }
   };
 
-  // Filtragem multi-critérios
   const notasFiltradas = notas.filter(nota => {
     const termo = buscaInteligente.toLowerCase().trim();
     const matchBusca = !termo || 
@@ -467,7 +463,6 @@ export default function NotasFiscais() {
   const totalAtrasados = notas.reduce((acc, n) => acc + Number(n.boletos_atrasados || 0), 0);
   const totalBreve = notas.reduce((acc, n) => acc + Number(n.boletos_vencendo_breve || 0), 0);
 
-  // Paginação
   const totalPaginas = Math.ceil(notasFiltradas.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
   const notasPaginadas = notasFiltradas.slice(indexInicio, indexInicio + itensPorPagina);
@@ -533,7 +528,7 @@ export default function NotasFiscais() {
 
           <button 
             onClick={() => {
-              setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '' });
+              setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '' });
               setArquivosNota({ xml: null, danfe: null });
               setItensNovosNota([]);
               setIsNovoCadastroItem(false);
@@ -787,6 +782,28 @@ export default function NotasFiscais() {
                     <input type="file" accept=".xml" className="hidden" onChange={handleImportarXML} />
                   </label>
                 </div>
+              </div>
+
+              {/* VÍNCULO COM SOLICITAÇÃO DE COMPRA */}
+              <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200">
+                <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest block mb-1">
+                  🛒 Vincular a uma Solicitação de Compra Pendente (Opcional)
+                </label>
+                <select
+                  className="w-full p-3 border-2 border-amber-200 rounded-xl outline-none bg-white font-bold text-xs text-slate-800 focus:border-amber-500"
+                  value={novaNota.solicitacao_compra_id}
+                  onChange={e => setNovaNota({ ...novaNota, solicitacao_compra_id: e.target.value })}
+                >
+                  <option value="">Nenhuma solicitação vinculada</option>
+                  {solicitacoesPendentes.map(s => (
+                    <option key={s.id} value={s.id}>
+                      OS #{s.id} — Setor: {s.setor_nome || 'Geral'} | Motivo: {s.motivo?.substring(0, 40)}...
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[9px] text-amber-700 font-bold mt-1">
+                  💡 Ao vincular, o status da solicitação de compra será atualizado automaticamente para "Entregue".
+                </p>
               </div>
 
               {/* BLOCO 1: DADOS DA NOTA */}

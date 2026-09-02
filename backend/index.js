@@ -2084,7 +2084,7 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
     { name: 'xml', maxCount: 1 },
     { name: 'danfe', maxCount: 1 }
 ]), (req, res) => {
-    const { numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, itens } = req.body;
+    const { numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, itens, solicitacao_compra_id } = req.body;
 
     const url_xml = req.files && req.files['xml'] && req.files['xml'][0] ? `/uploads/${req.files['xml'][0].filename}` : null;
     const url_danfe = req.files && req.files['danfe'] && req.files['danfe'][0] ? `/uploads/${req.files['danfe'][0].filename}` : null;
@@ -2130,7 +2130,17 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
 
             const notaFiscalId = resultNF.insertId;
 
-            // Se não tiver itens, finaliza salvando só a nota
+            // Se foi vinculada a uma Solicitação de Compra, atualiza o status dela e o ID da NF
+            if (solicitacao_compra_id && solicitacao_compra_id !== "") {
+                await new Promise((resolve, reject) => {
+                    const qUpSol = `UPDATE solicitacoes_compra SET status = 'Entregue', nota_fiscal_id = ? WHERE id = ?`;
+                    conn.query(qUpSol, [notaFiscalId, Number(solicitacao_compra_id)], (errUp) => {
+                        if (errUp) return reject(errUp);
+                        resolve();
+                    });
+                });
+            }
+
             if (!listaItens || !Array.isArray(listaItens) || listaItens.length === 0) {
                 return conn.commit((errCommit) => {
                     if (errCommit) {
@@ -2141,7 +2151,6 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
                 });
             }
 
-            // Processa e atualiza o estoque para cada item
             try {
                 for (const item of listaItens) {
                     const qtd = Number(item.quantidade || 0);
@@ -2151,7 +2160,6 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
 
                     let finalItemId = item.item_id ? Number(item.item_id) : null;
 
-                    // Se for item existente: atualiza quantidade e valor no estoque
                     if (finalItemId) {
                         await new Promise((resolve, reject) => {
                             const qUpdate = `
@@ -2167,7 +2175,6 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
                             });
                         });
                     } else {
-                        // Se for novo insumo: cadastra na tabela itens_estoque
                         const nomeInsumo = (item.nome || 'Novo Insumo').trim();
                         const refInsumo = item.referencia && item.referencia.trim() !== '' ? item.referencia.trim() : null;
                         const localEstoqueId = item.local_estoque_id ? Number(item.local_estoque_id) : null;
@@ -2184,7 +2191,6 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
                         });
                     }
 
-                    // Registra no histórico de entradas de estoque (itens_estoque_entradas)
                     await new Promise((resolve, reject) => {
                         const qEntrada = `
                             INSERT INTO itens_estoque_entradas (item_id, nota_fiscal_id, quantidade, valor_unitario, num_nota, data_entrada)
@@ -2938,6 +2944,7 @@ app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tec
             f.nome_fantasia AS fornecedor_nome, 
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio,
             u.nome AS solicitante_nome,
+            nf.numero_nf AS nota_fiscal_numero,
             (SELECT COUNT(*) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS total_itens,
             (SELECT IFNULL(SUM(sci.quantidade * sci.valor_estimado), 0) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS valor_total_calculado
         FROM solicitacoes_compra sc
@@ -2945,6 +2952,7 @@ app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tec
         LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
         LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
         LEFT JOIN usuarios u ON sc.solicitante_id = u.id
+        LEFT JOIN notas_fiscais nf ON sc.nota_fiscal_id = nf.id
         ORDER BY sc.id DESC
     `;
     db.query(query, (err, results) => {
@@ -2962,12 +2970,14 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
             s.nome AS setor_nome, 
             f.nome_fantasia AS fornecedor_nome, f.cnpj AS fornecedor_cnpj, f.telefone AS fornecedor_telefone,
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio, e.modelo AS equipamento_modelo,
-            u.nome AS solicitante_nome
+            u.nome AS solicitante_nome,
+            nf.numero_nf AS nota_fiscal_numero, nf.chave_acesso AS nota_fiscal_chave
         FROM solicitacoes_compra sc
         LEFT JOIN setores s ON sc.setor_id = s.id
         LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
         LEFT JOIN equipamentos e ON sc.equipamento_id = e.id
         LEFT JOIN usuarios u ON sc.solicitante_id = u.id
+        LEFT JOIN notas_fiscais nf ON sc.nota_fiscal_id = nf.id
         WHERE sc.id = ?
     `;
 
@@ -2986,7 +2996,7 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
 });
 
 app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    const { setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, itens } = req.body;
+    const { setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, itens, nota_fiscal_id } = req.body;
 
     if (!solicitante_id || !motivo || !itens || itens.length === 0) {
         return res.status(400).json({ error: "Preencha a justificativa e adicione ao menos 1 item na solicitação." });
@@ -2997,15 +3007,16 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
 
         const queryHeader = `
             INSERT INTO solicitacoes_compra 
-            (setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, status, data_solicitacao) 
-            VALUES (?, ?, ?, ?, ?, ?, 'Pendente', NOW())
+            (setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, nota_fiscal_id, status, data_solicitacao) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'Pendente', NOW())
         `;
 
         const v_setor = setor_id && setor_id !== "" ? Number(setor_id) : null;
         const v_fornecedor = fornecedor_id && fornecedor_id !== "" ? Number(fornecedor_id) : null;
         const v_equip = equipamento_id && equipamento_id !== "" ? Number(equipamento_id) : null;
+        const v_nf = nota_fiscal_id && nota_fiscal_id !== "" ? Number(nota_fiscal_id) : null;
 
-        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, Number(solicitante_id), urgencia || 'Média', motivo], (errIns, resultIns) => {
+        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, Number(solicitante_id), urgencia || 'Média', motivo, v_nf], (errIns, resultIns) => {
             if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
             const solicitacaoId = resultIns.insertId;
@@ -3033,7 +3044,7 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
 
 app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
-    const { setor_id, fornecedor_id, equipamento_id, urgencia, motivo, itens } = req.body;
+    const { setor_id, fornecedor_id, equipamento_id, urgencia, motivo, itens, nota_fiscal_id } = req.body;
 
     if (!motivo || !itens || itens.length === 0) {
         return res.status(400).json({ error: "Informe o motivo e ao menos 1 item." });
@@ -3044,15 +3055,16 @@ app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
 
         const queryHeader = `
             UPDATE solicitacoes_compra 
-            SET setor_id = ?, fornecedor_id = ?, equipamento_id = ?, urgencia = ?, motivo = ?
+            SET setor_id = ?, fornecedor_id = ?, equipamento_id = ?, urgencia = ?, motivo = ?, nota_fiscal_id = ?
             WHERE id = ?
         `;
 
         const v_setor = setor_id && setor_id !== "" ? Number(setor_id) : null;
         const v_fornecedor = fornecedor_id && fornecedor_id !== "" ? Number(fornecedor_id) : null;
         const v_equip = equipamento_id && equipamento_id !== "" ? Number(equipamento_id) : null;
+        const v_nf = nota_fiscal_id && nota_fiscal_id !== "" ? Number(nota_fiscal_id) : null;
 
-        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, urgencia || 'Média', motivo, id], (errUp) => {
+        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, urgencia || 'Média', motivo, v_nf, id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
             conn.query("DELETE FROM solicitacoes_compra_itens WHERE solicitacao_id = ?", [id], (errDel) => {

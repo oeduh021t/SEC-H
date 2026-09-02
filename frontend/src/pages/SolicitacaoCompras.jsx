@@ -5,6 +5,7 @@ const SolicitacaoCompras = () => {
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
   const [fornecedores, setFornecedores] = useState([]); 
+  const [notasFiscais, setNotasFiscais] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState(false);
   const [busca, setBusca] = useState('');
@@ -21,6 +22,7 @@ const SolicitacaoCompras = () => {
   const [setorId, setSetorId] = useState('');
   const [fornecedorId, setFornecedorId] = useState(''); 
   const [equipamentoId, setEquipamentoId] = useState('');
+  const [notaFiscalId, setNotaFiscalId] = useState('');
   const [urgencia, setUrgencia] = useState('Média');
   const [motivo, setMotivo] = useState('');
   
@@ -40,17 +42,19 @@ const SolicitacaoCompras = () => {
   const carregarDados = async () => {
     try {
       const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
-      const [resSol, resSet, resEq, resForn] = await Promise.all([
+      const [resSol, resSet, resEq, resForn, resNf] = await Promise.all([
         fetch(`${API_URL}/solicitacoes-compra`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/setores`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/equipamentos`, { headers }).then(r => r.json()),
-        fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json()) 
+        fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json()),
+        fetch(`${API_URL}/notas-fiscais`, { headers }).then(r => r.json()) 
       ]);
 
       setSolicitacoes(resSol || []);
       setSetores(resSet || []);
       setEquipamentos(resEq || []);
       setFornecedores(resForn || []);
+      setNotasFiscais(resNf || []);
     } catch (err) {
       console.error("Erro ao carregar dados:", err);
     } finally {
@@ -60,7 +64,6 @@ const SolicitacaoCompras = () => {
 
   useEffect(() => { carregarDados(); }, []);
 
-  // 📊 EXPORTAÇÃO EXCEL (.XLSX)
   const handleExportarExcel = async () => {
     setExportando(true);
     try {
@@ -91,6 +94,7 @@ const SolicitacaoCompras = () => {
     setSetorId('');
     setFornecedorId('');
     setEquipamentoId('');
+    setNotaFiscalId('');
     setUrgencia('Média');
     setMotivo('');
     setItens([{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
@@ -107,6 +111,7 @@ const SolicitacaoCompras = () => {
       setSetorId(data.setor_id || '');
       setFornecedorId(data.fornecedor_id || '');
       setEquipamentoId(data.equipamento_id || '');
+      setNotaFiscalId(data.nota_fiscal_id || '');
       setUrgencia(data.urgencia || 'Média');
       setMotivo(data.motivo || '');
       setItens(data.itens && data.itens.length > 0 ? data.itens : [{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
@@ -140,6 +145,7 @@ const SolicitacaoCompras = () => {
       setor_id: setorId || null,
       fornecedor_id: fornecedorId || null, 
       equipamento_id: equipamentoId || null,
+      nota_fiscal_id: notaFiscalId || null,
       urgencia,
       motivo,
       itens
@@ -224,7 +230,6 @@ const SolicitacaoCompras = () => {
     setTimeout(() => window.print(), 300);
   };
 
-  // Renderiza texto com links clicáveis se houver URL
   const renderizarMotivoComLinks = (texto) => {
     if (!texto) return null;
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -257,6 +262,7 @@ const SolicitacaoCompras = () => {
       (s.fornecedor_nome && s.fornecedor_nome.toLowerCase().includes(t)) ||
       (s.equipamento_nome && s.equipamento_nome.toLowerCase().includes(t)) ||
       (s.motivo && s.motivo.toLowerCase().includes(t)) ||
+      (s.nota_fiscal_numero && s.nota_fiscal_numero.toLowerCase().includes(t)) ||
       String(s.id).includes(t)
     );
     const bateStatus = filtroStatus === 'Todos' || s.status === filtroStatus;
@@ -269,7 +275,6 @@ const SolicitacaoCompras = () => {
 
   const subtotalModal = itens.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(it.valor_estimado || 0)), 0);
 
-  // Paginação
   const totalPaginas = Math.ceil(solicitacoesFiltradas.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
   const solicitacoesPaginadas = solicitacoesFiltradas.slice(indexInicio, indexInicio + itensPorPagina);
@@ -279,7 +284,6 @@ const SolicitacaoCompras = () => {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
 
-      {/* ESTILO DE IMPRESSÃO PADRÃO DO SISTEMA (IGUAL AO PRONTUÁRIO) */}
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -308,7 +312,7 @@ const SolicitacaoCompras = () => {
         <div className="flex flex-wrap items-center gap-3">
           <input
             type="text"
-            placeholder="🔍 Buscar solicitação, setor, fornecedor ou ativo..."
+            placeholder="🔍 Buscar solicitação, setor, fornecedor, ativo ou NF..."
             className="p-3 border-2 border-slate-100 rounded-2xl text-xs font-bold outline-none bg-slate-50 w-full sm:w-80 focus:border-blue-500 focus:bg-white transition-all text-slate-800"
             value={busca}
             onChange={e => { setBusca(e.target.value); setPaginaAtual(1); }}
@@ -382,7 +386,7 @@ const SolicitacaoCompras = () => {
               <tr>
                 <th className="p-5">Nº / Data</th>
                 <th className="p-5">Solicitante / Setor</th>
-                <th className="p-5">Fornecedor Sugerido</th>
+                <th className="p-5">Fornecedor / NF</th>
                 <th className="p-5">Valor Estimado</th>
                 <th className="p-5">Urgência</th>
                 <th className="p-5">Status (Dar Baixa)</th>
@@ -412,6 +416,9 @@ const SolicitacaoCompras = () => {
                       <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
                     ) : (
                       <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
+                    )}
+                    {s.nota_fiscal_numero && (
+                      <div className="text-[10px] text-emerald-600 font-bold mt-0.5">📄 NF: #{s.nota_fiscal_numero}</div>
                     )}
                     {s.equipamento_nome && (
                       <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
@@ -574,6 +581,23 @@ const SolicitacaoCompras = () => {
                 <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Detergente Zenit para higienização de ar-condicionado..." />
               </div>
 
+              {/* SELEÇÃO DE NOTA FISCAL JÁ CADASTRADA */}
+              <div className="p-4 bg-slate-50 border-2 rounded-2xl">
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Nota Fiscal do Módulo Fiscal (Opcional)</label>
+                <select 
+                  value={notaFiscalId} 
+                  onChange={e => setNotaFiscalId(e.target.value)} 
+                  className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                >
+                  <option value="">Nenhuma nota fiscal vinculada</option>
+                  {notasFiscais.map(nf => (
+                    <option key={nf.id} value={nf.id}>
+                      📄 NF #{nf.numero_nf} — R$ {Number(nf.valor_total || 0).toFixed(2)} ({nf.fornecedor_nome || 'Fornecedor'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* LISTA DINÂMICA DE ITENS COM TOTAL AUTOMÁTICO */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
                 <div className="flex justify-between items-center border-b pb-2">
@@ -633,7 +657,7 @@ const SolicitacaoCompras = () => {
         </div>
       )}
 
-      {/* BLOCO PARA IMPRESSÃO A4 (EXIBIDO APENAS NO PRINT, MESMO PADRÃO VISUAL DO PRONTUÁRIO) */}
+      {/* BLOCO PARA IMPRESSÃO A4 */}
       {solicitacaoImpressao && (
         <div id="documento-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-4">
           <div className="border-b-2 border-slate-900 pb-3 mb-4 flex justify-between items-center">
@@ -653,6 +677,12 @@ const SolicitacaoCompras = () => {
             <div><strong>Fornecedor Sugerido:</strong> {solicitacaoImpressao.fornecedor_nome || 'A definir / Cotação'}</div>
             <div><strong>Urgência:</strong> <span className="uppercase font-bold">{solicitacaoImpressao.urgencia}</span></div>
             <div className="col-span-2"><strong>Ativo Vinculado:</strong> {solicitacaoImpressao.equipamento_nome ? `${solicitacaoImpressao.equipamento_nome} (PAT: ${solicitacaoImpressao.equipamento_patrimonio || 'S/P'})` : 'Nenhum'}</div>
+            {solicitacaoImpressao.nota_fiscal_numero && (
+              <div className="col-span-2 text-emerald-700 font-bold">
+                <strong>Nota Fiscal Vinculada:</strong> #{solicitacaoImpressao.nota_fiscal_numero} 
+                {solicitacaoImpressao.nota_fiscal_chave && <span className="font-mono text-[10px] ml-2 font-normal text-slate-600">(Chave: {solicitacaoImpressao.nota_fiscal_chave})</span>}
+              </div>
+            )}
             <div className="col-span-2 border-t pt-1.5 mt-0.5 break-all"><strong>Motivo / Justificativa:</strong> {solicitacaoImpressao.motivo}</div>
           </div>
 
