@@ -6,8 +6,11 @@ export function RelatorioEstoqueLocal() {
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState(false);
 
-  // Estados dos filtros (Padrão 30 dias para as datas)
-  const [filtroLocal, setFiltroLocal] = useState('todos');
+  // Estados dos filtros (Captura o ID da URL automaticamente ou assume 'todos')
+  const [filtroLocal, setFiltroLocal] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('local_estoque_id') || 'todos';
+  });
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [dataInicio, setDataInicio] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [dataFim, setDataFim] = useState(new Date().toISOString().split('T')[0]);
