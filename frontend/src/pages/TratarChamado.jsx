@@ -1,128 +1,143 @@
-import { useEffect, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 
 export function TratarChamado() {
-  const { id } = useParams()
-  const navigate = useNavigate()
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  // Dados do Usuário Logado
+  const [usuarioLogado] = useState(() => {
+    const salvo = localStorage.getItem('user');
+    return salvo ? JSON.parse(salvo) : null;
+  });
+
+  const nivelUsuario = (usuarioLogado?.nivel || '').toLowerCase().trim();
+  const isGestao = ['admin', 'coordenador'].includes(nivelUsuario);
 
   // Estados de dados do Backend
-  const [chamado, setChamado] = useState(null)
-  const [itensEstoque, setItensEstoque] = useState([])
-  const [fornecedores, setFornecedores] = useState([])
-  const [tecnicos, setTecnicos] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [chamado, setChamado] = useState(null);
+  const [itensEstoque, setItensEstoque] = useState([]);
+  const [fornecedores, setFornecedores] = useState([]);
+  const [tecnicos, setTecnicos] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   // Estados de Troca de Ativo
-  const [equipamentosReserva, setEquipamentosReserva] = useState([])
-  const [equipamentoReservaSelecionado, setEquipamentoReservaSelecionado] = useState("")
-  const [buscaPatrimonioReserva, setBuscaPatrimonioReserva] = useState("")
-  const [exibirPainelTroca, setExibirPainelTroca] = useState(false)
-  const [executandoTroca, setExecutandoTroca] = useState(false)
+  const [equipamentosReserva, setEquipamentosReserva] = useState([]);
+  const [equipamentoReservaSelecionado, setEquipamentoReservaSelecionado] = useState("");
+  const [buscaPatrimonioReserva, setBuscaPatrimonioReserva] = useState("");
+  const [exibirPainelTroca, setExibirPainelTroca] = useState(false);
+  const [executandoTroca, setExecutandoTroca] = useState(false);
 
-  // 🚚 Estados de Manutenção Externa integrada à OS
-  const [modalSaidaExterna, setModalSaidaExterna] = useState(false)
-  const [fornecedorSaidaId, setFornecedorSaidaId] = useState("")
-  const [motivoSaida, setMotivoSaida] = useState("")
-  const [previsaoRetorno, setPrevisaoRetorno] = useState("")
-  const [enviandoSaida, setEnviandoSaida] = useState(false)
-  const [guiaImpressao, setGuiaImpressao] = useState(null)
+  // 🚚 Estados de Manutenção Externa
+  const [modalSaidaExterna, setModalSaidaExterna] = useState(false);
+  const [fornecedorSaidaId, setFornecedorSaidaId] = useState("");
+  const [motivoSaida, setMotivoSaida] = useState("");
+  const [previsaoRetorno, setPrevisaoRetorno] = useState("");
+  const [enviandoSaida, setEnviandoSaida] = useState(false);
+  const [guiaImpressao, setGuiaImpressao] = useState(null);
 
   // 🛬 Estados de Retorno de Manutenção Externa
-  const [modalRetornoExterno, setModalRetornoExterno] = useState(false)
-  const [nfRetorno, setNfRetorno] = useState("")
-  const [custoRetorno, setCustoRetorno] = useState("")
-  const [observacaoRetorno, setObservacaoRetorno] = useState("")
-  const [arquivoLaudo, setArquivoLaudo] = useState(null)
-  const [enviandoRetorno, setEnviandoRetorno] = useState(false)
+  const [modalRetornoExterno, setModalRetornoExterno] = useState(false);
+  const [nfRetorno, setNfRetorno] = useState("");
+  const [custoRetorno, setCustoRetorno] = useState("");
+  const [observacaoRetorno, setObservacaoRetorno] = useState("");
+  const [arquivoLaudo, setArquivoLaudo] = useState(null);
+  const [enviandoRetorno, setEnviandoRetorno] = useState(false);
 
   // Estados do Formulário de Solução
-  const [tipoAtendimento, setTipoAtendimento] = useState("Interno")
-  const [status, setStatus] = useState("Em Atendimento")
-  const [descricaoSolucao, setDescricaoSolucao] = useState("")
-  const [tecnicoId, setTecnicoId] = useState("")
+  const [tipoAtendimento, setTipoAtendimento] = useState("Interno");
+  const [status, setStatus] = useState("Em Atendimento");
+  const [descricaoSolucao, setDescricaoSolucao] = useState("");
+  const [tecnicoId, setTecnicoId] = useState("");
 
   // Estados de Anexos
-  const [documentoSelecionado, setDocumentoSelecionado] = useState(null)
-  const [listaDocumentos, setListaDocumentos] = useState([])
+  const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
+  const [listaDocumentos, setListaDocumentos] = useState([]);
 
   // Estados de Peças
-  const [pecaSelecionada, setPecaSelecionada] = useState("")
-  const [qtdPeca, setQtdPeca] = useState(1)
+  const [pecaSelecionada, setPecaSelecionada] = useState("");
+  const [qtdPeca, setQtdPeca] = useState(1);
 
-  // Fornecedor Externo Manual (legado da solução)
-  const [fornecedorId, setFornecedorId] = useState("")
-  const [nfReferencia, setNfReferencia] = useState("")
-  const [custoServico, setCustoServico] = useState(0)
+  // Fornecedor Externo Manual
+  const [fornecedorId, setFornecedorId] = useState("");
+  const [nfReferencia, setNfReferencia] = useState("");
+  const [custoServico, setCustoServico] = useState(0);
 
-  const API_URL = "/api"
-  const BASE_URL = ""
+  const API_URL = "/api";
+  const BASE_URL = "";
 
-  const totalPecas = chamado?.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade) * Number(item.valor_unitario)), 0) || 0;
+  const totalPecas = (Array.isArray(chamado?.itens_vinculados) ? chamado.itens_vinculados : []).reduce(
+    (acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 
+    0
+  );
   const custoTotalOS = (Number(custoServico) || 0) + (Number(chamado?.valor_servico_externo) || 0) + totalPecas;
 
   const carregarTodosOsDados = async () => {
     try {
-      const usuarioSalvo = localStorage.getItem('user');
-      const nivel = usuarioSalvo ? JSON.parse(usuarioSalvo).nivel : '';
-
       const headers = {
         'Content-Type': 'application/json',
-        'x-usuario-nivel': nivel
+        'x-usuario-nivel': nivelUsuario
       };
 
+      // Carregamento blindado contra rotas proibidas (403)
       const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos] = await Promise.all([
-        fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.json()),
-        fetch(`${API_URL}/estoque`, { headers }).then(res => res.json()), 
-        fetch(`${API_URL}/fornecedores`, { headers }).then(res => res.json()),
-        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.json()),
-        fetch(`${API_URL}/tecnicos`, { headers }).then(res => res.json())
-      ])
+        fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.ok ? res.json() : null),
+        isGestao 
+          ? fetch(`${API_URL}/estoque`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []) 
+          : Promise.resolve([]),
+        fetch(`${API_URL}/fornecedores`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
+        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
+        fetch(`${API_URL}/tecnicos`, { headers }).then(res => res.ok ? res.json() : []).catch(() => [])
+      ]);
 
-      setChamado(resChamado)
-      setItensEstoque(resEstoque || [])
-      setFornecedores(resFornecedores || [])
-      setListaDocumentos(resDocumentos || []) 
-      setTecnicos(resTecnicos || [])
+      if (resChamado) {
+        setChamado(resChamado);
+        setTipoAtendimento(resChamado.tipo_atendimento || "Interno");
+        setStatus(resChamado.status || "Em Atendimento");
+        setFornecedorId(resChamado.fornecedor_id || "");
+        setNfReferencia(resChamado.nf_referencia || "");
+        setCustoServico(resChamado.custo_servico || 0);
+        setDescricaoSolucao(resChamado.descricao_solucao || "");
+        setTecnicoId(resChamado.tecnico_id || "");
 
-      setTipoAtendimento(resChamado.tipo_atendimento || "Interno")
-      setStatus(resChamado.status || "Em Atendimento")
-      setFornecedorId(resChamado.fornecedor_id || "")
-      setNfReferencia(resChamado.nf_referencia || "")
-      setCustoServico(resChamado.custo_servico || 0)
-      setDescricaoSolucao(resChamado.descricao_solucao || "")
-      setTecnicoId(resChamado.tecnico_id || "")
-
-      if (resChamado.equipamento_id) {
-        carregarEquipamentosReserva(resChamado.equipamento_id, headers);
+        if (resChamado.equipamento_id && isGestao) {
+          carregarEquipamentosReserva(resChamado.equipamento_id, headers);
+        }
       }
 
+      setItensEstoque(Array.isArray(resEstoque) ? resEstoque : []);
+      setFornecedores(Array.isArray(resFornecedores) ? resFornecedores : []);
+      setListaDocumentos(Array.isArray(resDocumentos) ? resDocumentos : []);
+      setTecnicos(Array.isArray(resTecnicos) ? resTecnicos : []);
+
     } catch (err) {
-      console.error("Erro ao carregar dados do atendimento:", err)
+      console.error("Erro ao carregar dados do atendimento:", err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const carregarEquipamentosReserva = async (equipamentoId, headers) => {
     try {
       const res = await fetch(`${API_URL}/equipamentos/reservas?tipo_de_equipamento_com_base_em=${equipamentoId}`, { headers });
       if (res.ok) {
         const dados = await res.json();
-        setEquipamentosReserva(dados || []);
+        setEquipamentosReserva(Array.isArray(dados) ? dados : []);
       }
     } catch (err) {
       console.error("Erro ao buscar equipamentos em reserva:", err);
     }
-  }
+  };
 
-  useEffect(() => { carregarTodosOsDados() }, [id])
+  useEffect(() => { 
+    carregarTodosOsDados(); 
+  }, [id]);
 
   const injetarTextoRapido = (texto) => {
-    if (chamado?.status === "Concluído") return
-    setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`)
-  }
+    if (chamado?.status === "Concluído") return;
+    setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`);
+  };
 
-  // 🚚 DISPARAR SAÍDA EXTERNA A PARTIR DA OS
   const handleConfirmarSaidaExterna = async (e) => {
     e.preventDefault();
     if (!fornecedorSaidaId || !motivoSaida) {
@@ -131,15 +146,13 @@ export function TratarChamado() {
     }
 
     setEnviandoSaida(true);
-    const usuarioSalvo = localStorage.getItem('user');
-    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
 
     try {
       const res = await fetch(`${API_URL}/chamados/${id}/saida-externa`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-usuario-nivel": usuarioLogado?.nivel || ""
+          "x-usuario-nivel": nivelUsuario
         },
         body: JSON.stringify({
           fornecedor_id: fornecedorSaidaId,
@@ -156,12 +169,12 @@ export function TratarChamado() {
         setGuiaImpressao({
           chamadoId: id,
           equipamento: {
-            nome: chamado.eq_nome,
-            modelo: chamado.modelo,
-            patrimonio: chamado.patrimonio,
-            num_serie: chamado.num_serie,
-            fabricante: chamado.fabricante,
-            setor_nome: chamado.setor_nome
+            nome: chamado?.eq_nome,
+            modelo: chamado?.modelo,
+            patrimonio: chamado?.patrimonio,
+            num_serie: chamado?.num_serie,
+            fabricante: chamado?.fabricante,
+            setor_nome: chamado?.setor_nome
           },
           fornecedor: fornSel,
           motivo: motivoSaida,
@@ -184,13 +197,9 @@ export function TratarChamado() {
     }
   };
 
-  // 🛬 REGISTRAR RETORNO DE MANUTENÇÃO EXTERNA
   const handleConfirmarRetornoExterno = async (e) => {
     e.preventDefault();
     setEnviandoRetorno(true);
-
-    const usuarioSalvo = localStorage.getItem('user');
-    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
 
     const formData = new FormData();
     formData.append('numero_nf', nfRetorno);
@@ -205,7 +214,7 @@ export function TratarChamado() {
       const res = await fetch(`${API_URL}/chamados/${id}/retorno-externo`, {
         method: "POST",
         headers: {
-          "x-usuario-nivel": usuarioLogado?.nivel || ""
+          "x-usuario-nivel": nivelUsuario
         },
         body: formData
       });
@@ -230,7 +239,6 @@ export function TratarChamado() {
     }
   };
 
-  // 📄 REIMPRIMIR GUIA A PARTIR DO HISTÓRICO DA OS
   const handleReimprimirGuiaHistorico = (dataRegistroMomento) => {
     const fornSel = fornecedores.find(f => Number(f.id) === Number(chamado?.fornecedor_externo_id));
     
@@ -258,68 +266,65 @@ export function TratarChamado() {
   };
 
   const handleAdicionarPeca = (e) => {
-    e.preventDefault()
-    if (!pecaSelecionada) return
-
-    const usuarioSalvo = localStorage.getItem('user')
-    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null
+    e.preventDefault();
+    if (!pecaSelecionada) return;
 
     const dadosPeca = {
       item_id: pecaSelecionada,
       quantidade: qtdPeca,
       usuario_id: chamado?.usuario_id || usuarioLogado?.id || 1, 
       equipamento_id: chamado?.equipamento_id || null 
-    }
+    };
 
     fetch(`${API_URL}/chamados/${id}/itens`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "x-usuario-nivel": nivelUsuario
+      },
       body: JSON.stringify(dadosPeca)
     }).then((res) => {
       if (res.ok) {
-        alert("Peça debitada do estoque com sucesso! 📦")
-        carregarTodosOsDados()
-        setPecaSelecionada("")
-        setQtdPeca(1)
+        alert("Peça debitada do estoque com sucesso! 📦");
+        carregarTodosOsDados();
+        setPecaSelecionada("");
+        setQtdPeca(1);
       } else {
-        alert("Erro ao debitar estoque. Verifique a quantidade disponível.")
+        alert("Erro ao debitar estoque. Verifique a quantidade disponível.");
       }
-    })
-  }
+    });
+  };
 
   const handleUploadDocumento = (e) => {
-    e.preventDefault()
-    if (!documentoSelecionado) return alert("Por favor, selecione um arquivo!")
+    e.preventDefault();
+    if (!documentoSelecionado) return alert("Por favor, selecione um arquivo!");
 
-    const usuarioSalvo = localStorage.getItem('user')
-    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null
-
-    const formData = new FormData()
-    formData.append('arquivo', documentoSelecionado)
-    formData.append('chamado_id', id)
-    formData.append('usuario_id', usuarioLogado?.id || 1)
-    formData.append('setor_id', chamado?.setor_id || '')
-    formData.append('equipamento_id', chamado?.equipamento_id || '')
+    const formData = new FormData();
+    formData.append('arquivo', documentoSelecionado);
+    formData.append('chamado_id', id);
+    formData.append('usuario_id', usuarioLogado?.id || 1);
+    formData.append('setor_id', chamado?.setor_id || '');
+    formData.append('equipamento_id', chamado?.equipamento_id || '');
 
     fetch(`${API_URL}/documentos`, {
       method: "POST",
       headers: {
-        'x-usuario-nivel': usuarioLogado?.nivel || ''
+        'x-usuario-nivel': nivelUsuario
       },
       body: formData
     })
     .then(res => res.json())
     .then(data => {
       if (data.error) {
-        alert(data.error)
+        alert(data.error);
       } else {
-        alert("Documento anexado com sucesso para fins de auditoria! 📎✅")
-        setDocumentoSelecionado(null)
-        carregarTodosOsDados()
+        alert("Documento anexado com sucesso para fins de auditoria! 📎✅");
+        setDocumentoSelecionado(null);
+        carregarTodosOsDados();
       }
     })
-    .catch(err => console.error("Erro ao anexar documento:", err))
-  }
+    .catch(err => console.error("Erro ao anexar documento:", err));
+  };
 
   const handleSalvarAtendimento = async (e) => {
     if (e) {
@@ -327,8 +332,6 @@ export function TratarChamado() {
       e.stopPropagation();
     }
 
-    const usuarioSalvo = localStorage.getItem('user');
-    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
     const autorNome = usuarioLogado?.nome || "Operador";
 
     let executorFinal = "";
@@ -348,16 +351,19 @@ export function TratarChamado() {
       nf_referencia: tipoAtendimento === "Externo" ? nfReferencia : null,
       custo_servico: tipoAtendimento === "Externo" ? Number(custoServico) : 0,
       custo_pecas: totalPecas,
-      tecnico_id: tipoAtendimento === "Interno" ? tecnicoId : null,
+      tecnico_id: tipoAtendimento === "Interno" ? (tecnicoId || usuarioLogado?.id) : null,
       tecnico_responsavel: executorFinal,
       registrado_por_nome: autorNome,
       registrado_por_id: usuarioLogado?.id || null
-    }
+    };
 
     try {
       const res = await fetch(`${API_URL}/chamados/${id}/atualizar`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-usuario-nivel": nivelUsuario
+        },
         body: JSON.stringify(dadosParaSalvar)
       });
 
@@ -377,7 +383,7 @@ export function TratarChamado() {
       console.error("Erro na requisição:", err);
       alert("Erro ao conectar com o servidor.");
     }
-  }
+  };
 
   const handleTrocaEquipamento = async (e) => {
     e.preventDefault();
@@ -387,9 +393,6 @@ export function TratarChamado() {
     if (!confirmar) return;
 
     setExecutandoTroca(true);
-
-    const usuarioSalvo = localStorage.getItem('user');
-    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
 
     const payload = {
       equipamento_atual_id: chamado?.equipamento_id,
@@ -402,7 +405,10 @@ export function TratarChamado() {
     try {
       const res = await fetch(`${API_URL}/equipamentos/trocar`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-usuario-nivel": nivelUsuario
+        },
         body: JSON.stringify(payload)
       });
 
@@ -413,7 +419,7 @@ export function TratarChamado() {
         setBuscaPatrimonioReserva("");
         
         const equipamentoReservaInfo = equipamentosReserva.find(eq => Number(eq.id) === Number(equipamentoReservaSelecionado));
-        const textoTroca = `[🔄 TROCA DE ATIVO] Equipamento anterior (Pat: ${chamado.patrimonio}) substituído por novo ativo (Pat: ${equipamentoReservaInfo?.patrimonio || 'Reserva'}).`;
+        const textoTroca = `[🔄 TROCA DE ATIVO] Equipamento anterior (Pat: ${chamado?.patrimonio || 'S/P'}) substituído por novo ativo (Pat: ${equipamentoReservaInfo?.patrimonio || 'Reserva'}).`;
         setDescricaoSolucao(prev => prev === "" ? textoTroca : `${prev}\n${textoTroca}`);
         
         carregarTodosOsDados();
@@ -427,9 +433,9 @@ export function TratarChamado() {
     } finally {
       setExecutandoTroca(false);
     }
-  }
+  };
 
-  const equipamentosReservaFiltrados = equipamentosReserva.filter(eq => {
+  const equipamentosReservaFiltrados = (Array.isArray(equipamentosReserva) ? equipamentosReserva : []).filter(eq => {
     const termo = buscaPatrimonioReserva.toLowerCase().trim();
     if (!termo) return true;
     const patrimonioStr = String(eq.patrimonio || "").toLowerCase();
@@ -449,7 +455,7 @@ export function TratarChamado() {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* 🖨️ ESTILO DE IMPRESSÃO EXCLUSIVO PARA GUIA DE REMESSA (FOLHA ÚNICA) */}
+      {/* 🖨️ GUIA DE REMESSA PRINT STYLES */}
       <style>{`
         @media print {
           body * { visibility: hidden !important; background: white !important; }
@@ -467,7 +473,7 @@ export function TratarChamado() {
         }
       `}</style>
 
-      {/* 🧭 HEADER COMPACTO COM STATUS E AÇÕES RÁPIDAS */}
+      {/* 🧭 HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
         <div className="flex items-center gap-4">
           <button 
@@ -494,7 +500,6 @@ export function TratarChamado() {
         </div>
         
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {/* 🚚 BOTÃO DE SAÍDA OU RETORNO EXTERNO CONTEXTUAL */}
           {chamado?.equipamento_id && !isConcluido && (
             isEmExterna ? (
               <button
@@ -515,7 +520,7 @@ export function TratarChamado() {
             )
           )}
 
-          {chamado?.equipamento_id && !isConcluido && !isEmExterna && (
+          {isGestao && chamado?.equipamento_id && !isConcluido && !isEmExterna && (
             <button
               type="button"
               onClick={() => setExibirPainelTroca(!exibirPainelTroca)}
@@ -535,7 +540,7 @@ export function TratarChamado() {
         </div>
       </div>
 
-      {/* ⚠️ ALERTA DE EQUIPAMENTO EM MANUTENÇÃO EXTERNA ATIVA */}
+      {/* ⚠️ ALERTA DE MANUTENÇÃO EXTERNA */}
       {isEmExterna && (
         <div className="mb-6 bg-indigo-50 border-2 border-indigo-200 p-5 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
           <div className="space-y-1">
@@ -562,12 +567,12 @@ export function TratarChamado() {
                 setGuiaImpressao({
                   chamadoId: id,
                   equipamento: {
-                    nome: chamado.eq_nome,
-                    modelo: chamado.modelo,
-                    patrimonio: chamado.patrimonio,
-                    num_serie: chamado.num_serie,
-                    fabricante: chamado.fabricante,
-                    setor_nome: chamado.setor_nome
+                    nome: chamado?.eq_nome,
+                    modelo: chamado?.modelo,
+                    patrimonio: chamado?.patrimonio,
+                    num_serie: chamado?.num_serie,
+                    fabricante: chamado?.fabricante,
+                    setor_nome: chamado?.setor_nome
                   },
                   fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome },
                   motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
@@ -591,8 +596,8 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 🔄 PAINEL DE SUBSTITUIÇÃO EMERGENCIAL DE ATIVO */}
-      {exibirPainelTroca && chamado?.equipamento_id && (
+      {/* 🔄 PAINEL DE TROCA (APENAS GESTÃO) */}
+      {isGestao && exibirPainelTroca && chamado?.equipamento_id && (
         <div className="mb-6 bg-gradient-to-r from-amber-50 to-orange-50 p-6 rounded-3xl border-2 border-amber-200 shadow-sm animate-in fade-in slide-in-from-top-4 duration-200">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider flex items-center gap-2">
@@ -655,13 +660,13 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 📦 PAINEL PRINCIPAL DE DUAS COLUNAS */}
+      {/* 📦 PAINEL PRINCIPAL */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-        {/* COLUNA ESQUERDA: CONTEXTO, PROBLEMA, FOTOS E PEÇAS (5 COLUNAS) */}
+        {/* COLUNA ESQUERDA */}
         <div className="lg:col-span-5 space-y-6">
 
-          {/* CARD DE CONTEXTO DO CHAMADO & FOTO DE ABERTURA */}
+          {/* PROBLEMA REPORTADO */}
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center justify-between">
               <span>🚨 Problema Reportado</span>
@@ -676,7 +681,6 @@ export function TratarChamado() {
               {chamado?.descricao_problema || "Sem detalhes adicionais."}
             </div>
 
-            {/* ATIVO VINCULADO */}
             {chamado?.eq_nome && (
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-2xl space-y-1">
                 <span className="text-[10px] font-black text-blue-600 uppercase block">Equipamento Vinculado:</span>
@@ -689,7 +693,6 @@ export function TratarChamado() {
               </div>
             )}
 
-            {/* MINIATURA DA FOTO DE ABERTURA */}
             {chamado?.foto_abertura && (
               <div>
                 <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Evidência na Abertura:</span>
@@ -704,7 +707,7 @@ export function TratarChamado() {
             )}
           </div>
 
-          {/* CARD DE APLICAÇÃO DE PEÇAS E ALMOXARIFADO */}
+          {/* CARD DE PEÇAS (ADMIN E COORDENADOR PODEM LANÇAR; TÉCNICO APENAS VISUALIZA) */}
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <div className="flex justify-between items-center border-b pb-2">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
@@ -715,38 +718,40 @@ export function TratarChamado() {
               </span>
             </div>
 
-            <form onSubmit={handleAdicionarPeca} className="flex gap-2">
-              <select
-                disabled={isConcluido}
-                className="flex-[3] p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700"
-                value={pecaSelecionada}
-                onChange={e => setPecaSelecionada(e.target.value)}
-              >
-                <option value="">Selecione o insumo...</option>
-                {itensEstoque.map(item => (
-                  <option key={item.id} value={item.id}>
-                    {item.nome} (Saldo: {item.quantidade})
-                  </option>
-                ))}
-              </select>
+            {isGestao && !isConcluido && (
+              <form onSubmit={handleAdicionarPeca} className="flex gap-2">
+                <select
+                  disabled={isConcluido}
+                  className="flex-[3] p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700"
+                  value={pecaSelecionada}
+                  onChange={e => setPecaSelecionada(e.target.value)}
+                >
+                  <option value="">Selecione o insumo...</option>
+                  {itensEstoque.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.nome} (Saldo: {item.quantidade})
+                    </option>
+                  ))}
+                </select>
 
-              <input
-                disabled={isConcluido}
-                type="number"
-                min="1"
-                className="w-16 p-2.5 border-2 border-slate-100 rounded-xl text-center font-bold text-xs bg-slate-50 outline-none"
-                value={qtdPeca}
-                onChange={e => setQtdPeca(Number(e.target.value))}
-              />
+                <input
+                  disabled={isConcluido}
+                  type="number"
+                  min="1"
+                  className="w-16 p-2.5 border-2 border-slate-100 rounded-xl text-center font-bold text-xs bg-slate-50 outline-none"
+                  value={qtdPeca}
+                  onChange={e => setQtdPeca(Number(e.target.value))}
+                />
 
-              <button 
-                disabled={isConcluido || !pecaSelecionada} 
-                type="submit" 
-                className="px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase shadow-sm transition-all disabled:opacity-50"
-              >
-                +
-              </button>
-            </form>
+                <button 
+                  disabled={isConcluido || !pecaSelecionada} 
+                  type="submit" 
+                  className="px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase shadow-sm transition-all disabled:opacity-50"
+                >
+                  +
+                </button>
+              </form>
+            )}
 
             <div className="space-y-1.5 max-h-36 overflow-y-auto">
               {chamado?.itens_vinculados?.map((p, i) => (
@@ -761,7 +766,7 @@ export function TratarChamado() {
             </div>
           </div>
 
-          {/* CARD DE ANEXOS E LAUDOS TÉCNICOS */}
+          {/* CARD DE ANEXOS */}
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
               📎 Laudos & Arquivos ({listaDocumentos.length})
@@ -805,7 +810,7 @@ export function TratarChamado() {
 
         </div>
 
-        {/* COLUNA DIREITA: FORMULÁRIO DE SOLUÇÃO E CRONOLOGIA (7 COLUNAS) */}
+        {/* COLUNA DIREITA: FORMULÁRIO DE SOLUÇÃO E HISTÓRICO */}
         <div className="lg:col-span-7 space-y-6">
 
           <form onSubmit={handleSalvarAtendimento} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-5">
@@ -824,7 +829,7 @@ export function TratarChamado() {
               </div>
             )}
 
-            {/* SELETOR EQUIPE INTERNA / TERCEIRIZADA */}
+            {/* SELETOR INTERNO / EXTERNO */}
             <div className="flex bg-slate-100 p-1 rounded-2xl">
               <button
                 type="button"
@@ -844,7 +849,6 @@ export function TratarChamado() {
               </button>
             </div>
 
-            {/* CAMPOS SE FOR FORNECEDOR EXTERNO MANUAL */}
             {tipoAtendimento === "Externo" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in duration-150">
                 <div>
@@ -864,7 +868,7 @@ export function TratarChamado() {
               </div>
             )}
 
-            {/* SELEÇÃO DO STATUS E TÉCNICO RESPONSÁVEL */}
+            {/* STATUS E TÉCNICO */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Status Operacional</label>
@@ -895,7 +899,7 @@ export function TratarChamado() {
               )}
             </div>
 
-            {/* BOTÕES DE TEXTO RÁPIDO */}
+            {/* TEXTOS RÁPIDOS */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block tracking-wider">
                 Inserções Rápidas (1 clique):
@@ -910,7 +914,7 @@ export function TratarChamado() {
               </div>
             </div>
 
-            {/* RELATÓRIO TÉCNICO */}
+            {/* RELATÓRIO DO SERVIÇO */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
                 Relatório Descritivo do Serviço Executado
@@ -936,7 +940,7 @@ export function TratarChamado() {
             )}
           </form>
 
-          {/* CRONOLOGIA / HISTÓRICO DE ATIVIDADES */}
+          {/* HISTÓRICO DE ATIVIDADES */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
               🕒 Histórico de Atividades Desta OS
@@ -968,7 +972,6 @@ export function TratarChamado() {
                       {h.texto_historico}
                     </p>
 
-                    {/* ANEXO DO LAUDO (CASO RETORNO) */}
                     {h.url_anexo && (
                       <div className="pt-2">
                         <a 
@@ -982,7 +985,6 @@ export function TratarChamado() {
                       </div>
                     )}
 
-                    {/* 🖨️ BOTÃO DE REIMPRESSÃO DA GUIA NO HISTÓRICO */}
                     {h.texto_historico?.includes('ENVIADO PARA MANUTENÇÃO EXTERNA') && (
                       <div className="pt-2">
                         <button
@@ -1007,7 +1009,7 @@ export function TratarChamado() {
 
       </div>
 
-      {/* 🚚 MODAL 1: REGISTRAR SAÍDA PARA FORNECEDOR EXTERNO */}
+      {/* 🚚 MODAL: SAÍDA EXTERNA */}
       {modalSaidaExterna && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -1083,7 +1085,7 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 🛬 MODAL 2: REGISTRAR RETORNO DE MANUTENÇÃO EXTERNA */}
+      {/* 🛬 MODAL: RETORNO EXTERNO */}
       {modalRetornoExterno && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -1159,7 +1161,7 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 🖨️ GUIA DE REMESSA PARA IMPRESSÃO NATIVA (FOLHA ÚNICA A4) */}
+      {/* 🖨️ GUIA DE REMESSA PRINT CONTAINER */}
       {guiaImpressao && (
         <div id="guia-os-impressao" className="hidden print:flex flex-col justify-between h-[96vh] font-sans text-slate-900 bg-white p-2 box-border">
           <div>
@@ -1210,7 +1212,6 @@ export function TratarChamado() {
             </p>
           </div>
 
-          {/* ÁREA DE ASSINATURAS FIXADA NO FINAL DA FOLHA ÚNICA */}
           <div className="grid grid-cols-3 gap-4 text-center pb-2 text-[10px]">
             <div>
               <p className="border-t border-slate-800 pt-1 font-bold">_______________________</p>
@@ -1229,7 +1230,7 @@ export function TratarChamado() {
       )}
 
     </div>
-  )
+  );
 }
 
 export default TratarChamado;

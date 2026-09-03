@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 
-
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,7 +62,9 @@ const Chamados = ({ user: userProp }) => {
   const [listaDocumentos, setListaDocumentos] = useState([]);
 
   const obterNivelUsuario = () => user?.nivel || '';
-  const isAdminOuCoord = ['admin', 'coordenador'].includes(user?.nivel?.toLowerCase().trim());
+  const nivelLimpo = (user?.nivel || '').toLowerCase().trim();
+  const isUsuarioComum = nivelLimpo === 'usuario';
+  const isAdminOuCoord = ['admin', 'coordenador'].includes(nivelLimpo);
 
   useEffect(() => {
     const timer = setInterval(() => setAgora(new Date()), 60000);
@@ -146,10 +147,15 @@ const Chamados = ({ user: userProp }) => {
         setChamadoSelecionado(data);
         setModalDetalhesAberta(true);
 
-        fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
-          .then(res => res.json())
-          .then(setListaDocumentos)
-          .catch(err => console.error("Erro ao buscar documentos:", err));
+        // Somente busca laudos/anexos se for equipe técnica ou gestão
+        if (!isUsuarioComum) {
+          fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
+            .then(res => res.json())
+            .then(setListaDocumentos)
+            .catch(err => console.error("Erro ao buscar documentos:", err));
+        } else {
+          setListaDocumentos([]);
+        }
       })
       .catch(err => console.error("Erro ao buscar detalhes:", err));
   };
@@ -371,7 +377,6 @@ const Chamados = ({ user: userProp }) => {
   const totalConcluidos = chamados.filter(c => c.status === 'Concluído').length;
 
   const filtrados = chamados.filter(c => {
-    const isUsuarioComum = user?.nivel?.toLowerCase() === 'usuario';
     if (isUsuarioComum) {
       const pertenceAoUsuario = String(c.usuario_abertura_id) === String(user?.id);
       if (!pertenceAoUsuario) return false;
@@ -412,7 +417,7 @@ const Chamados = ({ user: userProp }) => {
             onChange={(e) => setBusca(e.target.value)} 
           />
 
-          {user?.nivel?.toLowerCase().trim() !== 'usuario' && (
+          {!isUsuarioComum && (
             <Link
               to="/painel-chamados"
               target="_blank"
@@ -639,7 +644,7 @@ const Chamados = ({ user: userProp }) => {
                       </button>
                     )}
 
-                    {c.status !== 'Concluído' && user?.nivel?.toLowerCase() !== 'usuario' && (
+                    {c.status !== 'Concluído' && !isUsuarioComum && (
                       <button
                         onClick={() => navigate(`/chamados/${c.id}/tratar`)}
                         className={`px-3 py-1.5 text-white rounded-xl text-[10px] font-black uppercase shadow-sm transition-all active:scale-95 ${
@@ -662,7 +667,7 @@ const Chamados = ({ user: userProp }) => {
                       </button>
                     )}
 
-                    {user?.nivel?.toLowerCase() !== 'usuario' && (
+                    {!isUsuarioComum && (
                       <Link
                         to={`/chamados/${c.id}/imprimir`}
                         target="_blank"
@@ -759,7 +764,8 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              <div className="bg-slate-100/70 p-4 grid grid-cols-2 md:grid-cols-4 gap-3 border-b border-slate-200 shrink-0">
+              {/* BARRA DE INDICADORES: 4 colunas para equipe técnica/gestão e 3 colunas para usuário comum */}
+              <div className={`bg-slate-100/70 p-4 grid grid-cols-2 ${!isUsuarioComum ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3 border-b border-slate-200 shrink-0`}>
                 <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
                   <span className="text-[9px] font-black text-slate-400 uppercase block">Solicitante:</span>
                   <p className="font-bold text-xs text-slate-800 truncate mt-0.5">{chamadoSelecionado.solicitante_nome || 'Não identificado'}</p>
@@ -777,12 +783,15 @@ const Chamados = ({ user: userProp }) => {
                   </p>
                 </div>
 
-                <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block">Custo Acumulado:</span>
-                  <p className="font-black text-xs text-emerald-600 mt-0.5">
-                    R$ {custoTotalOS.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
+                {/* 💰 CUSTO ACUMULADO: EXCLUSIVO PARA TÉCNICOS E GESTÃO (OCULTO PARA O USUÁRIO COMUM) */}
+                {!isUsuarioComum && (
+                  <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
+                    <span className="text-[9px] font-black text-slate-400 uppercase block">Custo Acumulado:</span>
+                    <p className="font-black text-xs text-emerald-600 mt-0.5">
+                      R$ {custoTotalOS.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-50">
@@ -852,44 +861,47 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
-                      <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
-                        <span>📎</span> Laudos & Arquivos ({listaDocumentos.length})
-                      </h4>
-                      
-                      <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
-                        <input 
-                          type="file" 
-                          accept="image/*,application/pdf" 
-                          className="text-xs w-full block file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
-                          onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
-                        />
-                        <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95">
-                          + Enviar Laudo / Documento
-                        </button>
-                      </form>
+                    {/* 📎 LAUDOS & ARQUIVOS: EXCLUSIVO PARA TÉCNICOS E GESTÃO (OCULTO PARA USUÁRIO COMUM) */}
+                    {!isUsuarioComum && (
+                      <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
+                        <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
+                          <span>📎</span> Laudos & Arquivos ({listaDocumentos.length})
+                        </h4>
+                        
+                        <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
+                          <input 
+                            type="file" 
+                            accept="image/*,application/pdf" 
+                            className="text-xs w-full block file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
+                            onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
+                          />
+                          <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95">
+                            + Enviar Laudo / Documento
+                          </button>
+                        </form>
 
-                      <div className="space-y-2 max-h-36 overflow-y-auto">
-                        {listaDocumentos.map((doc) => (
-                          <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
-                            <span className="font-bold text-slate-700 truncate max-w-[180px]" title={doc.nome_original}>
-                              {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
-                            </span>
-                            <a 
-                              href={`${BASE_URL}${doc.url_arquivo}`} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase bg-blue-50 px-2 py-1 rounded-md border border-blue-100"
-                            >
-                              Abrir ↗
-                            </a>
-                          </div>
-                        ))}
-                        {listaDocumentos.length === 0 && (
-                          <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>
-                        )}
+                        <div className="space-y-2 max-h-36 overflow-y-auto">
+                          {listaDocumentos.map((doc) => (
+                            <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
+                              <span className="font-bold text-slate-700 truncate max-w-[180px]" title={doc.nome_original}>
+                                {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
+                              </span>
+                              <a 
+                                href={`${BASE_URL}${doc.url_arquivo}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase bg-blue-50 px-2 py-1 rounded-md border border-blue-100"
+                              >
+                                Abrir ↗
+                              </a>
+                            </div>
+                          ))}
+                          {listaDocumentos.length === 0 && (
+                            <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                   </div>
 
@@ -903,7 +915,8 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {chamadoSelecionado.itens_vinculados?.length > 0 && (
+                    {/* PEÇAS E CUSTOS: EXCLUSIVO PARA TÉCNICOS E GESTÃO (OCULTO PARA O USUÁRIO COMUM) */}
+                    {!isUsuarioComum && chamadoSelecionado.itens_vinculados?.length > 0 && (
                       <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-2.5">
                         <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
                           <span>📦</span> Peças e Insumos Deduzidos do Almoxarifado
@@ -1016,7 +1029,7 @@ const Chamados = ({ user: userProp }) => {
                     </button>
                   )}
 
-                  {!isConcluido && user?.nivel?.toLowerCase() !== 'usuario' && (
+                  {!isConcluido && !isUsuarioComum && (
                     <button
                       onClick={() => {
                         setModalDetalhesAberta(false);

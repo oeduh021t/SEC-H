@@ -2444,7 +2444,7 @@ app.post('/api/locais-estoque', permitirApenas(['admin', 'coordenador']), (req, 
 });
 
 // FORNECEDORES
-app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res) => {
+app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = "SELECT id, nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status, contrato_url FROM fornecedores ORDER BY nome_fantasia ASC";
     db.query(query, (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -2452,7 +2452,7 @@ app.get('/api/fornecedores', permitirApenas(['admin', 'coordenador']), (req, res
     });
 });
 
-app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('contrato'), (req, res) => {
+app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('contrato'), (req, res) => {
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade } = req.body;
     const contrato_url = req.file ? `/uploads/${req.file.filename}` : null;
 
@@ -2465,7 +2465,7 @@ app.post('/api/fornecedores', permitirApenas(['admin', 'coordenador']), uploadDo
     });
 });
 
-app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), uploadDocumento.single('contrato'), (req, res) => {
+app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('contrato'), (req, res) => {
     const { id } = req.params;
     const { nome_fantasia, razao_social, cnpj, contato, telefone, email, especialidade, status } = req.body;
 
@@ -2489,7 +2489,7 @@ app.put('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), uploa
     }
 });
 
-app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+app.delete('/api/fornecedores/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     db.query("DELETE FROM fornecedores WHERE id = ?", [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });

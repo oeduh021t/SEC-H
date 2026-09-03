@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 // --- IMPORTAÇÃO DAS PÁGINAS ---
 import Login from './pages/Login';
 import Equipamentos from './pages/Equipamentos';
-import { TiposEquipamentos } from './pages/TiposEquipamentos'; // 🏷️ Nova Página de Tipos/Famílias
+import { TiposEquipamentos } from './pages/TiposEquipamentos';
 import Chamados from './pages/Chamados';
-import PainelChamados from './pages/PainelChamados'; // 📺 Painel TV / Monitoramento
+import PainelChamados from './pages/PainelChamados';
 import Prontuario from './pages/Prontuario';
 import NovoEquipamento from './pages/NovoEquipamento';
 import Preventivas from './pages/Preventivas';
@@ -33,29 +35,8 @@ import ProntuarioSetor from './pages/ProntuarioSetor';
 import ControleEpi from './pages/ControleEpi';
 import ManutencaoPlanejada from './pages/ManutencaoPlanejada';
 
-// --- COMPONENTE DE PROTEÇÃO DE ROTA POR NÍVEL (RBAC) ---
-function RotaProtegida({ children, user, niveisPermitidos }) {
-  if (!user) return <Navigate to="/" />;
-  
-  const nivelLimpo = user.nivel?.toLowerCase().trim();
-  if (!niveisPermitidos.includes(nivelLimpo)) {
-    return <Navigate to="/" />;
-  }
-  return children;
-}
-
-function PrivateRoute({ children, user }) {
-  return user ? children : <Navigate to="/" />;
-}
-
-// --- COMPONENTE PRINCIPAL ---
-function App() {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
-
-  // Estado global do menu para ajustar a margem do conteúdo dinamicamente
+function AppRoutes() {
+  const { user, permissions } = useAuth();
   const [sidebarAberta, setSidebarAberta] = useState(true);
 
   // INTERCEPTOR GLOBAL DE FETCH
@@ -70,6 +51,7 @@ function App() {
       if (!config.headers) config.headers = {};
 
       config.headers['x-usuario-nivel'] = user.nivel || '';
+      config.headers['x-usuario-id'] = user.id || '';
 
       return originalFetch(resource, config);
     };
@@ -81,128 +63,118 @@ function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('user');
-    setUser(null);
+    window.location.href = '/';
   };
 
   if (!user) {
-    return <Login onLogin={setUser} />;
+    return <Login onLogin={() => window.location.reload()} />;
   }
 
+  const podeVerDashboard = permissions.canViewExecutiveDashboard;
+
   return (
-    <Router>
-      <Routes>
-        {/* 📺 ROTA INDEPENDENTE PARA O PAINEL DE MONITORAMENTO (SEM SIDEBAR / TELA CHEIA) */}
-        <Route 
-          path="/painel-chamados" 
-          element={
-            <PrivateRoute user={user}>
-              <PainelChamados />
-            </PrivateRoute>
-          } 
-        />
+    <Routes>
+      {/* 📺 MONITORAMENTO / PAINEL TV */}
+      <Route 
+        path="/painel-chamados" 
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'coordenador']}>
+            <PainelChamados />
+          </ProtectedRoute>
+        } 
+      />
 
-        {/* 🏢 DEMAIS ROTAS DA APLICAÇÃO COM SIDEBAR E LAYOUT PADRÃO */}
-        <Route
-          path="/*"
-          element={
-            <div className="min-h-screen bg-slate-50 flex overflow-x-hidden w-full">
-              <Sidebar 
-                user={user} 
-                onLogout={handleLogout} 
-                sidebarAberta={sidebarAberta} 
-                setSidebarAberta={setSidebarAberta} 
-              />
+      {/* 🏢 LAYOUT COM SIDEBAR */}
+      <Route
+        path="/*"
+        element={
+          <div className="min-h-screen bg-slate-50 flex overflow-x-hidden w-full">
+            <Sidebar 
+              user={user} 
+              onLogout={handleLogout} 
+              sidebarAberta={sidebarAberta} 
+              setSidebarAberta={setSidebarAberta} 
+            />
 
-              {/* 🛠️ Margem ativa apenas em telas grandes (lg:), liberando o espaço em tablets */}
-              <main 
-                className={`flex-1 p-3 sm:p-4 md:p-6 transition-all duration-300 ease-in-out min-w-0 w-full overflow-x-hidden print:overflow-visible print:p-0 print:m-0 ${
-                  sidebarAberta ? 'ml-0 lg:ml-64' : 'ml-0 lg:ml-16'
-                }`}
-              >
-                <div className="w-full max-w-[1600px] mx-auto overflow-x-hidden">
-                  <Routes>
-                    {/* --- 1. DASHBOARD --- */}
-                    <Route 
-                      path="/" 
-                      element={
-                        user.nivel !== 'usuario' ? <Dashboard user={user} /> : <Navigate to="/chamados" />
-                      } 
-                    />
+            <main 
+              className={`flex-1 p-3 sm:p-4 md:p-6 transition-all duration-300 ease-in-out min-w-0 w-full overflow-x-hidden print:overflow-visible print:p-0 print:m-0 ${
+                sidebarAberta ? 'ml-0 lg:ml-64' : 'ml-0 lg:ml-16'
+              }`}
+            >
+              <div className="w-full max-w-[1600px] mx-auto overflow-x-hidden">
+                <Routes>
+                  {/* 1. DASHBOARD (Apenas Admin e Coordenador. Técnico/Solicitante vão para /chamados) */}
+                  <Route 
+                    path="/" 
+                    element={
+                      podeVerDashboard 
+                        ? <Dashboard user={user} /> 
+                        : <Navigate to="/chamados" replace />
+                    } 
+                  />
 
-                    {/* --- 2. MÓDULO EQUIPAMENTOS, TIPOS & PREVENTIVAS --- */}
-                    <Route path="/equipamentos" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Equipamentos /></RotaProtegida>} />
-                    <Route path="/tipos-equipamentos" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><TiposEquipamentos /></RotaProtegida>} />
-                    <Route path="/prontuario/:id" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Prontuario /></RotaProtegida>} />
-                    <Route path="/preventivas" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Preventivas /></RotaProtegida>} />
-                    <Route path="/equipamentos/novo" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NovoEquipamento /></RotaProtegida>} />
+                  {/* 2. EQUIPAMENTOS & PREVENTIVAS */}
+                  <Route path="/equipamentos" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Equipamentos /></ProtectedRoute>} />
+                  <Route path="/tipos-equipamentos" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><TiposEquipamentos /></ProtectedRoute>} />
+                  <Route path="/preventivas" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Preventivas /></ProtectedRoute>} />
+                  <Route path="/equipamentos/novo" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><NovoEquipamento /></ProtectedRoute>} />
+                  
+                  {/* 🔍 PRONTUÁRIO: Técnico mantém acesso para leitura do ativo/QR */}
+                  <Route path="/prontuario/:id" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><Prontuario /></ProtectedRoute>} />
 
-                    {/* --- 3. MÓDULO CHAMADOS / OS --- */}
-                    <Route path="/chamados" element={<Chamados user={user} />} />
-                    <Route path="/chamados/:id/imprimir" element={<PrivateRoute user={user}><ImprimirOS /></PrivateRoute>} />
-                    <Route
-                      path="/chamados/:id/tratar"
-                      element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><TratarChamado /></RotaProtegida>}
-                    />
+                  {/* 3. CHAMADOS / OS */}
+                  <Route path="/chamados" element={<ProtectedRoute><Chamados user={user} /></ProtectedRoute>} />
+                  <Route path="/chamados/:id/imprimir" element={<ProtectedRoute><ImprimirOS /></ProtectedRoute>} />
+                  <Route path="/chamados/:id/tratar" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><TratarChamado /></ProtectedRoute>} />
 
-                    {/* 📅 NOVO MÓDULO: MANUTENÇÕES PLANEJADAS & JANELAS */}
-                    <Route 
-                      path="/manutencoes-planejadas" 
-                      element={
-                        <RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}>
-                          <ManutencaoPlanejada user={user} />
-                        </RotaProtegida>
-                      } 
-                    />
+                  {/* 4. MANUTENÇÃO PLANEJADA & JANELAS */}
+                  <Route path="/manutencoes-planejadas" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><ManutencaoPlanejada user={user} /></ProtectedRoute>} />
 
-                    {/* --- REPOSITÓRIO DE DOCUMENTOS AUDITÁVEIS --- */}
-                    <Route 
-                      path="/documentos" 
-                      element={
-                        <RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}>
-                          <Documentos />
-                        </RotaProtegida>
-                      } 
-                    />
+                  {/* 5. DOCUMENTOS AUDITÁVEIS */}
+                  <Route path="/documentos" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Documentos /></ProtectedRoute>} />
 
-                    {/* --- 4. LOGÍSTICA / INFRAESTRUTURA / SUPRIMENTOS --- */}
-                    <Route path="/solicitacoes-compra" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><SolicitacaoCompras /></RotaProtegida>} />
-                    <Route path="/fornecedores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><Fornecedores /></RotaProtegida>} />
-                    <Route path="/notas-fiscais" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><NotasFiscais /></RotaProtegida>} />
-                    <Route path="/estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoEstoque /></RotaProtegida>} />
-                    <Route path="/setores" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoSetores /></RotaProtegida>} />
-                    <Route path="/setores/:id/prontuario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><ProntuarioSetor /></RotaProtegida>} />
-                    <Route path="/locais-estoque" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><GestaoLocais /></RotaProtegida>} />
+                  {/* 6. LOGÍSTICA & ALMOXARIFADO (Bloqueado para Técnico) */}
+                  <Route path="/solicitacoes-compra" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><SolicitacaoCompras /></ProtectedRoute>} />
+                  <Route path="/fornecedores" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Fornecedores /></ProtectedRoute>} />
+                  <Route path="/notas-fiscais" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><NotasFiscais /></ProtectedRoute>} />
+                  <Route path="/estoque" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><GestaoEstoque /></ProtectedRoute>} />
+                  <Route path="/setores" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><GestaoSetores /></ProtectedRoute>} />
+                  <Route path="/setores/:id/prontuario" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><ProntuarioSetor /></ProtectedRoute>} />
+                  <Route path="/locais-estoque" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><GestaoLocais /></ProtectedRoute>} />
 
-                    {/* 🆕 MÓDULO DE ENTREGAS DE EPI */}
-                    <Route path="/controle-epi" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><ControleEpi /></RotaProtegida>} />
+                  {/* 7. UTILIDADES & SST / GASES (Bloqueado para Técnico) */}
+                  <Route path="/controle-epi" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><ControleEpi /></ProtectedRoute>} />
+                  <Route path="/filtros" element={<ProtectedRoute allowedRoles={['admin']}><ControleFiltros /></ProtectedRoute>} />
+                  <Route path="/relatorio-filtros" element={<ProtectedRoute allowedRoles={['admin']}><RelatorioFiltros /></ProtectedRoute>} />
+                  <Route path="/gases" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Gases /></ProtectedRoute>} />
 
-                    {/* --- 5. MÓDULO FILTROS DE ÁGUA --- */}
-                    <Route path="/filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><ControleFiltros /></RotaProtegida>} />
-                    <Route path="/relatorio-filtros" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><RelatorioFiltros /></RotaProtegida>} />
+                  {/* 8. RELATÓRIOS GERENCIAIS (Bloqueado para Técnico) */}
+                  <Route path="/relatorios/inventario" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><InventarioGeral /></ProtectedRoute>} />
+                  <Route path="/relatorios/custos-setor" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><RelatorioCustosSetor /></ProtectedRoute>} />
+                  <Route path="/relatorios/chamados-setor" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><RelatorioChamadosSetor /></ProtectedRoute>} />
+                  <Route path="/relatorios/estoque-local" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><RelatorioEstoqueLocal /></ProtectedRoute>} />
 
-                    {/* --- 🧪 6. MÓDULO CONTROLE DE GASES MEDICINAIS --- */}
-                    <Route path="/gases" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador', 'tecnico']}><Gases /></RotaProtegida>} />
+                  {/* 9. GERENCIAMENTO DE USUÁRIOS (Exclusivo Admin) */}
+                  <Route path="/usuarios" element={<ProtectedRoute allowedRoles={['admin']}><Usuarios /></ProtectedRoute>} />
 
-                    {/* --- 7. RELATÓRIOS GERENCIAIS --- */}
-                    <Route path="/relatorios/inventario" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><InventarioGeral /></RotaProtegida>} />
-                    <Route path="/relatorios/custos-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioCustosSetor /></RotaProtegida>} />
-                    <Route path="/relatorios/chamados-setor" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioChamadosSetor /></RotaProtegida>} />
-                    <Route path="/relatorios/estoque-local" element={<RotaProtegida user={user} niveisPermitidos={['admin', 'coordenador']}><RelatorioEstoqueLocal /></RotaProtegida>} /> 
-
-                    {/* --- 8. GERENCIAMENTO DE USUÁRIOS --- */}
-                    <Route path="/usuarios" element={<RotaProtegida user={user} niveisPermitidos={['admin']}><Usuarios /></RotaProtegida>} />
-
-                    {/* Fallback */}
-                    <Route path="*" element={<div className="p-10 text-center text-slate-400 font-bold">Página não encontrada...</div>} />
-                  </Routes>
-                </div>
-              </main>
-            </div>
-          }
-        />
-      </Routes>
-    </Router>
+                  {/* FALLBACK REDIRECIONA PARA CHAMADOS */}
+                  <Route path="*" element={<Navigate to="/chamados" replace />} />
+                </Routes>
+              </div>
+            </main>
+          </div>
+        }
+      />
+    </Routes>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <AppRoutes />
+      </Router>
+    </AuthProvider>
+  );
+}
