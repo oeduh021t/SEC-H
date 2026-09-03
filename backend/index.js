@@ -191,7 +191,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 SUM(CASE WHEN status = 'Ativo' THEN 1 ELSE 0 END) AS ativos,
                 SUM(CASE WHEN status = 'Em Manutenção' OR em_manutencao_externa = 1 THEN 1 ELSE 0 END) AS manutencao,
                 SUM(CASE WHEN status = 'Reserva' THEN 1 ELSE 0 END) AS reserva,
-                SUM(CASE WHEN status = 'Inoperante' THEN 1 ELSE 0 END) AS inoperantes,
+                SUM(CASE WHEN status IN ('Inoperante', 'Baixado/Quebrado') THEN 1 ELSE 0 END) AS inoperantes,
                 COUNT(*) AS total
             FROM equipamentos`,
 
@@ -319,7 +319,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 WHERE equipamento_id IS NULL${filtroChamadosData}
             ) as total`,
 
-        // 👇 ADAPTADO ÀS SUAS TABELAS REAIS (solicitacoes_compra_itens e notas_fiscais)
         savingCompras: `
             SELECT 
                 (
