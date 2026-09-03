@@ -4650,6 +4650,13 @@ app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordena
     });
 });
 
+app.get('/api/categorias-chamado', (req, res) => {
+    db.query('SELECT * FROM categorias_chamado WHERE ativo = 1 ORDER BY nome ASC', (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

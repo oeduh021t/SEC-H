@@ -11,6 +11,20 @@ const Chamados = ({ user: userProp }) => {
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
+  
+  // 🏷️ Categorias dinâmicas vindas da tabela do banco de dados (com fallback padrão)
+  const [categorias, setCategorias] = useState([
+    { id: 1, nome: 'Engenharia Clínica', icone: '🤖' },
+    { id: 2, nome: 'Refrigeração', icone: '❄️' },
+    { id: 3, nome: 'Elétrica', icone: '⚡' },
+    { id: 4, nome: 'Hidráulica', icone: '💧' },
+    { id: 5, nome: 'Predial', icone: '🏢' },
+    { id: 6, nome: 'Marcenaria & Mobiliário', icone: '🪚' },
+    { id: 7, nome: 'TI & Redes', icone: '💻' },
+    { id: 8, nome: 'Telefonia & Segurança', icone: '📞' },
+    { id: 9, nome: 'Hotelaria & Apoio', icone: '🛏️' },
+    { id: 10, nome: 'Serralheria', icone: '🔩' }
+  ]);
 
   const [agora, setAgora] = useState(new Date());
 
@@ -109,6 +123,16 @@ const Chamados = ({ user: userProp }) => {
     fetch(`${API_URL}/chamados`, { headers }).then(res => res.json()).then(setChamados).catch(err => console.error(err));
     fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).then(setSetores).catch(err => console.error(err));
     fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()).then(setEquipamentos).catch(err => console.error(err));
+
+    // Busca categorias configuradas no banco
+    fetch(`${API_URL}/categorias-chamado`, { headers })
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCategorias(data);
+        }
+      })
+      .catch(err => console.error("Erro ao carregar categorias dinâmicas:", err));
   };
 
   useEffect(() => {
@@ -122,7 +146,6 @@ const Chamados = ({ user: userProp }) => {
     }
   }, [location.state, navigate, location.pathname]);
 
-  // ⚡ CAPTURA O ATIVO VINCULADO VINDO DA PÁGINA DE EQUIPAMENTOS
   useEffect(() => {
     if (location.state?.pre_configurado) {
       setForm(prev => ({
@@ -147,7 +170,6 @@ const Chamados = ({ user: userProp }) => {
         setChamadoSelecionado(data);
         setModalDetalhesAberta(true);
 
-        // Somente busca laudos/anexos se for equipe técnica ou gestão
         if (!isUsuarioComum) {
           fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
             .then(res => res.json())
@@ -437,7 +459,7 @@ const Chamados = ({ user: userProp }) => {
                 titulo: '',
                 descricao_problema: '',
                 prioridade: 'Média',
-                categoria: 'Engenharia Clínica',
+                categoria: categorias[0]?.nome || 'Engenharia Clínica',
                 impacto: 'Normal',
                 ramal_contato: ''
               }); 
@@ -588,7 +610,7 @@ const Chamados = ({ user: userProp }) => {
                     {c.foto_abertura ? (
                       <img 
                         src={`${BASE_URL}${c.foto_abertura}`} 
-                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity" 
+                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
                         onClick={() => window.open(`${BASE_URL}${c.foto_abertura}`)} 
                         alt="Miniatura Abertura" 
                         title="Clique para ampliar a foto"
@@ -764,7 +786,7 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* BARRA DE INDICADORES: 4 colunas para equipe técnica/gestão e 3 colunas para usuário comum */}
+              {/* BARRA DE INDICADORES */}
               <div className={`bg-slate-100/70 p-4 grid grid-cols-2 ${!isUsuarioComum ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3 border-b border-slate-200 shrink-0`}>
                 <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
                   <span className="text-[9px] font-black text-slate-400 uppercase block">Solicitante:</span>
@@ -783,7 +805,6 @@ const Chamados = ({ user: userProp }) => {
                   </p>
                 </div>
 
-                {/* 💰 CUSTO ACUMULADO: EXCLUSIVO PARA TÉCNICOS E GESTÃO (OCULTO PARA O USUÁRIO COMUM) */}
                 {!isUsuarioComum && (
                   <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
                     <span className="text-[9px] font-black text-slate-400 uppercase block">Custo Acumulado:</span>
@@ -861,7 +882,6 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {/* 📎 LAUDOS & ARQUIVOS: EXCLUSIVO PARA TÉCNICOS E GESTÃO (OCULTO PARA USUÁRIO COMUM) */}
                     {!isUsuarioComum && (
                       <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                         <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
@@ -915,7 +935,6 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {/* PEÇAS E CUSTOS: EXCLUSIVO PARA TÉCNICOS E GESTÃO (OCULTO PARA O USUÁRIO COMUM) */}
                     {!isUsuarioComum && chamadoSelecionado.itens_vinculados?.length > 0 && (
                       <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-2.5">
                         <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
@@ -1112,6 +1131,25 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
+              {/* 🏷️ CATEGORIA DINÂMICA NA EDIÇÃO */}
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                  Especialidade Técnica *
+                </label>
+                <select 
+                  required
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-blue-500 text-slate-700" 
+                  value={formEdicao.categoria} 
+                  onChange={e => setFormEdicao({ ...formEdicao, categoria: e.target.value })}
+                >
+                  {categorias.map(cat => (
+                    <option key={cat.id} value={cat.nome}>
+                      {cat.icone ? `${cat.icone} ` : ''}{cat.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assunto do Chamado *</label>
                 <input 
@@ -1231,14 +1269,13 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* LINHA 2: EQUIPAMENTO & ESPECIALIDADE / CATEGORIA */}
+              {/* LINHA 2: EQUIPAMENTO & ESPECIALIDADE / CATEGORIA DINÂMICA */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                     Equipamento do Setor (Opcional)
                   </label>
                   
-                  {/* Lista estrita filtrada pelo setor selecionado */}
                   {(() => {
                     const equipamentosDoSetor = equipamentos.filter(
                       eq => form.setor_id && String(eq.setor_id) === String(form.setor_id)
@@ -1259,7 +1296,7 @@ const Chamados = ({ user: userProp }) => {
                           <option value="">-- Primeiro selecione o setor --</option>
                         ) : (
                           <>
-                            <option value="">Sem equipamento específico (Predial / Estrutura)</option>
+                            <option value="">Sem equipamento específico (Predial / Mobiliário)</option>
                             {equipamentosDoSetor.map(eq => (
                               <option key={eq.id} value={eq.id}>
                                 [{eq.patrimonio || 'S/P'}] {eq.nome}
@@ -1285,12 +1322,11 @@ const Chamados = ({ user: userProp }) => {
                     value={form.categoria} 
                     onChange={e => setForm({...form, categoria: e.target.value})}
                   >
-                    <option value="Engenharia Clínica">🤖 Engenharia Clínica / Médico</option>
-                    <option value="Refrigeração">❄️ Ar-condicionado / Refrigeração</option>
-                    <option value="Elétrica">⚡ Instalações Elétricas</option>
-                    <option value="Hidráulica">💧 Hidráulica & Gases Medicinais</option>
-                    <option value="Predial">🏢 Predial / Marcenaria / Civil</option>
-                    <option value="TI & Redes">💻 TI / Redes / Computadores</option>
+                    {categorias.map(cat => (
+                      <option key={cat.id} value={cat.nome}>
+                        {cat.icone ? `${cat.icone} ` : ''}{cat.nome}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1352,7 +1388,7 @@ const Chamados = ({ user: userProp }) => {
                 </label>
                 <input 
                   type="text" 
-                  placeholder="Ex: Monitor multiparâmetro não liga, Ar-condicionado pingando..." 
+                  placeholder="Ex: Cadeira quebrada no consultório, Telefone mudo, Monitor não liga..." 
                   className="w-full border-2 border-slate-100 p-2.5 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500" 
                   required 
                   value={form.titulo} 
@@ -1437,7 +1473,7 @@ const Chamados = ({ user: userProp }) => {
                   Relato Descritivo do Problema *
                 </label>
                 <textarea 
-                  placeholder="Descreva detalhadamente a falha, alarmes apresentados ou orientações de acesso ao local..." 
+                  placeholder="Descreva detalhadamente a falha, orientações de acesso ao local..." 
                   className="w-full border-2 border-slate-100 p-3 rounded-xl h-24 text-xs font-medium text-slate-700 outline-none focus:border-amber-500 resize-none" 
                   required 
                   value={form.descricao_problema} 
