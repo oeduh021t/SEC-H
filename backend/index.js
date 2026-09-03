@@ -215,6 +215,76 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
               AND data_conclusao IS NOT NULL
               ${filtroChamadosData}`,
 
+        metricasSLA: `
+            SELECT 
+                IFNULL(ROUND(AVG(TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao))), 0) AS tma_minutos,
+                COUNT(*) AS total_concluidas,
+                SUM(CASE 
+                    WHEN prioridade = 'Urgente' AND TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) <= 120 THEN 1
+                    WHEN prioridade = 'Alta'    AND TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) <= 360 THEN 1
+                    WHEN prioridade = 'Média'   AND TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) <= 1440 THEN 1
+                    WHEN prioridade = 'Baixa'   AND TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) <= 2880 THEN 1
+                    ELSE 0 
+                END) AS dentro_sla_total,
+                IFNULL(ROUND(AVG(CASE WHEN prioridade = 'Urgente' THEN TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) END)), 0) AS tma_urgente_min,
+                IFNULL(ROUND(AVG(CASE WHEN prioridade = 'Alta' THEN TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) END)), 0) AS tma_alta_min,
+                IFNULL(ROUND(AVG(CASE WHEN prioridade = 'Média' THEN TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) END)), 0) AS tma_media_min,
+                IFNULL(ROUND(AVG(CASE WHEN prioridade = 'Baixa' THEN TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) END)), 0) AS tma_baixa_min
+            FROM chamados
+            WHERE status = 'Concluído' 
+              AND data_conclusao IS NOT NULL
+              ${filtroChamadosData}`,
+
+        valorTotalAlmoxarifado: `
+            SELECT IFNULL(SUM(quantidade * valor_unitario), 0) AS total 
+            FROM itens_estoque`,
+
+        itensAbaixoMinimo: `
+            SELECT id, nome, quantidade, estoque_minimo, valor_unitario
+            FROM itens_estoque
+            WHERE quantidade <= estoque_minimo
+            ORDER BY (estoque_minimo - quantidade) DESC
+            LIMIT 5`,
+
+        topPecasConsumidas: `
+            SELECT i.nome, SUM(ci.quantidade) AS total_qtd, 
+                   IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) AS total_valor
+            FROM chamados_itens ci
+            JOIN chamados c ON ci.chamado_id = c.id
+            JOIN itens_estoque i ON ci.item_id = i.id
+            ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'c.data_abertura') : ''}
+            GROUP BY i.id, i.nome
+            ORDER BY total_qtd DESC
+            LIMIT 5`,
+
+        custoPorSetor: `
+            SELECT 
+                s.nome AS setor,
+                IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) + 
+                IFNULL(SUM(c.custo_servico), 0) + 
+                IFNULL(SUM(c.valor_servico_externo), 0) AS total_gasto
+            FROM setores s
+            JOIN chamados c ON c.setor_id = s.id
+            LEFT JOIN chamados_itens ci ON ci.chamado_id = c.id
+            ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'c.data_abertura') : ''}
+            GROUP BY s.id, s.nome
+            HAVING total_gasto > 0
+            ORDER BY total_gasto DESC
+            LIMIT 6`,
+
+        gastosPorFornecedor: `
+            SELECT 
+                f.nome_fantasia AS fornecedor,
+                COUNT(c.id) AS total_os,
+                IFNULL(SUM(c.custo_servico), 0) + IFNULL(SUM(c.valor_servico_externo), 0) AS total_valor
+            FROM fornecedores f
+            JOIN chamados c ON c.fornecedor_id = f.id
+            ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'c.data_abertura') : ''}
+            GROUP BY f.id, f.nome_fantasia
+            HAVING total_valor > 0
+            ORDER BY total_valor DESC
+            LIMIT 5`,
+
         gastoInsumosGerais: `
             SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
             FROM chamados_itens ci
@@ -265,6 +335,10 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 'porTecnico',
                 'recentes',
                 'indicadoresQualidade',
+                'metricasSLA',
+                'topPecasConsumidas',
+                'custoPorSetor',
+                'gastosPorFornecedor',
                 'gastoInsumosGerais',
                 'gastoTotalEquipamentos',
                 'gastoTotalEstrutura'
@@ -289,9 +363,11 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                if (['gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana'].includes(r.key)) {
+                // Apenas métricas de número único/somatório escalar:
+                if (['gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana', 'valorTotalAlmoxarifado'].includes(r.key)) {
                     stats[r.key] = r.data[0]?.total || 0;
                 } else {
+                    // Listas e arrays (custoPorSetor, gastosPorFornecedor, metricasSLA, etc.) permanecem intactos:
                     stats[r.key] = r.data; 
                 }
             });

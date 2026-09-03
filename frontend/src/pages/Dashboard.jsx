@@ -6,11 +6,10 @@ import { Bar } from 'react-chartjs-2';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const Dashboard = ({ user }) => {
-    const [visaoAtual, setVisaoAtual] = useState('tecnica'); // 'tecnica' | 'ativos' | 'estoque' | 'financeira'
+    const [visaoAtual, setVisaoAtual] = useState('tecnica');
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // 🗓️ Padrão: Últimos 30 dias
     const dataAtual = new Date().toISOString().split('T')[0];
     const data30DiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -90,10 +89,21 @@ const Dashboard = ({ user }) => {
         );
     }
 
+    // Funções utilitárias seguras
+    const asArray = (val) => (Array.isArray(val) ? val : []);
+    
+    const formatarMinutosParaHoras = (minutosTotais) => {
+        if (!minutosTotais || minutosTotais <= 0) return '---';
+        const h = Math.floor(minutosTotais / 60);
+        const m = Math.round(minutosTotais % 60);
+        if (h === 0) return `${m}m`;
+        return `${h}h ${m > 0 ? `${m}m` : ''}`;
+    };
+
     // Cálculos Operacionais
     const totalAbertos = Number(stats?.chamadosAbertos?.[0]?.total || 0);
     const totalAndamento = Number(stats?.chamadosAndamento?.[0]?.total || 0);
-    const totalExternos = Number(stats?.chamadosExternos?.[0]?.total || stats?.recentes?.filter(r => r.status === 'Aguardando Externa').length || 0);
+    const totalExternos = Number(stats?.chamadosExternos?.[0]?.total || asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').length || 0);
     const totalConcluidos = Number(stats?.chamadosConcluidos?.[0]?.total || 0);
     const totalGeralChamados = totalAbertos + totalAndamento + totalExternos + totalConcluidos;
     const taxaResolucao = totalGeralChamados > 0 ? Math.round((totalConcluidos / totalGeralChamados) * 100) : 100;
@@ -106,12 +116,25 @@ const Dashboard = ({ user }) => {
     );
     const mttrCalculado = stats?.indicadoresQualidade?.[0]?.mttr_medio_horas ?? '0.0';
 
-    // Dados Gráficos - Visão Técnica e Ativos
+    // Métricas de SLA & TMA (Tempo Médio de Atendimento)
+    const slaStats = stats?.metricasSLA?.[0];
+    const totalConcluidasSLA = Number(slaStats?.total_concluidas || 0);
+    const dentroSla = Number(slaStats?.dentro_sla_total || 0);
+    const percentualCumprimentoSLA = totalConcluidasSLA > 0 ? Math.round((dentroSla / totalConcluidasSLA) * 100) : 100;
+    const tmaGeralTexto = formatarMinutosParaHoras(slaStats?.tma_minutos);
+
+    // Cálculos Financeiros
+    const gastoInsumos = Number(stats?.gastoInsumosGerais || 0);
+    const gastoEquipamentos = Number(stats?.gastoTotalEquipamentos || 0);
+    const gastoEstrutura = Number(stats?.gastoTotalEstrutura || 0);
+    const custoOperacionalTotal = gastoInsumos + gastoEquipamentos + gastoEstrutura;
+
+    // Dados Gráficos protegidos com asArray
     const dataEquipamentos = {
-        labels: stats?.porEquipamento?.map(e => e.nome) || [],
+        labels: asArray(stats?.porEquipamento).map(e => e.nome),
         datasets: [{
             label: 'Chamados no Período',
-            data: stats?.porEquipamento?.map(e => e.total) || [],
+            data: asArray(stats?.porEquipamento).map(e => e.total),
             backgroundColor: [
                 'rgba(239, 68, 68, 0.85)',
                 'rgba(249, 115, 22, 0.85)',
@@ -127,10 +150,10 @@ const Dashboard = ({ user }) => {
     };
 
     const dataTecnicos = {
-        labels: stats?.porTecnico?.map(t => t.nome) || [],
+        labels: asArray(stats?.porTecnico).map(t => t.nome),
         datasets: [{
             label: 'OSs Finalizadas / Atendidas',
-            data: stats?.porTecnico?.map(t => t.total) || [],
+            data: asArray(stats?.porTecnico).map(t => t.total),
             backgroundColor: 'rgba(59, 130, 246, 0.85)',
             borderRadius: 6,
             barThickness: 16,
@@ -138,13 +161,35 @@ const Dashboard = ({ user }) => {
     };
 
     const dataAtivosPorSetor = {
-        labels: stats?.ativosPorSetor?.map(s => s.setor) || [],
+        labels: asArray(stats?.ativosPorSetor).map(s => s.setor),
         datasets: [{
             label: 'Equipamentos Instalados',
-            data: stats?.ativosPorSetor?.map(s => s.total) || [],
+            data: asArray(stats?.ativosPorSetor).map(s => s.total),
             backgroundColor: 'rgba(99, 102, 241, 0.85)',
             borderRadius: 6,
             barThickness: 16,
+        }]
+    };
+
+    const dataTopPecas = {
+        labels: asArray(stats?.topPecasConsumidas).map(p => p.nome),
+        datasets: [{
+            label: 'Quantidade Consumida',
+            data: asArray(stats?.topPecasConsumidas).map(p => p.total_qtd),
+            backgroundColor: 'rgba(245, 158, 11, 0.85)',
+            borderRadius: 6,
+            barThickness: 18,
+        }]
+    };
+
+    const dataCustoSetor = {
+        labels: asArray(stats?.custoPorSetor).map(s => s.setor),
+        datasets: [{
+            label: 'Custo Total Acumulado (R$)',
+            data: asArray(stats?.custoPorSetor).map(s => s.total_gasto),
+            backgroundColor: 'rgba(16, 185, 129, 0.85)',
+            borderRadius: 6,
+            barThickness: 18,
         }]
     };
 
@@ -314,13 +359,67 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
+                    {/* BANNER DE PERFORMANCE TÉCNICA & SLA */}
+                    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                        <div className="flex items-center gap-3 border-b md:border-b-0 md:border-r border-slate-100 pb-3 md:pb-0 pr-2">
+                            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-xl font-bold">
+                                ⏱️
+                            </div>
+                            <div>
+                                <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tempo Médio Resolução</h6>
+                                <p className="text-2xl font-black text-slate-800 tracking-tight mt-0.5">{tmaGeralTexto}</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase">Do chamado aberto à baixa</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 border-b md:border-b-0 md:border-r border-slate-100 pb-3 md:pb-0 pr-2">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl font-bold ${
+                                percentualCumprimentoSLA >= 90 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                            }`}>
+                                🎯
+                            </div>
+                            <div>
+                                <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Aderência ao SLA</h6>
+                                <p className={`text-2xl font-black tracking-tight mt-0.5 ${
+                                    percentualCumprimentoSLA >= 90 ? 'text-emerald-600' : 'text-amber-600'
+                                }`}>
+                                    {percentualCumprimentoSLA}%
+                                </p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase">
+                                    {dentroSla} de {totalConcluidasSLA} OS no prazo
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Médias por Criticidade</h6>
+                            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                <div className="bg-red-50 text-red-700 px-2 py-1 rounded-lg flex justify-between font-bold">
+                                    <span>🚨 Urgente:</span>
+                                    <span>{formatarMinutosParaHoras(slaStats?.tma_urgente_min)}</span>
+                                </div>
+                                <div className="bg-amber-50 text-amber-700 px-2 py-1 rounded-lg flex justify-between font-bold">
+                                    <span>⚠️ Alta:</span>
+                                    <span>{formatarMinutosParaHoras(slaStats?.tma_alta_min)}</span>
+                                </div>
+                                <div className="bg-blue-50 text-blue-700 px-2 py-1 rounded-lg flex justify-between font-bold">
+                                    <span>🟡 Média:</span>
+                                    <span>{formatarMinutosParaHoras(slaStats?.tma_media_min)}</span>
+                                </div>
+                                <div className="bg-slate-100 text-slate-700 px-2 py-1 rounded-lg flex justify-between font-bold">
+                                    <span>⚪ Baixa:</span>
+                                    <span>{formatarMinutosParaHoras(slaStats?.tma_baixa_min)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         
                         {/* LADO ESQUERDO: GRÁFICO TÉCNICOS & EQUIPAMENTOS FORA */}
                         <div className="xl:col-span-7 space-y-6">
                             
-                            {/* GRÁFICO DE ATENDIMENTOS POR TÉCNICO */}
                             <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
                                 <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                     <div>
@@ -329,14 +428,13 @@ const Dashboard = ({ user }) => {
                                         </h3>
                                         <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">OSs atendidas e finalizadas pela equipe</p>
                                     </div>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">{stats?.porTecnico?.length || 0} Operadores</span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">{asArray(stats?.porTecnico).length} Operadores</span>
                                 </div>
                                 <div className="h-64 w-full">
                                     <Bar data={dataTecnicos} options={optionsTecnicos} />
                                 </div>
                             </div>
 
-                            {/* PAINEL DE CONTROLE DE MANUTENÇÃO EXTERNA (ATIVOS FORA DA UNIDADE) */}
                             <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
                                 <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
                                     <h3 className="text-[11px] font-black text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
@@ -346,7 +444,7 @@ const Dashboard = ({ user }) => {
                                 </div>
                                 
                                 <div className="divide-y divide-slate-100 p-2 max-h-48 overflow-y-auto">
-                                    {stats?.recentes?.filter(r => r.status === 'Aguardando Externa').map(ext => (
+                                    {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').map(ext => (
                                         <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
                                             <div className="min-w-0 flex-1 mr-2">
                                                 <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
@@ -363,7 +461,7 @@ const Dashboard = ({ user }) => {
                                         </div>
                                     ))}
 
-                                    {(!stats?.recentes || stats.recentes.filter(r => r.status === 'Aguardando Externa').length === 0) && (
+                                    {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').length === 0 && (
                                         <p className="text-xs text-slate-400 font-bold italic text-center py-6">Nenhum equipamento externo no momento. Parque interno 100% assistido.</p>
                                     )}
                                 </div>
@@ -371,7 +469,7 @@ const Dashboard = ({ user }) => {
 
                         </div>
 
-                        {/* LADO DIREITO: FEED DE ÚLTIMAS OS COM STATUS ROXO CORRIGIDO */}
+                        {/* LADO DIREITO: FEED DE ÚLTIMAS OS COM STATUS ROXO */}
                         <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-between">
                             <div>
                                 <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
@@ -382,7 +480,7 @@ const Dashboard = ({ user }) => {
                                 </div>
 
                                 <div className="divide-y divide-slate-100 p-2 max-h-[500px] overflow-y-auto">
-                                    {stats?.recentes?.map(r => (
+                                    {asArray(stats?.recentes).map(r => (
                                         <div key={r.id} className="p-3 hover:bg-slate-50 transition-colors flex justify-between items-center rounded-xl">
                                             <div className="min-w-0 flex-1 mr-2">
                                                 <p className="text-xs font-bold text-slate-800 truncate">{r.titulo}</p>
@@ -402,7 +500,7 @@ const Dashboard = ({ user }) => {
                                         </div>
                                     ))}
 
-                                    {(!stats?.recentes || stats.recentes.length === 0) && (
+                                    {asArray(stats?.recentes).length === 0 && (
                                         <p className="text-xs text-slate-400 font-bold italic text-center py-6">Nenhum chamado registrado no período.</p>
                                     )}
                                 </div>
@@ -420,7 +518,6 @@ const Dashboard = ({ user }) => {
             {visaoAtual === 'ativos' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
-                    {/* KPIS DE DISPONIBILIDADE DO PARQUE */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                         <StatCard 
                             title="Inventário Total" 
@@ -459,10 +556,7 @@ const Dashboard = ({ user }) => {
                         />
                     </div>
 
-                    {/* GRÁFICOS: DISTRIBUIÇÃO POR SETOR E REINCIDÊNCIA */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                        
-                        {/* REINCIDÊNCIA DE FALHAS (CURVA DE QUEBRA) */}
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                 <div>
@@ -478,7 +572,6 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* DENSIDADE DE ATIVOS POR SETOR */}
                         <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                 <div>
@@ -493,10 +586,8 @@ const Dashboard = ({ user }) => {
                                 <Bar data={dataAtivosPorSetor} options={optionsTecnicos} />
                             </div>
                         </div>
-
                     </div>
 
-                    {/* BANNER DE DISPONIBILIDADE E AUDITORIA ONA */}
                     <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div className="space-y-1">
                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">
@@ -523,38 +614,240 @@ const Dashboard = ({ user }) => {
             )}
 
             {/* ========================================================= */}
-            {/* 📦 VISÃO 3: ALMOXARIFADO & ESTOQUE (ESTRUTURA BASE)       */}
+            {/* 📦 VISÃO 3: ALMOXARIFADO & ESTOQUE                        */}
             {/* ========================================================= */}
             {visaoAtual === 'estoque' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
+                    
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FinanceCard title="Gastos com Insumos Aplicados" value={formatarMoeda(stats?.gastoInsumosGerais)} subtitle="Materiais deduzidos em ordens de serviço" color="border-indigo-500" bgGradient="from-indigo-50/40" />
-                        <FinanceCard title="Reparos Prediais / Consumo" value={formatarMoeda(stats?.gastoTotalEstrutura)} subtitle="Insumos em leitos e infraestrutura" color="border-amber-500" bgGradient="from-amber-50/40" />
-                        <FinanceCard title="Valor Total do Almoxarifado" value="Calculando..." subtitle="Saldo físico retido em estoque" color="border-blue-500" bgGradient="from-blue-50/40" />
+                        <FinanceCard 
+                            title="Valor Total do Almoxarifado" 
+                            value={formatarMoeda(stats?.valorTotalAlmoxarifado)} 
+                            subtitle="Capital físico imobilizado nas prateleiras" 
+                            color="border-blue-500" 
+                            bgGradient="from-blue-50/40" 
+                        />
+                        <FinanceCard 
+                            title="Gastos com Peças em OS" 
+                            value={formatarMoeda(stats?.gastoInsumosGerais)} 
+                            subtitle="Materiais deduzidos nos chamados do período" 
+                            color="border-indigo-500" 
+                            bgGradient="from-indigo-50/40" 
+                        />
+                        <FinanceCard 
+                            title="Reparos Prediais / Consumo" 
+                            value={formatarMoeda(stats?.gastoTotalEstrutura)} 
+                            subtitle="Materiais elétricos, hidráulicos e estrutura" 
+                            color="border-amber-500" 
+                            bgGradient="from-amber-50/40" 
+                        />
                     </div>
-                    <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center space-y-2">
-                        <span className="text-3xl">📦</span>
-                        <h4 className="text-sm font-black text-slate-800 uppercase">Visão Detalhada de Estoque</h4>
-                        <p className="text-xs text-slate-400 font-medium max-w-md mx-auto">Em breve: Curva ABC de consumo, alertas de estoque mínimo e insumos sem giro nos últimos 90 dias.</p>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
+                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>📊</span> Insumos com Maior Giro / Consumo em OS
+                                    </h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Top peças mais aplicadas pela equipe técnica</p>
+                                </div>
+                                <Link to="/estoque" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Estoque ↗</Link>
+                            </div>
+                            <div className="h-72 w-full">
+                                <Bar data={dataTopPecas} options={optionsTecnicos} />
+                            </div>
+                        </div>
+
+                        <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border-2 border-amber-100 overflow-hidden flex flex-col justify-between">
+                            <div>
+                                <div className="p-4 bg-amber-50/70 border-b border-amber-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>⚠️</span> Ponto de Pedido / Estoque Crítico
+                                        </h3>
+                                        <p className="text-[9px] font-bold text-amber-700 uppercase mt-0.5">Itens atingindo o limite de segurança</p>
+                                    </div>
+                                    <span className="text-[10px] font-black text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded-md">
+                                        {asArray(stats?.itensAbaixoMinimo).length} Itens
+                                    </span>
+                                </div>
+
+                                <div className="divide-y divide-slate-100 p-2 max-h-[380px] overflow-y-auto">
+                                    {asArray(stats?.itensAbaixoMinimo).map(item => (
+                                        <div key={item.id} className="p-3 hover:bg-amber-50/30 transition-colors flex justify-between items-center rounded-xl">
+                                            <div className="min-w-0 flex-1 mr-3">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{item.nome}</p>
+                                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                                    Mínimo: <strong className="text-slate-600">{item.estoque_minimo} un</strong> • Custo: R$ {Number(item.valor_unitario || 0).toFixed(2)}
+                                                </p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-black ${
+                                                    Number(item.quantidade) <= 0 
+                                                        ? 'bg-red-100 text-red-700 border border-red-200' 
+                                                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                                }`}>
+                                                    {item.quantidade} un
+                                                </span>
+                                                <p className="text-[8px] font-black uppercase tracking-wider text-red-500 mt-1">
+                                                    {Number(item.quantidade) <= 0 ? 'Zerado' : 'Comprar'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {asArray(stats?.itensAbaixoMinimo).length === 0 && (
+                                        <div className="text-center py-10 text-slate-400">
+                                            <span className="text-2xl block mb-1">📦✅</span>
+                                            <p className="text-xs font-bold uppercase">Almoxarifado em Conformidade</p>
+                                            <p className="text-[10px]">Nenhum item abaixo do estoque mínimo de segurança.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
+                                <Link to="/estoque" className="text-[10px] font-black text-amber-700 hover:text-amber-900 uppercase">
+                                    Gerenciar Entradas e Saídas do Almoxarifado ↗
+                                </Link>
+                            </div>
+                        </div>
                     </div>
+
                 </div>
             )}
 
             {/* ========================================================= */}
-            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (ESTRUTURA BASE)           */}
+            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (EXECUTIVA)                */}
             {/* ========================================================= */}
             {visaoAtual === 'financeira' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FinanceCard title="Gastos com Insumos / Peças" value={formatarMoeda(stats?.gastoInsumosGerais)} subtitle="Materiais deduzidos do estoque" color="border-indigo-500" bgGradient="from-indigo-50/40" />
-                        <FinanceCard title="Custo de Máquinas & Equipamentos" value={formatarMoeda(stats?.gastoTotalEquipamentos)} subtitle="Patrimônio em operação no parque" color="border-emerald-500" bgGradient="from-emerald-50/40" />
-                        <FinanceCard title="Reparos Prediais & Estrutura" value={formatarMoeda(stats?.gastoTotalEstrutura)} subtitle="Manutenções em leitos e salas" color="border-purple-500" bgGradient="from-purple-50/40" />
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <FinanceCard 
+                            title="Insumos / Peças Aplicadas" 
+                            value={formatarMoeda(gastoInsumos)} 
+                            subtitle="Peças debitadas do almoxarifado em OS" 
+                            color="border-indigo-500" 
+                            bgGradient="from-indigo-50/40" 
+                        />
+                        <FinanceCard 
+                            title="Parque de Equipamentos" 
+                            value={formatarMoeda(gastoEquipamentos)} 
+                            subtitle="Intervenções em máquinas médicas" 
+                            color="border-emerald-500" 
+                            bgGradient="from-emerald-50/40" 
+                        />
+                        <FinanceCard 
+                            title="Infraestrutura & Predial" 
+                            value={formatarMoeda(gastoEstrutura)} 
+                            subtitle="Manutenções em leitos e instalações" 
+                            color="border-purple-500" 
+                            bgGradient="from-purple-50/40" 
+                        />
+                        <FinanceCard 
+                            title="Custo Operacional Total" 
+                            value={formatarMoeda(custoOperacionalTotal)} 
+                            subtitle="Soma de insumos e mão de obra no período" 
+                            color="border-slate-900" 
+                            bgGradient="from-slate-100" 
+                        />
                     </div>
-                    <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center space-y-2">
-                        <span className="text-3xl">💼</span>
-                        <h4 className="text-sm font-black text-slate-800 uppercase">Visão Executiva & Auditoria</h4>
-                        <p className="text-xs text-slate-400 font-medium max-w-md mx-auto">Em breve: Demonstrativo de custos por setor (UTI vs. Centro Cirúrgico), gastos com assistências terceirizadas e índice de reposição patrimonial.</p>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
+                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>🏥</span> Centros de Custo por Setor Hospitalar
+                                    </h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Rateio financeiro de reparos e peças aplicadas por unidade</p>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Top 6 Setores</span>
+                            </div>
+                            <div className="h-72 w-full">
+                                <Bar data={dataCustoSetor} options={optionsTecnicos} />
+                            </div>
+                        </div>
+
+                        <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border-2 border-emerald-100 overflow-hidden flex flex-col justify-between">
+                            <div>
+                                <div className="p-4 bg-emerald-50/70 border-b border-emerald-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>💼</span> Prestadores Terceirizados Homologados
+                                        </h3>
+                                        <p className="text-[9px] font-bold text-emerald-700 uppercase mt-0.5">Gastos com assistências e laudos externos</p>
+                                    </div>
+                                    <span className="text-[10px] font-black text-emerald-800 bg-emerald-200/60 px-2 py-0.5 rounded-md">
+                                        {asArray(stats?.gastosPorFornecedor).length} Empresas
+                                    </span>
+                                </div>
+
+                                <div className="divide-y divide-slate-100 p-2 max-h-[380px] overflow-y-auto">
+                                    {asArray(stats?.gastosPorFornecedor).map((f, idx) => (
+                                        <div key={idx} className="p-3 hover:bg-emerald-50/30 transition-colors flex justify-between items-center rounded-xl">
+                                            <div className="min-w-0 flex-1 mr-3">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{f.fornecedor}</p>
+                                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                                    Volume: <strong className="text-slate-600">{f.total_os} OS atendidas</strong>
+                                                </p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <span className="text-xs font-mono font-black text-emerald-700">
+                                                    {formatarMoeda(f.total_valor)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {asArray(stats?.gastosPorFornecedor).length === 0 && (
+                                        <div className="text-center py-10 text-slate-400">
+                                            <span className="text-2xl block mb-1">🤝✅</span>
+                                            <p className="text-xs font-bold uppercase">Sem Contratos Externos no Período</p>
+                                            <p className="text-[10px]">Manutenções 100% absorvidas pela equipe interna.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
+                                <Link to="/fornecedores" className="text-[10px] font-black text-emerald-700 hover:text-emerald-900 uppercase">
+                                    Ver Cadastro de Fornecedores & Contratos ↗
+                                </Link>
+                            </div>
+                        </div>
                     </div>
+
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                            <span>📅</span> Fluxo de Compromissos & Contas a Pagar
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl">
+                                <span className="text-xl font-black text-rose-700">
+                                    {stats?.boletosAtrasados || 0}
+                                </span>
+                                <p className="text-[10px] font-bold text-rose-600 uppercase mt-1">Boletos em Atraso</p>
+                            </div>
+
+                            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                                <span className="text-xl font-black text-amber-700">
+                                    {stats?.boletosVencendoHoje || 0}
+                                </span>
+                                <p className="text-[10px] font-bold text-amber-600 uppercase mt-1">Vencendo Hoje</p>
+                            </div>
+
+                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl">
+                                <span className="text-xl font-black text-blue-700">
+                                    {stats?.boletosVencendoSemana || 0}
+                                </span>
+                                <p className="text-[10px] font-bold text-blue-600 uppercase mt-1">Vencimento em 7 Dias</p>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             )}
 
