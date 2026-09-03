@@ -9,11 +9,14 @@ export default function ControleEpi() {
   // 🆕 ESTADOS DE FILTROS AVANÇADOS
   const [filtroStatus, setFiltroStatus] = useState('todos'); // 'todos', 'pendente', 'entregue'
   const [filtroNivel, setFiltroNivel] = useState('todos');   // 'todos', 'tecnico', 'usuario', etc.
+  const [filtroMotivo, setFiltroMotivo] = useState('todos'); // Novo filtro por motivo de entrega
 
   // Estados do Modal de Upload
   const [modalAberto, setModalAberto] = useState(false);
   const [usuarioId, setUsuarioId] = useState('');
   const [dataEntrega, setDataEntrega] = useState(new Date().toISOString().split('T')[0]);
+  const [motivoEntrega, setMotivoEntrega] = useState('Primeira Entrega'); // 🛠️ NOVO: Motivo NR-6
+  const [numeroCa, setNumeroCa] = useState('');                           // 🛠️ NOVO: Controle de C.A.
   const [observacao, setObservacao] = useState('');
   const [arquivo, setArquivo] = useState(null);
   const [enviando, setEnviando] = useState(false);
@@ -51,6 +54,8 @@ export default function ControleEpi() {
   const handleAbrirModal = () => {
     setUsuarioId('');
     setDataEntrega(new Date().toISOString().split('T')[0]);
+    setMotivoEntrega('Primeira Entrega');
+    setNumeroCa('');
     setObservacao('');
     setArquivo(null);
     setModalAberto(true);
@@ -67,6 +72,8 @@ export default function ControleEpi() {
     const formData = new FormData();
     formData.append('usuario_id', usuarioId);
     formData.append('data_entrega', dataEntrega);
+    formData.append('motivo_entrega', motivoEntrega); // Enviando o motivo para o backend
+    formData.append('numero_ca', numeroCa);           // Enviando o C.A. para o backend
     formData.append('observacao', observacao);
     if (arquivo) formData.append('termo_pdf', arquivo);
 
@@ -107,8 +114,7 @@ export default function ControleEpi() {
     }
   };
 
-  // 🔍 LÓGICA DE FILTRAGEM MULTICRITÉRIO
-  // Junta a lista de usuários com as fichas mais recentes encontradas para cada um
+  // 🔍 LÓGICA DE FILTRAGEM MULTICRITÉRIO APRIMORADA
   const listaConsolidada = usuarios.map(u => {
     const ultimaFicha = fichas.find(f => Number(f.usuario_id) === Number(u.id));
     return {
@@ -118,6 +124,8 @@ export default function ControleEpi() {
       usuario_nivel: u.nivel,
       ficha_id: ultimaFicha?.id,
       data_entrega: ultimaFicha?.data_entrega,
+      motivo_entrega: ultimaFicha?.motivo_entrega || 'Primeira Entrega',
+      numero_ca: ultimaFicha?.numero_ca || '---',
       observacao: ultimaFicha?.observacao,
       url_termo: ultimaFicha?.url_termo,
       status_entregue: !!ultimaFicha
@@ -129,7 +137,8 @@ export default function ControleEpi() {
     const termo = busca.toLowerCase();
     const matchBusca = item.usuario_nome?.toLowerCase().includes(termo) ||
                        item.usuario_login?.toLowerCase().includes(termo) ||
-                       item.observacao?.toLowerCase().includes(termo);
+                       item.observacao?.toLowerCase().includes(termo) ||
+                       item.numero_ca?.toLowerCase().includes(termo);
 
     // 2. Filtro de Status de Entrega
     let matchStatus = true;
@@ -140,7 +149,11 @@ export default function ControleEpi() {
     let matchNivel = true;
     if (filtroNivel !== 'todos') matchNivel = item.usuario_nivel?.toLowerCase() === filtroNivel.toLowerCase();
 
-    return matchBusca && matchStatus && matchNivel;
+    // 4. Filtro de Motivo
+    let matchMotivo = true;
+    if (filtroMotivo !== 'todos') matchMotivo = item.motivo_entrega === filtroMotivo;
+
+    return matchBusca && matchStatus && matchNivel && matchMotivo;
   });
 
   // Indicadores
@@ -182,10 +195,10 @@ export default function ControleEpi() {
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 mb-6 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hide-print">
         <div>
           <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-            <span className="bg-emerald-500 p-2 rounded-xl text-white text-sm">🥽</span> CONTROLE DE ENTREGAS DE EPI
+            <span className="bg-emerald-500 p-2 rounded-xl text-white text-sm">🥽</span> CONTROLE DE ENTREGAS DE EPI (NR-6)
           </h1>
           <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">
-            Arquivamento de Fichas e Termos Assinados (Atendimento NR-6)
+            Gestão de Fichas de Fornecimento, C.A. e Termos de Responsabilidade
           </p>
         </div>
         
@@ -194,7 +207,7 @@ export default function ControleEpi() {
             onClick={() => window.print()}
             className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-3 rounded-xl font-black shadow-md transition-all text-xs uppercase tracking-wider active:scale-95 flex items-center gap-2"
           >
-            🖨️ Imprimir Relação
+            🖨️ Imprimir Laudo / Relação
           </button>
           <button
             onClick={handleAbrirModal}
@@ -205,13 +218,13 @@ export default function ControleEpi() {
         </div>
       </div>
 
-      {/* BARRA DE FILTROS MULTICRITÉRIO (Some na impressão) */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 hide-print">
+      {/* BARRA DE FILTROS MULTICRITÉRIO APRIMORADA (Some na impressão) */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6 hide-print">
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Buscar Colaborador</label>
           <input
             type="text"
-            placeholder="🔍 Nome, login ou obs..."
+            placeholder="🔍 Nome, login, C.A. ou obs..."
             className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 focus:border-emerald-500 text-black"
             value={busca}
             onChange={e => setBusca(e.target.value)}
@@ -219,20 +232,35 @@ export default function ControleEpi() {
         </div>
 
         <div>
-          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Status da Entrega / Termo</label>
+          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Status do Termo</label>
           <select
             value={filtroStatus}
             onChange={e => setFiltroStatus(e.target.value)}
             className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 focus:border-emerald-500 text-slate-700 cursor-pointer"
           >
-            <option value="todos">⭐ Todos (Entregues e Pendentes)</option>
-            <option value="pendente">🔴 Apenas Pendentes (Sem Termo)</option>
-            <option value="entregue">🟢 Apenas Entregues (Termo OK)</option>
+            <option value="todos">⭐ Todos</option>
+            <option value="pendente">🔴 Pendentes (Sem Termo)</option>
+            <option value="entregue">🟢 Entregues (Termo OK)</option>
           </select>
         </div>
 
         <div>
-          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Perfil / Perfil de Acesso</label>
+          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Motivo da Entrega</label>
+          <select
+            value={filtroMotivo}
+            onChange={e => setFiltroMotivo(e.target.value)}
+            className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold outline-none bg-slate-50 focus:border-emerald-500 text-slate-700 cursor-pointer"
+          >
+            <option value="todos">⭐ Todos os Motivos</option>
+            <option value="Primeira Entrega">🟢 Primeira Entrega</option>
+            <option value="Substituição por Desgaste">🔄 Substituição por Desgaste</option>
+            <option value="Danos em Serviço">⚠️ Danos em Serviço</option>
+            <option value="Extravio">🚨 Extravio</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Perfil de Acesso</label>
           <select
             value={filtroNivel}
             onChange={e => setFiltroNivel(e.target.value)}
@@ -247,7 +275,7 @@ export default function ControleEpi() {
         </div>
       </div>
 
-      {/* CARDS DE MONITORAMENTO (Some na impressão) */}
+      {/* CARDS DE MONITORAMENTO */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 hide-print">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total de Colaboradores</span>
@@ -266,16 +294,16 @@ export default function ControleEpi() {
       {/* ÁREA DE CONTEÚDO IMPRESSO E EM TELA */}
       <div className="relatorio-impressao">
 
-        {/* CABEÇALHO EXCLUSIVO PARA O DOCUMENTO IMPRESSO */}
+        {/* CABEÇALHO EXCLUSIVO PARA O DOCUMENTO IMPRESSO (AUDITORIA NR-6) */}
         <div className="hidden print:block bg-white p-4 border-b-2 border-slate-900 mb-6">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-lg font-black uppercase text-slate-900">CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO</h1>
-              <p className="text-xs font-bold text-slate-600 uppercase">Engenharia Clínica — Relatório Gerencial de Controle de EPIs (NR-6)</p>
+              <p className="text-xs font-bold text-slate-600 uppercase">Engenharia Clínica & SESMT — Ficha de Controle de Fornecimento de EPI (NR-6)</p>
             </div>
             <div className="text-right text-[10px] font-mono text-slate-500">
               <div>Emissão: {new Date().toLocaleDateString('pt-BR')}</div>
-              <div>Filtro: {filtroStatus.toUpperCase()} | Cargo: {filtroNivel.toUpperCase()}</div>
+              <div>Filtro: {filtroStatus.toUpperCase()} | Motivo: {filtroMotivo.toUpperCase()}</div>
             </div>
           </div>
         </div>
@@ -287,8 +315,8 @@ export default function ControleEpi() {
               <tr>
                 <th className="p-4">Colaborador / Login</th>
                 <th className="p-4">Perfil</th>
-                <th className="p-4">Data da Entrega</th>
-                <th className="p-4">Observação / Itens Entregues</th>
+                <th className="p-4">Data / Motivo</th>
+                <th className="p-4">C.A. / Descrição dos EPIs</th>
                 <th className="p-4 text-center">Status / Termo</th>
                 <th className="p-4 text-center hide-print">Ações</th>
               </tr>
@@ -314,11 +342,19 @@ export default function ControleEpi() {
                       </span>
                     </td>
 
-                    <td className="p-4 font-mono font-bold text-slate-700">
-                      {item.data_entrega ? new Date(item.data_entrega).toLocaleDateString('pt-BR') : '---'}
+                    <td className="p-4">
+                      <div className="font-mono font-bold text-slate-700">
+                        {item.data_entrega ? new Date(item.data_entrega).toLocaleDateString('pt-BR') : '---'}
+                      </div>
+                      <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded uppercase">
+                        {item.motivo_entrega}
+                      </span>
                     </td>
 
                     <td className="p-4 text-slate-600 max-w-xs">
+                      {item.numero_ca !== '---' && (
+                        <div className="font-mono font-bold text-[10px] text-slate-500 mb-0.5">C.A.: {item.numero_ca}</div>
+                      )}
                       {item.observacao || <span className="text-slate-300 italic print:text-slate-400">Nenhum item registrado</span>}
                     </td>
 
@@ -352,6 +388,8 @@ export default function ControleEpi() {
                           onClick={() => {
                             setUsuarioId(item.usuario_id);
                             setDataEntrega(new Date().toISOString().split('T')[0]);
+                            setMotivoEntrega('Primeira Entrega');
+                            setNumeroCa('');
                             setObservacao('');
                             setArquivo(null);
                             setModalAberto(true);
@@ -380,7 +418,7 @@ export default function ControleEpi() {
 
         {/* RODAPÉ DO DOCUMENTO IMPRESSO */}
         <div className="hidden print:block mt-12 pt-4 border-t border-slate-300 text-center text-[9px] text-slate-500 uppercase font-bold tracking-wider">
-          Relatório emitido via SEC-H Engenharia Clínica — Hospital Domingos Lourenço em {new Date().toLocaleString('pt-BR')}
+          Relatório gerencial emitido para fins de conformidade com a Norma Regulamentadora nº 06 (NR-6) — SESMT / Engenharia Clínica
         </div>
 
       </div>
@@ -390,7 +428,7 @@ export default function ControleEpi() {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-emerald-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
-              <span>🥽 Registrar Entrega de EPI</span>
+              <span>🥽 Registrar Fornecimento de EPI (NR-6)</span>
               <button onClick={() => setModalAberto(false)}>✕</button>
             </div>
 
@@ -410,24 +448,52 @@ export default function ControleEpi() {
                 </select>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Data da Entrega *</label>
+                  <input
+                    type="date"
+                    required
+                    value={dataEntrega}
+                    onChange={e => setDataEntrega(e.target.value)}
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-black outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Motivo da Entrega *</label>
+                  <select
+                    value={motivoEntrega}
+                    onChange={e => setMotivoEntrega(e.target.value)}
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-black outline-none focus:border-emerald-500 cursor-pointer"
+                  >
+                    <option value="Primeira Entrega">🟢 Primeira Entrega</option>
+                    <option value="Substituição por Desgaste">🔄 Substituição por Desgaste</option>
+                    <option value="Danos em Serviço">⚠️ Danos em Serviço</option>
+                    <option value="Extravio">🚨 Extravio / Perda</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Data da Entrega *</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Número do C.A. (Certificado de Aprovação) *</label>
                 <input
-                  type="date"
+                  type="text"
                   required
-                  value={dataEntrega}
-                  onChange={e => setDataEntrega(e.target.value)}
+                  placeholder="Ex: 12345 ou M.T.E. válido"
+                  value={numeroCa}
+                  onChange={e => setNumeroCa(e.target.value)}
                   className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-black outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Observação / EPIs Entregues</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Descrição / Relação dos EPIs Entregues *</label>
                 <textarea
-                  rows={3}
+                  rows={2}
+                  required
                   value={observacao}
                   onChange={e => setObservacao(e.target.value)}
-                  placeholder="Ex: Óculos de proteção, Bota tam 40, 2x Luvas nitrílicas..."
+                  placeholder="Ex: 1x Óculos de Proteção Incolor, 1x Par de Bota de Couro Bico de Aço..."
                   className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 text-black outline-none focus:border-emerald-500"
                 />
               </div>
