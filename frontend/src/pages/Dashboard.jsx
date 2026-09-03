@@ -115,7 +115,7 @@ const Dashboard = ({ user }) => {
     );
     const mttrCalculado = stats?.indicadoresQualidade?.[0]?.mttr_medio_horas ?? '0.0';
 
-    // Métricas de SLA & TMA (Tempo Médio de Atendimento)
+    // Métricas de SLA & TMA
     const slaStats = stats?.metricasSLA?.[0];
     const totalConcluidasSLA = Number(slaStats?.total_concluidas || 0);
     const dentroSla = Number(slaStats?.dentro_sla_total || 0);
@@ -127,6 +127,13 @@ const Dashboard = ({ user }) => {
     const gastoEquipamentos = Number(stats?.gastoTotalEquipamentos || 0);
     const gastoEstrutura = Number(stats?.gastoTotalEstrutura || 0);
     const custoOperacionalTotal = gastoInsumos + gastoEquipamentos + gastoEstrutura;
+
+    // Métricas de Compras & Saving
+    const savingStats = stats?.savingCompras?.[0] || { total_estimado: 0, total_real: 0, total_pedidos_baixados: 0 };
+    const estimadoTotalCompras = Number(savingStats.total_estimado || 0);
+    const realTotalCompras = Number(savingStats.total_real || 0);
+    const diferencaSaving = estimadoTotalCompras - realTotalCompras; // Positivo = Economia (Saving), Negativo = Estouro
+    const percentualSaving = estimadoTotalCompras > 0 ? ((diferencaSaving / estimadoTotalCompras) * 100).toFixed(1) : '0.0';
 
     // Dados Gráficos protegidos
     const dataEquipamentos = {
@@ -413,10 +420,8 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA (LAYOUT HOMOGÊNEO) */}
+                    {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                        
-                        {/* LADO ESQUERDO: GRÁFICO TÉCNICOS */}
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[460px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                 <div>
@@ -432,7 +437,6 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* LADO DIREITO: FEED DE ÚLTIMAS OS COM STATUS ROXO */}
                         <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-between min-h-[460px]">
                             <div>
                                 <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
@@ -481,7 +485,6 @@ const Dashboard = ({ user }) => {
             {visaoAtual === 'ativos' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
-                    {/* KPIS DE PARQUE */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                         <StatCard 
                             title="Inventário Total" 
@@ -520,7 +523,6 @@ const Dashboard = ({ user }) => {
                         />
                     </div>
 
-                    {/* GRÁFICOS: QUEBRA & DENSIDADE */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
@@ -553,7 +555,6 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* 🚚 ATIVOS EM MANUTENÇÃO EXTERNA / ASSISTÊNCIA TÉCNICA (REALOCADO PARA CÁ) */}
                     <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
                         <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
                             <div>
@@ -595,7 +596,6 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* BANNER DE AUDITORIA ONA */}
                     <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div className="space-y-1">
                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">
@@ -732,6 +732,35 @@ const Dashboard = ({ user }) => {
             {visaoAtual === 'financeira' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
+                    {/* 🛒 NOVO PAINEL EXECUTIVO DE SUPRIMENTOS & SAVING */}
+                    <div className="bg-gradient-to-r from-emerald-900 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                        <div className="space-y-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 bg-emerald-800/60 px-2.5 py-0.5 rounded-full inline-block">
+                                📊 Suprimentos & Negociação
+                            </span>
+                            <h4 className="text-base font-black uppercase tracking-tight">Indicador de Saving de Compras (Real vs. Orçado)</h4>
+                            <p className="text-xs text-slate-300 font-medium max-w-xl">
+                                Comparativo contábil entre o valor estimado nas requisições da engenharia e o valor faturado nas notas fiscais de baixa.
+                            </p>
+                        </div>
+                        <div className="flex gap-4 sm:gap-6 text-center shrink-0 w-full md:w-auto justify-between md:justify-end">
+                            <div className="bg-white/10 px-4 py-3 rounded-2xl backdrop-blur-xs">
+                                <span className="text-xs text-slate-300 font-bold block">Valor Estimado</span>
+                                <span className="text-lg font-black text-white font-mono">{formatarMoeda(estimadoTotalCompras)}</span>
+                            </div>
+                            <div className="bg-white/10 px-4 py-3 rounded-2xl backdrop-blur-xs">
+                                <span className="text-xs text-slate-300 font-bold block">Valor Real Pago</span>
+                                <span className="text-lg font-black text-emerald-400 font-mono">{formatarMoeda(realTotalCompras)}</span>
+                            </div>
+                            <div className="bg-emerald-500/20 border border-emerald-500/40 px-4 py-3 rounded-2xl backdrop-blur-xs">
+                                <span className="text-xs text-emerald-300 font-bold block">Saving / Economia</span>
+                                <span className={`text-lg font-black font-mono ${diferencaSaving >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {diferencaSaving >= 0 ? `+${formatarMoeda(diferencaSaving)}` : formatarMoeda(diferencaSaving)} ({percentualSaving}%)
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <FinanceCard 
                             title="Insumos / Peças Aplicadas" 

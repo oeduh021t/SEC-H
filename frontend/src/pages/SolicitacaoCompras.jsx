@@ -26,6 +26,15 @@ const SolicitacaoCompras = () => {
   const [urgencia, setUrgencia] = useState('Média');
   const [motivo, setMotivo] = useState('');
   
+  // Modal Opcional de Baixa / Fechamento de Compra
+  const [modalBaixaAberta, setModalBaixaAberta] = useState(false);
+  const [dadosBaixa, setDadosBaixa] = useState({
+    id: null,
+    status: '',
+    valor_real: '',
+    nota_fiscal_numero: ''
+  });
+  
   // Lista dinâmica de itens
   const [itens, setItens] = useState([{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
 
@@ -181,7 +190,23 @@ const SolicitacaoCompras = () => {
     }
   };
 
-  const handleAlterarStatus = async (id, novoStatus) => {
+  const handleAlterarStatus = (id, novoStatus) => {
+    if (novoStatus === 'Comprado' || novoStatus === 'Entregue') {
+      const solicitacaoAtual = solicitacoes.find(s => s.id === id);
+      setDadosBaixa({
+        id,
+        status: novoStatus,
+        valor_real: solicitacaoAtual?.valor_total_calculado || '',
+        nota_fiscal_numero: solicitacaoAtual?.nota_fiscal_numero || ''
+      });
+      setModalBaixaAberta(true);
+      return;
+    }
+
+    executarAlteracaoStatus(id, novoStatus, {});
+  };
+
+  const executarAlteracaoStatus = async (id, status, extras = {}) => {
     const user = obterUsuario();
     try {
       const res = await fetch(`${API_URL}/solicitacoes-compra/${id}/status`, {
@@ -190,16 +215,18 @@ const SolicitacaoCompras = () => {
           'Content-Type': 'application/json',
           'x-usuario-nivel': user?.nivel || ''
         },
-        body: JSON.stringify({ status: novoStatus, usuario_id: user?.id })
+        body: JSON.stringify({ status, usuario_id: user?.id, ...extras })
       });
 
       if (res.ok) {
+        setModalBaixaAberta(false);
         carregarDados();
       } else {
         alert("Não foi possível alterar o status.");
       }
     } catch (err) {
       console.error(err);
+      alert("Erro de conexão.");
     }
   };
 
@@ -653,6 +680,67 @@ const SolicitacaoCompras = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL OPCIONAL DE VÍNCULO DE NF E VALOR REAL NA BAIXA */}
+      {modalBaixaAberta && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+            <div className="bg-emerald-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+              <span>📦 Fechamento de Pedido (#{dadosBaixa.id})</span>
+              <button onClick={() => setModalBaixaAberta(false)} className="text-lg">✕</button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-500 font-medium">
+                Você está alterando o status para <strong className="text-slate-800 uppercase">{dadosBaixa.status}</strong>. Se já possuir a Nota Fiscal, informe os dados abaixo para amarrar contábil e financeiramente (opcional):
+              </p>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Número da Nota Fiscal (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 14590"
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-emerald-500"
+                  value={dadosBaixa.nota_fiscal_numero}
+                  onChange={e => setDadosBaixa({ ...dadosBaixa, nota_fiscal_numero: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor Real Pago (R$) (Opcional)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-emerald-500 font-mono"
+                  value={dadosBaixa.valor_real}
+                  onChange={e => setDadosBaixa({ ...dadosBaixa, valor_real: e.target.value })}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalBaixaAberta(false)}
+                  className="flex-1 bg-slate-100 py-3 rounded-2xl font-black text-xs uppercase text-slate-600 hover:bg-slate-200 transition-all"
+                >
+                  Pular / Apenas Mudar Status
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executarAlteracaoStatus(dadosBaixa.id, dadosBaixa.status, {
+                    nota_fiscal_numero: dadosBaixa.nota_fiscal_numero || null,
+                    valor_real: dadosBaixa.valor_real || null
+                  })}
+                  className="flex-[2] bg-emerald-600 text-white py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all"
+                >
+                  Salvar & Concluir
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

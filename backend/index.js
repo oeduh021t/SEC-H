@@ -319,6 +319,35 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 WHERE equipamento_id IS NULL${filtroChamadosData}
             ) as total`,
 
+        // 👇 ADAPTADO ÀS SUAS TABELAS REAIS (solicitacoes_compra_itens e notas_fiscais)
+        savingCompras: `
+            SELECT 
+                (
+                    SELECT IFNULL(SUM(si.quantidade * si.valor_estimado), 0)
+                    FROM solicitacoes_compra sc2
+                    JOIN solicitacoes_compra_itens si ON si.solicitacao_id = sc2.id
+                    WHERE sc2.status IN ('Comprado', 'Entregue')
+                    ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'sc2.data_solicitacao') : ''}
+                ) AS total_estimado,
+                (
+                    SELECT IFNULL(SUM(nf.valor_total), 0)
+                    FROM (
+                        SELECT DISTINCT sc3.id, sc3.nota_fiscal_id, sc3.data_solicitacao
+                        FROM solicitacoes_compra sc3
+                        WHERE sc3.status IN ('Comprado', 'Entregue') AND sc3.nota_fiscal_id IS NOT NULL
+                    ) sc_nf
+                    JOIN notas_fiscais nf ON nf.id = sc_nf.nota_fiscal_id
+                    WHERE 1=1
+                    ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'sc_nf.data_solicitacao') : ''}
+                ) AS total_real,
+                (
+                    SELECT COUNT(id)
+                    FROM solicitacoes_compra sc4
+                    WHERE sc4.status IN ('Comprado', 'Entregue')
+                    ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'sc4.data_solicitacao') : ''}
+                ) AS total_pedidos_baixados
+        `,
+
         boletosVencendoHoje: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'`,
         boletosAtrasados: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'`,
         boletosVencendoSemana: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND status_pagamento != 'Pago'`
@@ -341,7 +370,8 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 'gastosPorFornecedor',
                 'gastoInsumosGerais',
                 'gastoTotalEquipamentos',
-                'gastoTotalEstrutura'
+                'gastoTotalEstrutura',
+                'savingCompras'
             ].includes(key);
 
             const queryParams = (requerData && paramsData.length > 0) 
@@ -363,11 +393,11 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                // Apenas métricas de número único/somatório escalar:
                 if (['gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana', 'valorTotalAlmoxarifado'].includes(r.key)) {
                     stats[r.key] = r.data[0]?.total || 0;
+                } else if (r.key === 'savingCompras') {
+                    stats[r.key] = r.data; 
                 } else {
-                    // Listas e arrays (custoPorSetor, gastosPorFornecedor, metricasSLA, etc.) permanecem intactos:
                     stats[r.key] = r.data; 
                 }
             });
@@ -4619,6 +4649,7 @@ app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordena
         });
     });
 });
+
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
