@@ -156,7 +156,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         chamadosAndamento: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'${filtroChamadosData}`,
         chamadosExternos: `SELECT COUNT(*) as total FROM chamados WHERE (status = 'Aguardando Externa' OR em_manutencao_externa = 1)${filtroChamadosData}`,
         chamadosConcluidos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'${filtroChamadosData}`,
-        
+            
         preventivasAtrasadas: `
             SELECT COUNT(*) as total FROM equipamentos
             WHERE periodicidade_preventiva > 0
@@ -203,6 +203,18 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             ORDER BY total DESC
             LIMIT 6`,
 
+        indicadoresQualidade: `
+            SELECT 
+                IFNULL(ROUND(AVG(TIMESTAMPDIFF(MINUTE, data_abertura, data_conclusao) / 60), 1), 0) AS mttr_medio_horas,
+                (
+                    SELECT ROUND(((SUM(CASE WHEN status IN ('Ativo', 'Reserva') THEN 1 ELSE 0 END) / COUNT(*)) * 100), 1)
+                    FROM equipamentos
+                ) AS uptime_parque_taxa
+            FROM chamados
+            WHERE status = 'Concluído' 
+              AND data_conclusao IS NOT NULL
+              ${filtroChamadosData}`,
+
         gastoInsumosGerais: `
             SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
             FROM chamados_itens ci
@@ -244,7 +256,20 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
 
     const promises = Object.keys(queries).map(key => {
         return new Promise((resolve) => {
-            const requerData = ['chamadosAbertos', 'chamadosAndamento', 'chamadosExternos', 'chamadosConcluidos', 'porEquipamento', 'porTecnico', 'recentes', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura'].includes(key);
+            const requerData = [
+                'chamadosAbertos',
+                'chamadosAndamento',
+                'chamadosExternos',
+                'chamadosConcluidos',
+                'porEquipamento',
+                'porTecnico',
+                'recentes',
+                'indicadoresQualidade',
+                'gastoInsumosGerais',
+                'gastoTotalEquipamentos',
+                'gastoTotalEstrutura'
+            ].includes(key);
+
             const queryParams = (requerData && paramsData.length > 0) 
                 ? (key === 'gastoTotalEquipamentos' || key === 'gastoTotalEstrutura' ? [...paramsData, ...paramsData] : paramsData) 
                 : [];

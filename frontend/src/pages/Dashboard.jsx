@@ -98,6 +98,14 @@ const Dashboard = ({ user }) => {
     const totalGeralChamados = totalAbertos + totalAndamento + totalExternos + totalConcluidos;
     const taxaResolucao = totalGeralChamados > 0 ? Math.round((totalConcluidos / totalGeralChamados) * 100) : 100;
 
+    // Métricas de Auditoria ONA / Parque Tecnológico
+    const uptimeCalculado = stats?.indicadoresQualidade?.[0]?.uptime_parque_taxa ?? (
+        stats?.statusAtivos?.[0]?.total > 0
+            ? (((Number(stats?.statusAtivos?.[0]?.ativos || 0) + Number(stats?.statusAtivos?.[0]?.reserva || 0)) / Number(stats?.statusAtivos?.[0]?.total)) * 100).toFixed(1)
+            : '100.0'
+    );
+    const mttrCalculado = stats?.indicadoresQualidade?.[0]?.mttr_medio_horas ?? '0.0';
+
     // Dados Gráficos - Visão Técnica e Ativos
     const dataEquipamentos = {
         labels: stats?.porEquipamento?.map(e => e.nome) || [],
@@ -501,11 +509,11 @@ const Dashboard = ({ user }) => {
                         </div>
                         <div className="flex gap-6 text-center shrink-0">
                             <div>
-                                <span className="text-2xl font-black text-emerald-400">98.2%</span>
+                                <span className="text-2xl font-black text-emerald-400">{uptimeCalculado}%</span>
                                 <p className="text-[9px] font-bold text-slate-300 uppercase">Uptime Geral</p>
                             </div>
                             <div className="border-l border-indigo-800 pl-6">
-                                <span className="text-2xl font-black text-cyan-400">14.2h</span>
+                                <span className="text-2xl font-black text-cyan-400">{mttrCalculado}h</span>
                                 <p className="text-[9px] font-bold text-slate-300 uppercase">MTTR Médio</p>
                             </div>
                         </div>
