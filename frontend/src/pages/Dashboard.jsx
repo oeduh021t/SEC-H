@@ -89,7 +89,6 @@ const Dashboard = ({ user }) => {
         );
     }
 
-    // Funções utilitárias seguras
     const asArray = (val) => (Array.isArray(val) ? val : []);
     
     const formatarMinutosParaHoras = (minutosTotais) => {
@@ -129,7 +128,7 @@ const Dashboard = ({ user }) => {
     const gastoEstrutura = Number(stats?.gastoTotalEstrutura || 0);
     const custoOperacionalTotal = gastoInsumos + gastoEquipamentos + gastoEstrutura;
 
-    // Dados Gráficos protegidos com asArray
+    // Dados Gráficos protegidos
     const dataEquipamentos = {
         labels: asArray(stats?.porEquipamento).map(e => e.nome),
         datasets: [{
@@ -414,63 +413,27 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA */}
+                    {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA (LAYOUT HOMOGÊNEO) */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         
-                        {/* LADO ESQUERDO: GRÁFICO TÉCNICOS & EQUIPAMENTOS FORA */}
-                        <div className="xl:col-span-7 space-y-6">
-                            
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
-                                <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
-                                    <div>
-                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                            <span>👨‍🔧</span> Carga Operacional por Técnico
-                                        </h3>
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">OSs atendidas e finalizadas pela equipe</p>
-                                    </div>
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">{asArray(stats?.porTecnico).length} Operadores</span>
-                                </div>
-                                <div className="h-64 w-full">
-                                    <Bar data={dataTecnicos} options={optionsTecnicos} />
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
-                                <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
-                                    <h3 className="text-[11px] font-black text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
-                                        <span>🚚</span> Ativos em Manutenção Externa ({totalExternos})
+                        {/* LADO ESQUERDO: GRÁFICO TÉCNICOS */}
+                        <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[460px]">
+                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>👨‍🔧</span> Carga Operacional por Técnico
                                     </h3>
-                                    <Link to="/chamados" className="text-[10px] font-black text-purple-700 hover:underline uppercase">Filtrar na Lista ↗</Link>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">OSs atendidas e finalizadas pela equipe</p>
                                 </div>
-                                
-                                <div className="divide-y divide-slate-100 p-2 max-h-48 overflow-y-auto">
-                                    {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').map(ext => (
-                                        <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
-                                            <div className="min-w-0 flex-1 mr-2">
-                                                <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
-                                                <p className="text-[10px] text-purple-600 font-bold mt-0.5">
-                                                    OS #{ext.id} • Fornecedor: {ext.fornecedor_nome || 'Terceirizado Homologado'}
-                                                </p>
-                                            </div>
-                                            <Link 
-                                                to={`/chamados/${ext.id}/tratar`}
-                                                className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-purple-700 transition-colors"
-                                            >
-                                                Dar Entrada
-                                            </Link>
-                                        </div>
-                                    ))}
-
-                                    {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').length === 0 && (
-                                        <p className="text-xs text-slate-400 font-bold italic text-center py-6">Nenhum equipamento externo no momento. Parque interno 100% assistido.</p>
-                                    )}
-                                </div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">{asArray(stats?.porTecnico).length} Operadores</span>
                             </div>
-
+                            <div className="h-80 w-full">
+                                <Bar data={dataTecnicos} options={optionsTecnicos} />
+                            </div>
                         </div>
 
                         {/* LADO DIREITO: FEED DE ÚLTIMAS OS COM STATUS ROXO */}
-                        <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-between">
+                        <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-between min-h-[460px]">
                             <div>
                                 <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
                                     <h3 className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
@@ -479,7 +442,7 @@ const Dashboard = ({ user }) => {
                                     <Link to="/chamados" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Todas ↗</Link>
                                 </div>
 
-                                <div className="divide-y divide-slate-100 p-2 max-h-[500px] overflow-y-auto">
+                                <div className="divide-y divide-slate-100 p-2 max-h-[390px] overflow-y-auto">
                                     {asArray(stats?.recentes).map(r => (
                                         <div key={r.id} className="p-3 hover:bg-slate-50 transition-colors flex justify-between items-center rounded-xl">
                                             <div className="min-w-0 flex-1 mr-2">
@@ -518,6 +481,7 @@ const Dashboard = ({ user }) => {
             {visaoAtual === 'ativos' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
+                    {/* KPIS DE PARQUE */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                         <StatCard 
                             title="Inventário Total" 
@@ -556,6 +520,7 @@ const Dashboard = ({ user }) => {
                         />
                     </div>
 
+                    {/* GRÁFICOS: QUEBRA & DENSIDADE */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
@@ -588,6 +553,49 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
+                    {/* 🚚 ATIVOS EM MANUTENÇÃO EXTERNA / ASSISTÊNCIA TÉCNICA (REALOCADO PARA CÁ) */}
+                    <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
+                        <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-[11px] font-black text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
+                                    <span>🚚</span> Ativos sob Custódia Externa / Assistência Autorizada ({totalExternos})
+                                </h3>
+                                <p className="text-[9px] font-bold text-purple-700 uppercase mt-0.5">
+                                    Equipamentos fora da unidade hospitalar aguardando laudo técnico ou retorno
+                                </p>
+                            </div>
+                            <Link to="/chamados" className="text-[10px] font-black text-purple-700 hover:underline uppercase">
+                                Filtrar na Lista ↗
+                            </Link>
+                        </div>
+                        
+                        <div className="divide-y divide-slate-100 p-2 max-h-56 overflow-y-auto">
+                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').map(ext => (
+                                <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
+                                    <div className="min-w-0 flex-1 mr-2">
+                                        <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
+                                        <p className="text-[10px] text-purple-600 font-bold mt-0.5">
+                                            OS #{ext.id} • Fornecedor: {ext.fornecedor_nome || 'Terceirizado Homologado'}
+                                        </p>
+                                    </div>
+                                    <Link 
+                                        to={`/chamados/${ext.id}/tratar`}
+                                        className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-purple-700 transition-colors shadow-xs"
+                                    >
+                                        Dar Entrada
+                                    </Link>
+                                </div>
+                            ))}
+
+                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').length === 0 && (
+                                <p className="text-xs text-slate-400 font-bold italic text-center py-6">
+                                    Nenhum equipamento externo no momento. Parque interno 100% assistido na unidade.
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* BANNER DE AUDITORIA ONA */}
                     <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div className="space-y-1">
                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">

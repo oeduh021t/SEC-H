@@ -31,13 +31,16 @@ const Chamados = ({ user: userProp }) => {
 
   const [fotoAbertura, setFotoAbertura] = useState(null);
 
+  // Formulário de Abertura Completo
   const [form, setForm] = useState({
     setor_id: '',
     equipamento_id: '',
     titulo: '',
     descricao_problema: '',
     prioridade: 'Média',
-    categoria: 'Manutenção'
+    categoria: 'Engenharia Clínica',
+    impacto: 'Normal',
+    ramal_contato: ''
   });
 
   const [formEdicao, setFormEdicao] = useState({
@@ -47,7 +50,7 @@ const Chamados = ({ user: userProp }) => {
     titulo: '',
     descricao_problema: '',
     prioridade: 'Média',
-    categoria: 'Manutenção'
+    categoria: 'Engenharia Clínica'
   });
 
   const [textoObs, setTextoObs] = useState('');
@@ -157,7 +160,7 @@ const Chamados = ({ user: userProp }) => {
       titulo: c.titulo || '',
       descricao_problema: c.descricao_problema || '',
       prioridade: c.prioridade || 'Média',
-      categoria: c.categoria || 'Manutenção'
+      categoria: c.categoria || 'Engenharia Clínica'
     });
     setModalEditarAberta(true);
   };
@@ -200,7 +203,17 @@ const Chamados = ({ user: userProp }) => {
     formData.append('setor_id', form.setor_id);
     formData.append('equipamento_id', form.equipamento_id);
     formData.append('titulo', form.titulo);
-    formData.append('descricao_problema', form.descricao_problema);
+    
+    // Concatena impacto e ramal de forma limpa na descrição do problema para retenção integral
+    let relatoFormatado = form.descricao_problema;
+    if (form.impacto === 'Paralisado' || form.ramal_contato) {
+      const prefixos = [];
+      if (form.impacto === 'Paralisado') prefixos.push('🚨 [LEITO/SETOR PARALISADO]');
+      if (form.ramal_contato) prefixos.push(`📞 [CONTATO: ${form.ramal_contato}]`);
+      relatoFormatado = `${prefixos.join(' ')}\n\n${form.descricao_problema}`;
+    }
+
+    formData.append('descricao_problema', relatoFormatado);
     formData.append('prioridade', form.prioridade);
     formData.append('categoria', form.categoria);
     formData.append('usuario_id', user?.id || '');
@@ -215,7 +228,16 @@ const Chamados = ({ user: userProp }) => {
     }).then(() => {
       setModalAberta(false);
       setFotoAbertura(null);
-      setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' });
+      setForm({
+        setor_id: '',
+        equipamento_id: '',
+        titulo: '',
+        descricao_problema: '',
+        prioridade: 'Média',
+        categoria: 'Engenharia Clínica',
+        impacto: 'Normal',
+        ramal_contato: ''
+      });
       carregarDados();
     }).catch(err => console.error("Erro ao abrir chamado:", err));
   };
@@ -312,7 +334,6 @@ const Chamados = ({ user: userProp }) => {
     }).catch(err => console.error("Erro ao salvar observação:", err));
   };
 
-  // Funções visuais de suporte aos cards e status
   const isManutencaoExterna = (c) => {
     return c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
   };
@@ -343,7 +364,6 @@ const Chamados = ({ user: userProp }) => {
     return 'bg-emerald-600 text-white shadow-sm shadow-emerald-200';
   };
 
-  // Totalizadores para as abas
   const totalExternos = chamados.filter(c => isManutencaoExterna(c)).length;
   const totalAbertos = chamados.filter(c => c.status === 'Aberto').length;
   const totalAtendimento = chamados.filter(c => c.status === 'Em Atendimento').length;
@@ -405,7 +425,16 @@ const Chamados = ({ user: userProp }) => {
 
           <button 
             onClick={() => { 
-              setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); 
+              setForm({
+                setor_id: '',
+                equipamento_id: '',
+                titulo: '',
+                descricao_problema: '',
+                prioridade: 'Média',
+                categoria: 'Engenharia Clínica',
+                impacto: 'Normal',
+                ramal_contato: ''
+              }); 
               setModalAberta(true); 
             }} 
             className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all active:scale-95"
@@ -415,7 +444,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       </div>
 
-      {/* 🧭 BARRA DE ABAS / FILTROS VISUAIS RÁPIDOS */}
+      {/* BARRA DE ABAS / FILTROS */}
       <div className="flex flex-wrap items-center gap-2 mb-6 bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
         <button
           type="button"
@@ -453,7 +482,6 @@ const Chamados = ({ user: userProp }) => {
           <span>🟡</span> Em Atendimento ({totalAtendimento})
         </button>
 
-        {/* 🚚 NOVA ABA ROXA DE MANUTENÇÃO EXTERNA */}
         <button
           type="button"
           onClick={() => setFiltroStatus('Aguardando Externa')}
@@ -479,7 +507,7 @@ const Chamados = ({ user: userProp }) => {
         </button>
       </div>
 
-      {/* GRID DE CARDS COLORIDOS COM FUNDO SUAVE */}
+      {/* GRID DE CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {filtrados.map(c => {
           const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
@@ -508,6 +536,12 @@ const Chamados = ({ user: userProp }) => {
                         <span>📍 {c.setor_nome || 'Setor Geral'}</span>
                         <span>•</span>
                         <span>📅 {c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '---'}</span>
+                        {c.categoria && (
+                          <>
+                            <span>•</span>
+                            <span className="text-indigo-600 font-black">🏷️ {c.categoria}</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1056,10 +1090,10 @@ const Chamados = ({ user: userProp }) => {
                     value={formEdicao.prioridade} 
                     onChange={e => setFormEdicao({ ...formEdicao, prioridade: e.target.value })}
                   >
-                    <option value="Baixa">Baixa</option>
-                    <option value="Média">Média</option>
-                    <option value="Alta">Alta</option>
-                    <option value="Urgente">Urgente</option>
+                    <option value="Baixa">Baixa (48h)</option>
+                    <option value="Média">Média (24h)</option>
+                    <option value="Alta">Alta (6h)</option>
+                    <option value="Urgente">Urgente (2h)</option>
                   </select>
                 </div>
               </div>
@@ -1130,56 +1164,190 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* MODAL: NOVO CHAMADO */}
+      {/* 📣 MODAL COMPLETO: NOVA SOLICITAÇÃO (ENGENHARIA & MANUTENÇÃO HOSPITALAR) */}
       {modalAberta && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
-          <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
-            <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">
-              <span>📣 Nova Solicitação</span>
-              <button type="button" onClick={() => { setModalAberta(false); setFotoAbertura(null); }} className="text-xl text-white">✕</button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 text-dark">
+          <form onSubmit={enviarChamado} className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 border border-slate-100">
+            <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-base sm:text-lg uppercase tracking-tight">
+              <span className="flex items-center gap-2">
+                <span>📣</span> Nova Ordem de Serviço / Chamado
+              </span>
+              <button 
+                type="button" 
+                onClick={() => { 
+                  setModalAberta(false); 
+                  setFotoAbertura(null); 
+                }} 
+                className="text-xl text-white hover:opacity-80"
+              >
+                ✕
+              </button>
             </div>
-            <div className="p-6 sm:p-8 space-y-4 max-h-[85vh] overflow-y-auto">
+
+            <div className="p-5 sm:p-7 space-y-4 max-h-[85vh] overflow-y-auto">
               
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Setor Solicitante</label>
-                <select 
-                  required 
-                  className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-amber-400" 
-                  value={form.setor_id} 
-                  onChange={e => setForm({...form, setor_id: e.target.value, equipamento_id: ''})}
-                >
-                  <option value="">-- Selecione o Setor --</option>
-                  {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                </select>
+              {/* LINHA 1: SETOR SOLICITANTE & RAMAL */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                    Setor Solicitante *
+                  </label>
+                  <select 
+                    required 
+                    className="w-full border-2 border-slate-100 p-2.5 rounded-xl font-bold bg-white text-xs outline-none focus:border-amber-500 text-slate-700" 
+                    value={form.setor_id} 
+                    onChange={e => setForm({...form, setor_id: e.target.value, equipamento_id: ''})}
+                  >
+                    <option value="">-- Selecione o Setor --</option>
+                    {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                    Ramal / Contato
+                  </label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Ramal 204" 
+                    className="w-full border-2 border-slate-100 p-2.5 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500" 
+                    value={form.ramal_contato} 
+                    onChange={e => setForm({...form, ramal_contato: e.target.value})} 
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Equipamento (Opcional)</label>
-                <select 
-                  className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-amber-400" 
-                  value={form.equipamento_id} 
-                  onChange={e => setForm({...form, equipamento_id: e.target.value})}
-                >
-                  <option value="">Sem equipamento específico</option>
-                  {equipamentos.filter(eq => String(eq.setor_id) === String(form.setor_id)).map(eq => (
-                    <option key={eq.id} value={eq.id}>[{eq.patrimonio || 'S/P'}] {eq.nome}</option>
-                  ))}
-                </select>
+              {/* LINHA 2: EQUIPAMENTO & ESPECIALIDADE / CATEGORIA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                    Equipamento do Setor (Opcional)
+                  </label>
+                  
+                  {/* Lista estrita filtrada pelo setor selecionado */}
+                  {(() => {
+                    const equipamentosDoSetor = equipamentos.filter(
+                      eq => form.setor_id && String(eq.setor_id) === String(form.setor_id)
+                    );
+
+                    return (
+                      <select 
+                        disabled={!form.setor_id}
+                        className={`w-full border-2 p-2.5 rounded-xl font-bold text-xs outline-none transition-colors ${
+                          !form.setor_id 
+                            ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' 
+                            : 'bg-white border-slate-100 focus:border-amber-500 text-slate-700'
+                        }`}
+                        value={form.equipamento_id} 
+                        onChange={e => setForm({...form, equipamento_id: e.target.value})}
+                      >
+                        {!form.setor_id ? (
+                          <option value="">-- Primeiro selecione o setor --</option>
+                        ) : (
+                          <>
+                            <option value="">Sem equipamento específico (Predial / Estrutura)</option>
+                            {equipamentosDoSetor.map(eq => (
+                              <option key={eq.id} value={eq.id}>
+                                [{eq.patrimonio || 'S/P'}] {eq.nome}
+                              </option>
+                            ))}
+                            {equipamentosDoSetor.length === 0 && (
+                              <option value="" disabled>Nenhum ativo alocado neste setor</option>
+                            )}
+                          </>
+                        )}
+                      </select>
+                    );
+                  })()}
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                    Especialidade Técnica *
+                  </label>
+                  <select 
+                    required
+                    className="w-full border-2 border-slate-100 p-2.5 rounded-xl font-bold bg-white text-xs outline-none focus:border-amber-500 text-slate-700" 
+                    value={form.categoria} 
+                    onChange={e => setForm({...form, categoria: e.target.value})}
+                  >
+                    <option value="Engenharia Clínica">🤖 Engenharia Clínica / Médico</option>
+                    <option value="Refrigeração">❄️ Ar-condicionado / Refrigeração</option>
+                    <option value="Elétrica">⚡ Instalações Elétricas</option>
+                    <option value="Hidráulica">💧 Hidráulica & Gases Medicinais</option>
+                    <option value="Predial">🏢 Predial / Marcenaria / Civil</option>
+                    <option value="TI & Redes">💻 TI / Redes / Computadores</option>
+                  </select>
+                </div>
               </div>
 
+              {/* LINHA 3: CRITICIDADE / SLA & IMPACTO OPERACIONAL */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/70">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                    Criticidade do Chamado (SLA)
+                  </label>
+                  <select 
+                    required
+                    className="w-full border-2 border-white p-2 rounded-xl font-black text-xs outline-none focus:border-amber-500 shadow-xs" 
+                    value={form.prioridade} 
+                    onChange={e => setForm({...form, prioridade: e.target.value})}
+                  >
+                    <option value="Urgente">🚨 Urgente (Meta: 2h)</option>
+                    <option value="Alta">⚠️ Alta (Meta: 6h)</option>
+                    <option value="Média">🟡 Média (Meta: 24h)</option>
+                    <option value="Baixa">⚪ Baixa (Meta: 48h)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
+                    Impacto no Atendimento
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, impacto: 'Normal' })}
+                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                        form.impacto === 'Normal' 
+                          ? 'bg-white text-slate-800 shadow-xs border border-slate-200' 
+                          : 'text-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      Operação Normal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, impacto: 'Paralisado' })}
+                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                        form.impacto === 'Paralisado' 
+                          ? 'bg-rose-500 text-white shadow-xs' 
+                          : 'text-rose-500 hover:bg-rose-50'
+                      }`}
+                    >
+                      Leito / Setor Parado 🚨
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* LINHA 4: ASSUNTO */}
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assunto do Chamado</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                  Assunto Resumido da Ocorrência *
+                </label>
                 <input 
                   type="text" 
-                  placeholder="Ex: Vazamento no ar-condicionado, Computador não liga..." 
-                  className="w-full border-2 border-slate-100 p-3 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-amber-400" 
+                  placeholder="Ex: Monitor multiparâmetro não liga, Ar-condicionado pingando..." 
+                  className="w-full border-2 border-slate-100 p-2.5 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500" 
                   required 
                   value={form.titulo} 
                   onChange={e => setForm({...form, titulo: e.target.value})} 
                 />
               </div>
 
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2.5">
+              {/* LINHA 5: FOTO OU EVIDÊNCIA */}
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   Foto ou Evidência do Problema
                 </label>
@@ -1212,7 +1380,7 @@ const Chamados = ({ user: userProp }) => {
                   <button
                     type="button"
                     onClick={() => fileInputCameraRef.current?.click()}
-                    className="flex items-center justify-center gap-2 p-3 bg-white border-2 border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-sm active:scale-95 transition-all"
+                    className="flex items-center justify-center gap-2 p-2.5 bg-white border border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-xs active:scale-95 transition-all"
                   >
                     <span className="text-base">📸</span> Tirar Foto
                   </button>
@@ -1220,21 +1388,21 @@ const Chamados = ({ user: userProp }) => {
                   <button
                     type="button"
                     onClick={() => fileInputGaleriaRef.current?.click()}
-                    className="flex items-center justify-center gap-2 p-3 bg-white border-2 border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-sm active:scale-95 transition-all"
+                    className="flex items-center justify-center gap-2 p-2.5 bg-white border border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-xs active:scale-95 transition-all"
                   >
                     <span className="text-base">📁</span> Galeria/Arquivo
                   </button>
                 </div>
 
                 {fotoAbertura && (
-                  <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-amber-200">
+                  <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-amber-200">
                     <div className="flex items-center gap-2 overflow-hidden">
                       <img 
                         src={URL.createObjectURL(fotoAbertura)} 
                         alt="Preview" 
-                        className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" 
+                        className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0" 
                       />
-                      <span className="text-xs font-bold text-slate-700 truncate max-w-[180px]">
+                      <span className="text-xs font-bold text-slate-700 truncate max-w-[200px]">
                         {fotoAbertura.name}
                       </span>
                     </div>
@@ -1249,28 +1417,35 @@ const Chamados = ({ user: userProp }) => {
                 )}
               </div>
 
+              {/* LINHA 6: DESCRIÇÃO DETALHADA */}
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Descrição do Problema</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
+                  Relato Descritivo do Problema *
+                </label>
                 <textarea 
-                  placeholder="Descreva com detalhes o que aconteceu..." 
-                  className="w-full border-2 border-slate-100 p-3 rounded-xl h-24 text-sm font-medium text-slate-700 outline-none focus:border-amber-400 resize-none" 
+                  placeholder="Descreva detalhadamente a falha, alarmes apresentados ou orientações de acesso ao local..." 
+                  className="w-full border-2 border-slate-100 p-3 rounded-xl h-24 text-xs font-medium text-slate-700 outline-none focus:border-amber-500 resize-none" 
                   required 
                   value={form.descricao_problema} 
                   onChange={e => setForm({...form, descricao_problema: e.target.value})} 
                 />
               </div>
 
+              {/* AÇÕES */}
               <div className="flex gap-3 pt-2">
                 <button 
                   type="button" 
-                  onClick={() => { setModalAberta(false); setFotoAbertura(null); }} 
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-500 py-3.5 rounded-2xl font-black text-xs uppercase transition-all"
+                  onClick={() => { 
+                    setModalAberta(false); 
+                    setFotoAbertura(null); 
+                  }} 
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-500 py-3 rounded-2xl font-black text-xs uppercase transition-all"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit" 
-                  className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-black text-sm shadow-lg shadow-amber-100 uppercase tracking-wider transition-all active:scale-[0.98]"
+                  className="flex-[2] bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-md shadow-amber-100 transition-all active:scale-[0.98]"
                 >
                   Abrir Chamado
                 </button>
