@@ -151,9 +151,12 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
 
     const queries = {
         totalEquipamentos: "SELECT COUNT(*) as total FROM equipamentos",
+        
         chamadosAbertos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Aberto'${filtroChamadosData}`,
         chamadosAndamento: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'${filtroChamadosData}`,
+        chamadosExternos: `SELECT COUNT(*) as total FROM chamados WHERE (status = 'Aguardando Externa' OR em_manutencao_externa = 1)${filtroChamadosData}`,
         chamadosConcluidos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'${filtroChamadosData}`,
+        
         preventivasAtrasadas: `
             SELECT COUNT(*) as total FROM equipamentos
             WHERE periodicidade_preventiva > 0
@@ -166,7 +169,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             FROM chamados c 
             JOIN equipamentos e ON c.equipamento_id = e.id
             ${filtroAberturaData}
-            GROUP BY e.id 
+            GROUP BY e.id, e.nome
             ORDER BY total DESC 
             LIMIT 5`,
 
@@ -176,7 +179,29 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             ${filtroChamadosData}
             GROUP BY tecnico_responsavel ORDER BY total DESC`,
 
-        recentes: `SELECT id, titulo, status, data_abertura FROM chamados${filtroAberturaData} ORDER BY id DESC LIMIT 6`,
+        recentes: `
+            SELECT c.id, c.titulo, c.status, c.data_abertura, f.nome_fantasia as fornecedor_nome
+            FROM chamados c
+            LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+            ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'c.data_abertura') : ''}
+            ORDER BY c.id DESC LIMIT 8`,
+
+        statusAtivos: `
+            SELECT 
+                SUM(CASE WHEN status = 'Ativo' THEN 1 ELSE 0 END) AS ativos,
+                SUM(CASE WHEN status = 'Em Manutenção' OR em_manutencao_externa = 1 THEN 1 ELSE 0 END) AS manutencao,
+                SUM(CASE WHEN status = 'Reserva' THEN 1 ELSE 0 END) AS reserva,
+                SUM(CASE WHEN status = 'Inoperante' THEN 1 ELSE 0 END) AS inoperantes,
+                COUNT(*) AS total
+            FROM equipamentos`,
+
+        ativosPorSetor: `
+            SELECT s.nome AS setor, COUNT(e.id) AS total
+            FROM setores s
+            INNER JOIN equipamentos e ON e.setor_id = s.id
+            GROUP BY s.id, s.nome
+            ORDER BY total DESC
+            LIMIT 6`,
 
         gastoInsumosGerais: `
             SELECT IFNULL(SUM(ci.quantidade * ci.valor_unitario_na_epoca), 0) as total 
@@ -219,8 +244,10 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
 
     const promises = Object.keys(queries).map(key => {
         return new Promise((resolve) => {
-            const requerData = ['chamadosAbertos', 'chamadosAndamento', 'chamadosConcluidos', 'porEquipamento', 'porTecnico', 'recentes', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura'].includes(key);
-            const queryParams = (requerData && paramsData.length > 0) ? (key === 'gastoTotalEquipamentos' ? [...paramsData, ...paramsData] : paramsData) : [];
+            const requerData = ['chamadosAbertos', 'chamadosAndamento', 'chamadosExternos', 'chamadosConcluidos', 'porEquipamento', 'porTecnico', 'recentes', 'gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura'].includes(key);
+            const queryParams = (requerData && paramsData.length > 0) 
+                ? (key === 'gastoTotalEquipamentos' || key === 'gastoTotalEstrutura' ? [...paramsData, ...paramsData] : paramsData) 
+                : [];
 
             db.query(queries[key], queryParams, (err, results) => {
                 if (err) {
@@ -4357,7 +4384,140 @@ app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador'
     });
 });
 
+// 🚚 1. ENVIAR PARA MANUTENÇÃO EXTERNA A PARTIR DA OS
+app.post('/api/chamados/:id/saida-externa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { fornecedor_id, tecnico_nome, descricao_motivo, data_previsao_retorno } = req.body;
 
+    if (!fornecedor_id || !descricao_motivo) {
+        return res.status(400).json({ error: "Fornecedor e motivo da saída são obrigatórios." });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // Busca o equipamento atrelado ao chamado
+        conn.query("SELECT id, equipamento_id FROM chamados WHERE id = ?", [id], (errCh, resCh) => {
+            if (errCh || resCh.length === 0) {
+                return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Chamado não encontrado." }); });
+            }
+
+            const equipamentoId = resCh[0].equipamento_id;
+
+            // 1. Atualiza a OS para 'Aguardando Externa'
+            const qUpChamado = `
+                UPDATE chamados 
+                SET status = 'Aguardando Externa',
+                    em_manutencao_externa = 1,
+                    fornecedor_externo_id = ?,
+                    data_saida_externa = NOW(),
+                    data_previsao_retorno_externa = ?,
+                    motivo_saida_externa = ?
+                WHERE id = ?
+            `;
+
+            conn.query(qUpChamado, [Number(fornecedor_id), data_previsao_retorno || null, descricao_motivo, id], (errUpCh) => {
+                if (errUpCh) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpCh.message }); });
+
+                // 2. Se houver equipamento atrelado, atualiza status para 'Em Manutenção'
+                const updateEquip = equipamentoId ? 
+                    new Promise((resolve, reject) => {
+                        conn.query("UPDATE equipamentos SET status = 'Em Manutenção' WHERE id = ?", [equipamentoId], (errEq) => {
+                            if (errEq) return reject(errEq);
+                            resolve();
+                        });
+                    }) : Promise.resolve();
+
+                updateEquip.then(() => {
+                    // 3. Registra log na linha do tempo do chamado
+                    const textoLog = `[🚚 ENVIADO PARA MANUTENÇÃO EXTERNA] Fornecedor ID: ${fornecedor_id}. Motivo: ${descricao_motivo}`;
+                    const qHist = `
+                        INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
+                        VALUES (?, ?, ?, 'Aguardando Externa', NOW())
+                    `;
+
+                    conn.query(qHist, [id, tecnico_nome || 'Técnico', textoLog], (errHist) => {
+                        if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                        conn.commit((errCommit) => {
+                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                            conn.release();
+                            res.json({ message: "Equipamento enviado para assistência externa via OS com sucesso!" });
+                        });
+                    });
+                }).catch(errEqCatch => {
+                    conn.rollback(() => { conn.release(); res.status(500).json({ error: errEqCatch.message }); });
+                });
+            });
+        });
+    });
+});
+
+// 🛬 2. REGISTRAR RETORNO DA MANUTENÇÃO EXTERNA NA OS
+app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('laudo_tecnico'), (req, res) => {
+    const { id } = req.params;
+    const { numero_nf, valor_servico, observacao, tecnico_nome } = req.body;
+    const url_laudo = req.file ? `/uploads/${req.file.filename}` : null;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        conn.query("SELECT id, equipamento_id FROM chamados WHERE id = ?", [id], (errCh, resCh) => {
+            if (errCh || resCh.length === 0) {
+                return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Chamado não encontrado." }); });
+            }
+
+            const equipamentoId = resCh[0].equipamento_id;
+            const valorTotalServico = Number(valor_servico || 0);
+
+            // 1. Atualiza dados na OS e altera o status para 'Em Andamento' (ou encerra, caso prefira)
+            const qUpChamado = `
+                UPDATE chamados 
+                SET status = 'Em Andamento',
+                    em_manutencao_externa = 0,
+                    numero_nf_retorno = ?,
+                    valor_servico_externo = ?,
+                    laudo_tecnico_externo = IFNULL(?, laudo_tecnico_externo),
+                    custo_total = IFNULL(custo_total, 0) + ?
+                WHERE id = ?
+            `;
+
+            conn.query(qUpChamado, [numero_nf || null, valorTotalServico, url_laudo, valorTotalServico, id], (errUpCh) => {
+                if (errUpCh) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpCh.message }); });
+
+                // 2. Reativa o equipamento para 'Ativo'
+                const reativarEquip = equipamentoId ? 
+                    new Promise((resolve, reject) => {
+                        conn.query("UPDATE equipamentos SET status = 'Ativo' WHERE id = ?", [equipamentoId], (errEq) => {
+                            if (errEq) return reject(errEq);
+                            resolve();
+                        });
+                    }) : Promise.resolve();
+
+                reativarEquip.then(() => {
+                    // 3. Adiciona histórico com o retorno e custo
+                    const textoLog = `[🛬 RETORNO DE MANUTENÇÃO EXTERNA] NF: ${numero_nf || 'S/N'} | Custo: R$ ${valorTotalServico.toFixed(2)}. Parecer: ${observacao || 'Equipamento testado e reativado.'}`;
+                    const qHist = `
+                        INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, url_anexo, data_registro)
+                        VALUES (?, ?, ?, 'Em Andamento', ?, NOW())
+                    `;
+
+                    conn.query(qHist, [id, tecnico_nome || 'Técnico', textoLog, url_laudo], (errHist) => {
+                        if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                        conn.commit((errCommit) => {
+                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                            conn.release();
+                            res.json({ message: "Retorno externo registrado e equipamento reativado no chamado!" });
+                        });
+                    });
+                }).catch(errEqCatch => {
+                    conn.rollback(() => { conn.release(); res.status(500).json({ error: errEqCatch.message }); });
+                });
+            });
+        });
+    });
+});
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

@@ -23,7 +23,7 @@ const Chamados = ({ user: userProp }) => {
   const [modalAberta, setModalAberta] = useState(false);
   const [modalObsAberta, setModalObsAberta] = useState(false);
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
-  const [modalEditarAberta, setModalEditarAberta] = useState(false); // ✏️ Novo estado de Edição
+  const [modalEditarAberta, setModalEditarAberta] = useState(false);
 
   const [filtroStatus, setFiltroStatus] = useState('Todos');
   const [busca, setBusca] = useState('');
@@ -40,7 +40,6 @@ const Chamados = ({ user: userProp }) => {
     categoria: 'Manutenção'
   });
 
-  // Estado do formulário de edição
   const [formEdicao, setFormEdicao] = useState({
     id: null,
     setor_id: '',
@@ -313,6 +312,43 @@ const Chamados = ({ user: userProp }) => {
     }).catch(err => console.error("Erro ao salvar observação:", err));
   };
 
+  // Funções visuais de suporte aos cards e status
+  const isManutencaoExterna = (c) => {
+    return c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
+  };
+
+  const obterEstiloCard = (c) => {
+    if (isManutencaoExterna(c)) {
+      return 'bg-purple-50/60 border-purple-200 border-l-purple-600 shadow-purple-50';
+    }
+    if (c.status === 'Aberto') {
+      return 'bg-red-50/40 border-red-200 border-l-red-500 shadow-red-50';
+    }
+    if (c.status === 'Em Atendimento') {
+      return 'bg-amber-50/40 border-amber-200 border-l-amber-500 shadow-amber-50';
+    }
+    return 'bg-emerald-50/30 border-emerald-200 border-l-emerald-500 shadow-emerald-50';
+  };
+
+  const obterBadgeStatus = (c) => {
+    if (isManutencaoExterna(c)) {
+      return 'bg-purple-600 text-white shadow-sm shadow-purple-200';
+    }
+    if (c.status === 'Aberto') {
+      return 'bg-red-500 text-white shadow-sm shadow-red-200';
+    }
+    if (c.status === 'Em Atendimento') {
+      return 'bg-amber-500 text-white shadow-sm shadow-amber-200';
+    }
+    return 'bg-emerald-600 text-white shadow-sm shadow-emerald-200';
+  };
+
+  // Totalizadores para as abas
+  const totalExternos = chamados.filter(c => isManutencaoExterna(c)).length;
+  const totalAbertos = chamados.filter(c => c.status === 'Aberto').length;
+  const totalAtendimento = chamados.filter(c => c.status === 'Em Atendimento').length;
+  const totalConcluidos = chamados.filter(c => c.status === 'Concluído').length;
+
   const filtrados = chamados.filter(c => {
     const isUsuarioComum = user?.nivel?.toLowerCase() === 'usuario';
     if (isUsuarioComum) {
@@ -320,34 +356,38 @@ const Chamados = ({ user: userProp }) => {
       if (!pertenceAoUsuario) return false;
     }
 
-    const bateStatus = filtroStatus === 'Todos' || c.status === filtroStatus;
+    let bateStatus = false;
+    if (filtroStatus === 'Todos') {
+      bateStatus = true;
+    } else if (filtroStatus === 'Aguardando Externa') {
+      bateStatus = isManutencaoExterna(c);
+    } else {
+      bateStatus = c.status === filtroStatus;
+    }
+
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.id?.toString().includes(busca) ||
-                      c.setor_nome?.toLowerCase().includes(busca.toLowerCase());
+                      c.setor_nome?.toLowerCase().includes(busca.toLowerCase()) ||
+                      c.equip_nome?.toLowerCase().includes(busca.toLowerCase()) ||
+                      c.equip_pat?.toLowerCase().includes(busca.toLowerCase());
+
     return bateStatus && bateBusca;
   });
 
   return (
     <div className="p-4 bg-slate-50 min-h-screen font-sans text-dark">
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 bg-white p-6 rounded-2xl shadow-sm">
+      {/* HEADER PRINCIPAL */}
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <h1 className="text-3xl font-black text-slate-800 flex items-center gap-3">
           <span className="bg-amber-100 p-2 rounded-xl text-amber-600">🎫</span>
           CHAMADOS / OS
         </h1>
         <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
-          <select className="border-2 border-slate-100 rounded-xl p-2.5 text-sm font-bold bg-white outline-none" onChange={(e) => setFiltroStatus(e.target.value)}>
-            <option value="Todos">Todos Status</option>
-            <option value="Aberto">🔴 Abertos</option>
-            <option value="Em Atendimento">🟡 Em Atendimento</option>
-            <option value="Concluído">🟢 Concluídos</option>
-          </select>
-          
           <input 
             type="text" 
-            placeholder="Buscar..." 
+            placeholder="Buscar por OS, ativo, setor..." 
             value={busca}
-            className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800" 
+            className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800 focus:border-blue-500 transition-colors" 
             onChange={(e) => setBusca(e.target.value)} 
           />
 
@@ -356,7 +396,7 @@ const Chamados = ({ user: userProp }) => {
               to="/painel-chamados"
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center gap-2"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center gap-2 active:scale-95"
               title="Abrir Painel de TV em tempo real"
             >
               <span>📺</span> PAINEL TV
@@ -368,40 +408,103 @@ const Chamados = ({ user: userProp }) => {
               setForm({ setor_id: '', equipamento_id: '', titulo: '', descricao_problema: '', prioridade: 'Média', categoria: 'Manutenção' }); 
               setModalAberta(true); 
             }} 
-            className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all"
+            className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all active:scale-95"
           >
             + NOVO CHAMADO
           </button>
         </div>
       </div>
 
-      {/* GRID DE CARDS */}
+      {/* 🧭 BARRA DE ABAS / FILTROS VISUAIS RÁPIDOS */}
+      <div className="flex flex-wrap items-center gap-2 mb-6 bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
+        <button
+          type="button"
+          onClick={() => setFiltroStatus('Todos')}
+          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+            filtroStatus === 'Todos'
+              ? 'bg-slate-900 text-white shadow-md shadow-slate-200'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <span>📋</span> Todos ({chamados.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFiltroStatus('Aberto')}
+          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+            filtroStatus === 'Aberto'
+              ? 'bg-red-500 text-white shadow-md shadow-red-100'
+              : 'bg-red-50 text-red-700 hover:bg-red-100'
+          }`}
+        >
+          <span>🔴</span> Abertos ({totalAbertos})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFiltroStatus('Em Atendimento')}
+          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+            filtroStatus === 'Em Atendimento'
+              ? 'bg-amber-500 text-white shadow-md shadow-amber-100'
+              : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+          }`}
+        >
+          <span>🟡</span> Em Atendimento ({totalAtendimento})
+        </button>
+
+        {/* 🚚 NOVA ABA ROXA DE MANUTENÇÃO EXTERNA */}
+        <button
+          type="button"
+          onClick={() => setFiltroStatus('Aguardando Externa')}
+          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+            filtroStatus === 'Aguardando Externa'
+              ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
+              : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/50'
+          }`}
+        >
+          <span>🚚</span> Manutenção Externa ({totalExternos})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFiltroStatus('Concluído')}
+          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+            filtroStatus === 'Concluído'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100'
+              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+          }`}
+        >
+          <span>🟢</span> Concluídos ({totalConcluidos})
+        </button>
+      </div>
+
+      {/* GRID DE CARDS COLORIDOS COM FUNDO SUAVE */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {filtrados.map(c => {
           const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
           const isConcluido = c.status === 'Concluído';
           const isAdmin = user?.nivel?.toLowerCase() === 'admin';
+          const emExterna = isManutencaoExterna(c);
 
           return (
             <div 
               key={c.id} 
-              className={`bg-white rounded-3xl shadow-sm border border-slate-100 border-l-[10px] flex flex-col justify-between overflow-hidden transition-all hover:shadow-xl hover:-translate-y-0.5 ${
-                c.status === 'Aberto' ? 'border-l-red-500' : c.status === 'Em Atendimento' ? 'border-l-amber-400' : 'border-l-green-500'
-              }`}
+              className={`rounded-3xl border-2 border-l-[10px] flex flex-col justify-between overflow-hidden transition-all hover:shadow-xl hover:-translate-y-0.5 ${obterEstiloCard(c)}`}
             >
               <div className="p-5 flex-1 flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="bg-slate-100 text-slate-700 font-black text-[10px] px-2 py-0.5 rounded-md">
+                        <span className="bg-white/80 text-slate-800 font-black text-[10px] px-2 py-0.5 rounded-md border border-slate-200/60 shadow-xs">
                           #{c.id}
                         </span>
                         <h3 className="font-black text-slate-800 text-base uppercase truncate" title={c.titulo}>
                           {c.titulo}
                         </h3>
                       </div>
-                      <div className="text-[11px] text-slate-400 font-bold uppercase mt-0.5 flex items-center gap-2">
+                      <div className="text-[11px] text-slate-500 font-bold uppercase mt-0.5 flex items-center gap-2">
                         <span>📍 {c.setor_nome || 'Setor Geral'}</span>
                         <span>•</span>
                         <span>📅 {c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '---'}</span>
@@ -409,10 +512,8 @@ const Chamados = ({ user: userProp }) => {
                     </div>
 
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black text-white uppercase tracking-wider ${
-                        c.status === 'Aberto' ? 'bg-red-500' : c.status === 'Em Atendimento' ? 'bg-amber-500' : 'bg-green-600'
-                      }`}>
-                        {c.status}
+                      <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${obterBadgeStatus(c)}`}>
+                        {emExterna ? '🚚 Aguardando Externa' : c.status}
                       </span>
                       <span className={`text-[9px] font-black uppercase ${
                         c.prioridade === 'Urgente' ? 'text-red-600' : c.prioridade === 'Alta' ? 'text-amber-600' : 'text-slate-500'
@@ -422,7 +523,7 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 mb-3 flex justify-between items-center text-[10px]">
+                  <div className="bg-white/70 p-2 rounded-xl border border-slate-200/50 mb-3 flex justify-between items-center text-[10px]">
                     <div className="flex items-center gap-1.5 font-black text-slate-600">
                       <span>⏱️ SLA:</span>
                       <span className={sla.atrasado ? 'text-red-600' : 'text-slate-800'}>{sla.texto}</span>
@@ -433,15 +534,17 @@ const Chamados = ({ user: userProp }) => {
                   </div>
 
                   {c.equip_nome && (
-                    <div className="mb-3 p-2 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center gap-2 text-xs">
-                      <span className="text-blue-600">🤖</span>
+                    <div className="mb-3 p-2 bg-white/80 border border-slate-200/60 rounded-xl flex items-center gap-2 text-xs">
+                      <span className={emExterna ? 'text-purple-600' : 'text-blue-600'}>
+                        {emExterna ? '🚚' : '🤖'}
+                      </span>
                       <span className="font-bold text-slate-700 truncate">
                         [{c.equip_pat || 'S/P'}] {c.equip_nome}
                       </span>
                     </div>
                   )}
 
-                  <div className="flex gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-100 mb-3">
+                  <div className="flex gap-3 bg-white/80 p-3 rounded-2xl border border-slate-200/60 mb-3">
                     {c.foto_abertura ? (
                       <img 
                         src={`${BASE_URL}${c.foto_abertura}`} 
@@ -478,20 +581,19 @@ const Chamados = ({ user: userProp }) => {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 mt-2">
-                  <div className="text-[10px] text-slate-400 font-bold">
-                    👤 Por: <strong className="text-slate-600">{c.solicitante_nome || 'Usuário'}</strong>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200/60 mt-2">
+                  <div className="text-[10px] text-slate-500 font-bold">
+                    👤 Por: <strong className="text-slate-700">{c.solicitante_nome || 'Usuário'}</strong>
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
                     <button 
                       onClick={() => abrirDetalhes(c.id)} 
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase transition-all"
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[10px] font-black uppercase transition-all shadow-xs"
                     >
                       Detalhes
                     </button>
 
-                    {/* ✏️ BOTÃO DE EDITAR (ADMIN / COORDENADOR) */}
                     {isAdminOuCoord && !isConcluido && (
                       <button
                         onClick={() => abrirModalEdicao(c)}
@@ -505,9 +607,13 @@ const Chamados = ({ user: userProp }) => {
                     {c.status !== 'Concluído' && user?.nivel?.toLowerCase() !== 'usuario' && (
                       <button
                         onClick={() => navigate(`/chamados/${c.id}/tratar`)}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase shadow-sm transition-all active:scale-95"
+                        className={`px-3 py-1.5 text-white rounded-xl text-[10px] font-black uppercase shadow-sm transition-all active:scale-95 ${
+                          emExterna 
+                            ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-100' 
+                            : 'bg-blue-600 hover:bg-blue-700 shadow-blue-100'
+                        }`}
                       >
-                        Atender
+                        {emExterna ? '🚚 Atender / Externa' : 'Atender'}
                       </button>
                     )}
 
@@ -526,7 +632,7 @@ const Chamados = ({ user: userProp }) => {
                         to={`/chamados/${c.id}/imprimir`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-950 text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center"
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-950 text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center shadow-xs"
                       >
                         🖨️
                       </Link>
@@ -554,11 +660,12 @@ const Chamados = ({ user: userProp }) => {
       {modalDetalhesAberta && chamadoSelecionado && (() => {
         const slaModal = calcularTempoSLA(chamadoSelecionado.data_abertura, chamadoSelecionado.data_conclusao, chamadoSelecionado.prioridade);
         const custoPecas = chamadoSelecionado.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0) || 0;
-        const custoServico = Number(chamadoSelecionado.custo_servico || 0);
+        const custoServico = Number(chamadoSelecionado.custo_servico || 0) + Number(chamadoSelecionado.valor_servico_externo || 0);
         const custoTotalOS = custoServico + custoPecas;
         
         const isAberto = chamadoSelecionado.status === 'Aberto';
         const isEmAtendimento = chamadoSelecionado.status === 'Em Atendimento';
+        const isExternaModal = isManutencaoExterna(chamadoSelecionado);
         const isConcluido = chamadoSelecionado.status === 'Concluído';
 
         return (
@@ -599,6 +706,13 @@ const Chamados = ({ user: userProp }) => {
                   <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isEmAtendimento ? 'text-amber-400' : isConcluido ? 'text-slate-400' : 'text-slate-500'}`}>
                     <span className={`w-2 h-2 rounded-full ${isEmAtendimento ? 'bg-amber-400 animate-ping' : isConcluido ? 'bg-amber-500/50' : 'bg-slate-600'}`}></span>
                     <span>Em Atendimento</span>
+                  </div>
+
+                  <span className="text-slate-600 text-xs">➔</span>
+
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isExternaModal ? 'text-purple-400' : 'text-slate-500'}`}>
+                    <span className={`w-2 h-2 rounded-full ${isExternaModal ? 'bg-purple-500 animate-ping' : 'bg-slate-600'}`}></span>
+                    <span>Externa</span>
                   </div>
 
                   <span className="text-slate-600 text-xs">➔</span>
@@ -793,7 +907,7 @@ const Chamados = ({ user: userProp }) => {
                       <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
                         {chamadoSelecionado.historico?.map((h, i) => (
                           <div key={i} className="flex gap-3 text-xs">
-                            <div className="w-2 rounded-full bg-blue-500 shrink-0 mt-1"></div>
+                            <div className={`w-2 rounded-full shrink-0 mt-1 ${h.texto_historico?.includes('MANUTENÇÃO EXTERNA') ? 'bg-purple-600' : 'bg-blue-500'}`}></div>
                             <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
                               <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-400 mb-1">
                                 <span className="text-slate-700 font-black">{h.tecnico_nome}</span>
@@ -849,7 +963,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
 
                 <div className="flex gap-2">
-                  {/* ✏️ BOTÃO EDITAR NO DETALHES */}
                   {isAdminOuCoord && !isConcluido && (
                     <button 
                       onClick={() => abrirModalEdicao(chamadoSelecionado)}
@@ -896,7 +1009,7 @@ const Chamados = ({ user: userProp }) => {
         );
       })()}
 
-      {/* ✏️ MODAL: EDITAR CHAMADO (SETOR, ATIVO, RELATO, PRIORIDADE) */}
+      {/* MODAL: EDITAR CHAMADO */}
       {modalEditarAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
           <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
@@ -1017,7 +1130,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* MODAL: NOVO CHAMADO COM ACESSO DIRETO À CÂMERA */}
+      {/* MODAL: NOVO CHAMADO */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
           <form onSubmit={enviarChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
@@ -1066,13 +1179,11 @@ const Chamados = ({ user: userProp }) => {
                 />
               </div>
 
-              {/* SELEÇÃO DE EVIDÊNCIA / FOTO (CÂMERA OU ARQUIVO) */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2.5">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   Foto ou Evidência do Problema
                 </label>
 
-                {/* Inputs de arquivo ocultos */}
                 <input 
                   ref={fileInputCameraRef}
                   type="file" 
@@ -1097,7 +1208,6 @@ const Chamados = ({ user: userProp }) => {
                   }} 
                 />
 
-                {/* Botões para acionamento direto no mobile */}
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -1116,7 +1226,6 @@ const Chamados = ({ user: userProp }) => {
                   </button>
                 </div>
 
-                {/* Preview e remoção da foto selecionada */}
                 {fotoAbertura && (
                   <div className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-amber-200">
                     <div className="flex items-center gap-2 overflow-hidden">

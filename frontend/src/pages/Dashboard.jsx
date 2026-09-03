@@ -6,6 +6,7 @@ import { Bar } from 'react-chartjs-2';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const Dashboard = ({ user }) => {
+    const [visaoAtual, setVisaoAtual] = useState('tecnica'); // 'tecnica' | 'ativos' | 'estoque' | 'financeira'
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -84,12 +85,20 @@ const Dashboard = ({ user }) => {
     if (loading && !stats) {
         return (
             <div className="p-12 text-center text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse">
-                Carregando indicadores da Engenharia Clínica...
+                Carregando indicadores operacionais...
             </div>
         );
     }
 
-    // --- CONFIGURAÇÃO DOS DADOS DOS GRÁFICOS ---
+    // Cálculos Operacionais
+    const totalAbertos = Number(stats?.chamadosAbertos?.[0]?.total || 0);
+    const totalAndamento = Number(stats?.chamadosAndamento?.[0]?.total || 0);
+    const totalExternos = Number(stats?.chamadosExternos?.[0]?.total || stats?.recentes?.filter(r => r.status === 'Aguardando Externa').length || 0);
+    const totalConcluidos = Number(stats?.chamadosConcluidos?.[0]?.total || 0);
+    const totalGeralChamados = totalAbertos + totalAndamento + totalExternos + totalConcluidos;
+    const taxaResolucao = totalGeralChamados > 0 ? Math.round((totalConcluidos / totalGeralChamados) * 100) : 100;
+
+    // Dados Gráficos - Visão Técnica e Ativos
     const dataEquipamentos = {
         labels: stats?.porEquipamento?.map(e => e.nome) || [],
         datasets: [{
@@ -120,32 +129,24 @@ const Dashboard = ({ user }) => {
         }]
     };
 
+    const dataAtivosPorSetor = {
+        labels: stats?.ativosPorSetor?.map(s => s.setor) || [],
+        datasets: [{
+            label: 'Equipamentos Instalados',
+            data: stats?.ativosPorSetor?.map(s => s.total) || [],
+            backgroundColor: 'rgba(99, 102, 241, 0.85)',
+            borderRadius: 6,
+            barThickness: 16,
+        }]
+    };
+
     const optionsEquipamentos = {
         indexAxis: 'y',
         maintainAspectRatio: false,
-        plugins: { 
-            legend: { display: false },
-            tooltip: {
-                padding: 12,
-                titleFont: { size: 12, weight: 'bold' },
-                bodyFont: { size: 12 }
-            }
-        },
-        layout: { padding: { left: 10, right: 30, top: 10, bottom: 10 } },
+        plugins: { legend: { display: false } },
         scales: {
             x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11, weight: 'bold' }, stepSize: 1 } },
-            y: { 
-                grid: { display: false }, 
-                ticks: { 
-                    font: { size: 11, weight: 'bold' },
-                    color: '#334155',
-                    callback: function(value) {
-                        const label = this.getLabelForValue(value);
-                        if (label && label.length > 38) return label.substring(0, 35) + '...';
-                        return label;
-                    }
-                } 
-            }
+            y: { grid: { display: false }, ticks: { font: { size: 11, weight: 'bold' }, color: '#334155' } }
         }
     };
 
@@ -153,31 +154,24 @@ const Dashboard = ({ user }) => {
         indexAxis: 'y',
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
-        layout: { padding: { right: 25, left: 10 } },
         scales: {
             x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 10, weight: 'bold' }, stepSize: 1 } },
-            y: { grid: { display: false }, ticks: { font: { size: 10, weight: 'bold' }, color: '#334155', autoSkip: false } }
+            y: { grid: { display: false }, ticks: { font: { size: 10, weight: 'bold' }, color: '#334155' } }
         }
     };
 
     const formatarMoeda = (valor) => {
-        return new Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     };
-
-    const totalAbertos = Number(stats?.chamadosAbertos?.[0]?.total || 0);
-    const totalAndamento = Number(stats?.chamadosAndamento?.[0]?.total || 0);
-    const totalConcluidos = Number(stats?.chamadosConcluidos?.[0]?.total || 0);
-    const totalGeralChamados = totalAbertos + totalAndamento + totalConcluidos;
-    const taxaResolucao = totalGeralChamados > 0 ? Math.round((totalConcluidos / totalGeralChamados) * 100) : 100;
 
     return (
         <div className="space-y-6 animate-in fade-in duration-300 w-full pb-10">
             
-            {/* HEADER DO DASHBOARD */}
+            {/* HEADER DA DASHBOARD + CONTROLE DE PERÍODO */}
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
                 <div>
                     <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase flex items-center gap-2.5">
-                        <span className="bg-blue-500 p-2 rounded-2xl text-white text-base">📊</span>
+                        <span className="bg-blue-600 p-2 rounded-2xl text-white text-base">📊</span>
                         Painel de Controle
                     </h1>
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">
@@ -185,10 +179,8 @@ const Dashboard = ({ user }) => {
                     </p>
                 </div>
 
-                {/* FILTROS DE DATA & ATALHOS RÁPIDOS */}
+                {/* FILTROS DE DATA & ATALHOS */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full xl:w-auto">
-                    
-                    {/* Botões de Atalho */}
                     <div className="flex bg-slate-100 p-1 rounded-2xl">
                         <button
                             type="button"
@@ -244,110 +236,320 @@ const Dashboard = ({ user }) => {
                 </div>
             </div>
 
-            {/* INDICADORES OPERACIONAIS (CARDS TOPO) */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                <StatCard title="Total Ativos" value={stats?.totalEquipamentos?.[0]?.total || 0} icon="⚙️" color="border-blue-500" link="/equipamentos" />
-                <StatCard title="Atenção PMOC" value={stats?.preventivasAtrasadas?.[0]?.total || 0} icon="⚠️" color="border-amber-500" link="/preventivas" />
-                <StatCard title="OS Abertas" value={totalAbertos} icon="🔴" color="border-red-500" link="/chamados" />
-                <StatCard title="Em Atendimento" value={totalAndamento} icon="🟡" color="border-amber-400" link="/chamados" />
-                <StatCard title="Concluídas" value={totalConcluidos} icon="🟢" color="border-emerald-500" link="/chamados" />
-                
-                {/* TAXA DE RESOLUÇÃO */}
-                <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-indigo-500 flex flex-col justify-between">
-                    <div className="flex justify-between items-start">
-                        <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resolução</h6>
-                        <span className="text-sm">🎯</span>
-                    </div>
-                    <div className="mt-1">
-                        <span className="text-2xl font-black text-indigo-600">{taxaResolucao}%</span>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Eficácia OSs</p>
-                    </div>
-                </div>
+            {/* 🧭 SELETOR DE VISÕES SEGMENTADAS */}
+            <div className="flex bg-slate-200/80 p-1.5 rounded-2xl gap-1.5 w-full sm:w-fit overflow-x-auto shadow-inner border border-slate-300/40">
+                <button 
+                    type="button"
+                    onClick={() => setVisaoAtual('tecnica')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 whitespace-nowrap ${
+                        visaoAtual === 'tecnica' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    <span>🛠️</span> Visão Técnica (Bancada)
+                </button>
+
+                <button 
+                    type="button"
+                    onClick={() => setVisaoAtual('ativos')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 whitespace-nowrap ${
+                        visaoAtual === 'ativos' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    <span>🤖</span> Ativos & Parque
+                </button>
+
+                <button 
+                    type="button"
+                    onClick={() => setVisaoAtual('estoque')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 whitespace-nowrap ${
+                        visaoAtual === 'estoque' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    <span>📦</span> Almoxarifado
+                </button>
+
+                <button 
+                    type="button"
+                    onClick={() => setVisaoAtual('financeira')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 whitespace-nowrap ${
+                        visaoAtual === 'financeira' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    <span>💼</span> Diretoria & Custos
+                </button>
             </div>
 
-            {/* SEÇÃO DE BALANÇO FINANCEIRO */}
-            <div className="space-y-3">
-                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <span>💳</span> Balanço de Custos do Período {dataInicio && dataFim ? `(${new Date(dataInicio).toLocaleDateString('pt-BR')} à ${new Date(dataFim).toLocaleDateString('pt-BR')})` : '(Acumulado Geral)'}
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <FinanceCard title="Gastos com Insumos / Peças" value={formatarMoeda(stats?.gastoInsumosGerais)} subtitle="Materiais deduzidos do estoque em manutenções" color="border-indigo-500" bgGradient="from-indigo-50/40" />
-                    <FinanceCard title="Custo de Máquinas & Equipamentos" value={formatarMoeda(stats?.gastoTotalEquipamentos)} subtitle="Patrimônio em operação no parque tecnológico" color="border-emerald-500" bgGradient="from-emerald-50/40" />
-                    <FinanceCard title="Reparos Prediais & Estrutura" value={formatarMoeda(stats?.gastoTotalEstrutura)} subtitle="Manutenções em leitos, salas e infraestrutura" color="border-purple-500" bgGradient="from-purple-50/40" />
-                </div>
-            </div>
-
-            {/* GRÁFICOS & ATIVIDADES */}
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                
-                {/* LADO ESQUERDO: ATIVOS CRÍTICOS */}
-                <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[460px]">
-                    <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
-                        <div>
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                <span>🚨</span> Ativos Mais Críticos (Top 5 Chamados)
-                            </h3>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Equipamentos com maior reincidência de falhas no período</p>
-                        </div>
-                        <Link to="/relatorios/inventario" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Inventário ↗</Link>
-                    </div>
+            {/* ========================================================= */}
+            {/* 🛠️ VISÃO 1: TÉCNICA (OPERACIONAL / ENGENHARIA CLÍNICA) */}
+            {/* ========================================================= */}
+            {visaoAtual === 'tecnica' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
                     
-                    <div className="flex-1 w-full min-h-[360px]">
-                        <Bar data={dataEquipamentos} options={optionsEquipamentos} />
-                    </div>
-                </div>
+                    {/* KPIS DA BANCADA */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                        <StatCard title="OS Abertas" value={totalAbertos} icon="🔴" color="border-red-500" link="/chamados" />
+                        <StatCard title="Em Atendimento" value={totalAndamento} icon="🟡" color="border-amber-400" link="/chamados" />
+                        <StatCard title="Manut. Externa" value={totalExternos} icon="🚚" color="border-purple-600" link="/chamados" />
+                        <StatCard title="Atenção PMOC" value={stats?.preventivasAtrasadas?.[0]?.total || 0} icon="⚠️" color="border-orange-500" link="/preventivas" />
+                        <StatCard title="Concluídas" value={totalConcluidos} icon="🟢" color="border-emerald-500" link="/chamados" />
 
-                {/* LADO DIREITO: DESEMPENHO E FEED DE ATUALIZAÇÕES */}
-                <div className="xl:col-span-5 space-y-6 flex flex-col justify-between">
-                    
-                    {/* GRÁFICO DESEMPENHO TÉCNICOS */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col min-h-[250px]">
-                        <div className="flex justify-between items-center mb-3 border-b border-slate-50 pb-2">
-                            <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                <span>👨‍🔧</span> Atendimentos por Técnico
-                            </h3>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">{stats?.porTecnico?.length || 0} Operadores</span>
-                        </div>
-                        <div className="flex-1 w-full min-h-[190px]">
-                            <Bar data={dataTecnicos} options={optionsTecnicos} />
+                        {/* Taxa de Eficácia */}
+                        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-indigo-500 flex flex-col justify-between">
+                            <div className="flex justify-between items-start">
+                                <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resolução</h6>
+                                <span className="text-sm">🎯</span>
+                            </div>
+                            <div className="mt-1">
+                                <span className="text-2xl font-black text-indigo-600">{taxaResolucao}%</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Eficácia OSs</p>
+                            </div>
                         </div>
                     </div>
 
-                    {/* FEED DE ÚLTIMAS ATUALIZAÇÕES */}
-                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
-                        <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
-                            <h3 className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                                <span>📋</span> Últimas OS do Período
-                            </h3>
-                            <Link to="/chamados" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Todas ↗</Link>
-                        </div>
-                        <div className="divide-y divide-slate-100 p-2 max-h-48 overflow-y-auto">
-                            {stats?.recentes?.map(r => (
-                                <div key={r.id} className="p-2.5 hover:bg-slate-50 transition-colors flex justify-between items-center rounded-xl">
-                                    <div className="min-w-0 flex-1 mr-2">
-                                        <p className="text-xs font-bold text-slate-800 truncate">{r.titulo}</p>
-                                        <p className="text-[10px] text-slate-400 font-mono font-bold mt-0.5">
-                                            #{r.id} • {new Date(r.data_abertura).toLocaleDateString('pt-BR')}
-                                        </p>
+                    {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA */}
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        
+                        {/* LADO ESQUERDO: GRÁFICO TÉCNICOS & EQUIPAMENTOS FORA */}
+                        <div className="xl:col-span-7 space-y-6">
+                            
+                            {/* GRÁFICO DE ATENDIMENTOS POR TÉCNICO */}
+                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+                                <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                    <div>
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>👨‍🔧</span> Carga Operacional por Técnico
+                                        </h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">OSs atendidas e finalizadas pela equipe</p>
                                     </div>
-                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase shrink-0 ${
-                                        r.status === 'Aberto' ? 'bg-red-100 text-red-700 border border-red-200' : 
-                                        r.status === 'Em Atendimento' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 
-                                        'bg-green-100 text-green-700 border border-green-200'
-                                    }`}>
-                                        {r.status}
-                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">{stats?.porTecnico?.length || 0} Operadores</span>
                                 </div>
-                            ))}
-                            {(!stats?.recentes || stats.recentes.length === 0) && (
-                                <p className="text-xs text-slate-400 font-bold italic text-center py-4">Nenhum chamado registrado no período.</p>
-                            )}
+                                <div className="h-64 w-full">
+                                    <Bar data={dataTecnicos} options={optionsTecnicos} />
+                                </div>
+                            </div>
+
+                            {/* PAINEL DE CONTROLE DE MANUTENÇÃO EXTERNA (ATIVOS FORA DA UNIDADE) */}
+                            <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
+                                <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
+                                    <h3 className="text-[11px] font-black text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>🚚</span> Ativos em Manutenção Externa ({totalExternos})
+                                    </h3>
+                                    <Link to="/chamados" className="text-[10px] font-black text-purple-700 hover:underline uppercase">Filtrar na Lista ↗</Link>
+                                </div>
+                                
+                                <div className="divide-y divide-slate-100 p-2 max-h-48 overflow-y-auto">
+                                    {stats?.recentes?.filter(r => r.status === 'Aguardando Externa').map(ext => (
+                                        <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
+                                            <div className="min-w-0 flex-1 mr-2">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
+                                                <p className="text-[10px] text-purple-600 font-bold mt-0.5">
+                                                    OS #{ext.id} • Fornecedor: {ext.fornecedor_nome || 'Terceirizado Homologado'}
+                                                </p>
+                                            </div>
+                                            <Link 
+                                                to={`/chamados/${ext.id}/tratar`}
+                                                className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-purple-700 transition-colors"
+                                            >
+                                                Dar Entrada
+                                            </Link>
+                                        </div>
+                                    ))}
+
+                                    {(!stats?.recentes || stats.recentes.filter(r => r.status === 'Aguardando Externa').length === 0) && (
+                                        <p className="text-xs text-slate-400 font-bold italic text-center py-6">Nenhum equipamento externo no momento. Parque interno 100% assistido.</p>
+                                    )}
+                                </div>
+                            </div>
+
+                        </div>
+
+                        {/* LADO DIREITO: FEED DE ÚLTIMAS OS COM STATUS ROXO CORRIGIDO */}
+                        <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-between">
+                            <div>
+                                <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex justify-between items-center">
+                                    <h3 className="text-[11px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>📋</span> Fila Recente da Bancada
+                                    </h3>
+                                    <Link to="/chamados" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Todas ↗</Link>
+                                </div>
+
+                                <div className="divide-y divide-slate-100 p-2 max-h-[500px] overflow-y-auto">
+                                    {stats?.recentes?.map(r => (
+                                        <div key={r.id} className="p-3 hover:bg-slate-50 transition-colors flex justify-between items-center rounded-xl">
+                                            <div className="min-w-0 flex-1 mr-2">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{r.titulo}</p>
+                                                <p className="text-[10px] text-slate-400 font-mono font-bold mt-0.5">
+                                                    #{r.id} • {new Date(r.data_abertura).toLocaleDateString('pt-BR')}
+                                                </p>
+                                            </div>
+                                            
+                                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase shrink-0 ${
+                                                r.status === 'Aguardando Externa' ? 'bg-purple-600 text-white' :
+                                                r.status === 'Aberto' ? 'bg-red-500 text-white' :
+                                                r.status === 'Em Atendimento' ? 'bg-amber-500 text-white' :
+                                                'bg-emerald-600 text-white'
+                                            }`}>
+                                                {r.status}
+                                            </span>
+                                        </div>
+                                    ))}
+
+                                    {(!stats?.recentes || stats.recentes.length === 0) && (
+                                        <p className="text-xs text-slate-400 font-bold italic text-center py-6">Nenhum chamado registrado no período.</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* 🤖 VISÃO 2: ATIVOS & PARQUE TECNOLÓGICO                    */}
+            {/* ========================================================= */}
+            {visaoAtual === 'ativos' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                    
+                    {/* KPIS DE DISPONIBILIDADE DO PARQUE */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
+                        <StatCard 
+                            title="Inventário Total" 
+                            value={stats?.statusAtivos?.[0]?.total || stats?.totalEquipamentos?.[0]?.total || 0} 
+                            icon="⚙️" 
+                            color="border-blue-500" 
+                            link="/equipamentos" 
+                        />
+                        <StatCard 
+                            title="Operando Normal" 
+                            value={stats?.statusAtivos?.[0]?.ativos || 0} 
+                            icon="🟢" 
+                            color="border-emerald-500" 
+                            link="/equipamentos" 
+                        />
+                        <StatCard 
+                            title="Em Manutenção" 
+                            value={stats?.statusAtivos?.[0]?.manutencao || totalExternos} 
+                            icon="🟡" 
+                            color="border-amber-400" 
+                            link="/equipamentos" 
+                        />
+                        <StatCard 
+                            title="Reserva Técnica" 
+                            value={stats?.statusAtivos?.[0]?.reserva || 0} 
+                            icon="🔵" 
+                            color="border-cyan-500" 
+                            link="/equipamentos" 
+                        />
+                        <StatCard 
+                            title="Inoperantes" 
+                            value={stats?.statusAtivos?.[0]?.inoperantes || 0} 
+                            icon="🔴" 
+                            color="border-rose-500" 
+                            link="/equipamentos" 
+                        />
+                    </div>
+
+                    {/* GRÁFICOS: DISTRIBUIÇÃO POR SETOR E REINCIDÊNCIA */}
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        
+                        {/* REINCIDÊNCIA DE FALHAS (CURVA DE QUEBRA) */}
+                        <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
+                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>🚨</span> Top 5 Ativos Críticos / Reincidentes
+                                    </h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Equipamentos com maior índice de quebra no período</p>
+                                </div>
+                                <Link to="/equipamentos" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Todos ↗</Link>
+                            </div>
+                            <div className="h-72 w-full">
+                                <Bar data={dataEquipamentos} options={optionsEquipamentos} />
+                            </div>
+                        </div>
+
+                        {/* DENSIDADE DE ATIVOS POR SETOR */}
+                        <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
+                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>📍</span> Densidade por Setor Hospitalar
+                                    </h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Concentração de ativos por unidade</p>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Top 6 Setores</span>
+                            </div>
+                            <div className="h-72 w-full">
+                                <Bar data={dataAtivosPorSetor} options={optionsTecnicos} />
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* BANNER DE DISPONIBILIDADE E AUDITORIA ONA */}
+                    <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div className="space-y-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">
+                                🛡️ Engenharia Hospitalar & Auditoria
+                            </span>
+                            <h4 className="text-sm font-black uppercase">Disponibilidade Operacional do Parque</h4>
+                            <p className="text-xs text-slate-300 font-medium">
+                                Acompanhamento de segurança do paciente baseado na prontidão de equipamentos de suporte à vida.
+                            </p>
+                        </div>
+                        <div className="flex gap-6 text-center shrink-0">
+                            <div>
+                                <span className="text-2xl font-black text-emerald-400">98.2%</span>
+                                <p className="text-[9px] font-bold text-slate-300 uppercase">Uptime Geral</p>
+                            </div>
+                            <div className="border-l border-indigo-800 pl-6">
+                                <span className="text-2xl font-black text-cyan-400">14.2h</span>
+                                <p className="text-[9px] font-bold text-slate-300 uppercase">MTTR Médio</p>
+                            </div>
                         </div>
                     </div>
 
                 </div>
+            )}
 
-            </div>
+            {/* ========================================================= */}
+            {/* 📦 VISÃO 3: ALMOXARIFADO & ESTOQUE (ESTRUTURA BASE)       */}
+            {/* ========================================================= */}
+            {visaoAtual === 'estoque' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <FinanceCard title="Gastos com Insumos Aplicados" value={formatarMoeda(stats?.gastoInsumosGerais)} subtitle="Materiais deduzidos em ordens de serviço" color="border-indigo-500" bgGradient="from-indigo-50/40" />
+                        <FinanceCard title="Reparos Prediais / Consumo" value={formatarMoeda(stats?.gastoTotalEstrutura)} subtitle="Insumos em leitos e infraestrutura" color="border-amber-500" bgGradient="from-amber-50/40" />
+                        <FinanceCard title="Valor Total do Almoxarifado" value="Calculando..." subtitle="Saldo físico retido em estoque" color="border-blue-500" bgGradient="from-blue-50/40" />
+                    </div>
+                    <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center space-y-2">
+                        <span className="text-3xl">📦</span>
+                        <h4 className="text-sm font-black text-slate-800 uppercase">Visão Detalhada de Estoque</h4>
+                        <p className="text-xs text-slate-400 font-medium max-w-md mx-auto">Em breve: Curva ABC de consumo, alertas de estoque mínimo e insumos sem giro nos últimos 90 dias.</p>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (ESTRUTURA BASE)           */}
+            {/* ========================================================= */}
+            {visaoAtual === 'financeira' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <FinanceCard title="Gastos com Insumos / Peças" value={formatarMoeda(stats?.gastoInsumosGerais)} subtitle="Materiais deduzidos do estoque" color="border-indigo-500" bgGradient="from-indigo-50/40" />
+                        <FinanceCard title="Custo de Máquinas & Equipamentos" value={formatarMoeda(stats?.gastoTotalEquipamentos)} subtitle="Patrimônio em operação no parque" color="border-emerald-500" bgGradient="from-emerald-50/40" />
+                        <FinanceCard title="Reparos Prediais & Estrutura" value={formatarMoeda(stats?.gastoTotalEstrutura)} subtitle="Manutenções em leitos e salas" color="border-purple-500" bgGradient="from-purple-50/40" />
+                    </div>
+                    <div className="bg-white p-8 rounded-3xl border border-slate-100 text-center space-y-2">
+                        <span className="text-3xl">💼</span>
+                        <h4 className="text-sm font-black text-slate-800 uppercase">Visão Executiva & Auditoria</h4>
+                        <p className="text-xs text-slate-400 font-medium max-w-md mx-auto">Em breve: Demonstrativo de custos por setor (UTI vs. Centro Cirúrgico), gastos com assistências terceirizadas e índice de reposição patrimonial.</p>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 };

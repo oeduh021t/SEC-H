@@ -19,6 +19,22 @@ export function TratarChamado() {
   const [exibirPainelTroca, setExibirPainelTroca] = useState(false)
   const [executandoTroca, setExecutandoTroca] = useState(false)
 
+  // 🚚 Estados de Manutenção Externa integrada à OS
+  const [modalSaidaExterna, setModalSaidaExterna] = useState(false)
+  const [fornecedorSaidaId, setFornecedorSaidaId] = useState("")
+  const [motivoSaida, setMotivoSaida] = useState("")
+  const [previsaoRetorno, setPrevisaoRetorno] = useState("")
+  const [enviandoSaida, setEnviandoSaida] = useState(false)
+  const [guiaImpressao, setGuiaImpressao] = useState(null)
+
+  // 🛬 Estados de Retorno de Manutenção Externa
+  const [modalRetornoExterno, setModalRetornoExterno] = useState(false)
+  const [nfRetorno, setNfRetorno] = useState("")
+  const [custoRetorno, setCustoRetorno] = useState("")
+  const [observacaoRetorno, setObservacaoRetorno] = useState("")
+  const [arquivoLaudo, setArquivoLaudo] = useState(null)
+  const [enviandoRetorno, setEnviandoRetorno] = useState(false)
+
   // Estados do Formulário de Solução
   const [tipoAtendimento, setTipoAtendimento] = useState("Interno")
   const [status, setStatus] = useState("Em Atendimento")
@@ -33,7 +49,7 @@ export function TratarChamado() {
   const [pecaSelecionada, setPecaSelecionada] = useState("")
   const [qtdPeca, setQtdPeca] = useState(1)
 
-  // Fornecedor Externo
+  // Fornecedor Externo Manual (legado da solução)
   const [fornecedorId, setFornecedorId] = useState("")
   const [nfReferencia, setNfReferencia] = useState("")
   const [custoServico, setCustoServico] = useState(0)
@@ -42,7 +58,7 @@ export function TratarChamado() {
   const BASE_URL = ""
 
   const totalPecas = chamado?.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade) * Number(item.valor_unitario)), 0) || 0;
-  const custoTotalOS = (Number(custoServico) || 0) + totalPecas;
+  const custoTotalOS = (Number(custoServico) || 0) + (Number(chamado?.valor_servico_externo) || 0) + totalPecas;
 
   const carregarTodosOsDados = async () => {
     try {
@@ -105,6 +121,141 @@ export function TratarChamado() {
     if (chamado?.status === "Concluído") return
     setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`)
   }
+
+  // 🚚 DISPARAR SAÍDA EXTERNA A PARTIR DA OS
+  const handleConfirmarSaidaExterna = async (e) => {
+    e.preventDefault();
+    if (!fornecedorSaidaId || !motivoSaida) {
+      alert("Selecione o fornecedor e informe o motivo da saída técnica.");
+      return;
+    }
+
+    setEnviandoSaida(true);
+    const usuarioSalvo = localStorage.getItem('user');
+    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
+
+    try {
+      const res = await fetch(`${API_URL}/chamados/${id}/saida-externa`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-usuario-nivel": usuarioLogado?.nivel || ""
+        },
+        body: JSON.stringify({
+          fornecedor_id: fornecedorSaidaId,
+          tecnico_nome: usuarioLogado?.nome || "Técnico",
+          descricao_motivo: motivoSaida,
+          data_previsao_retorno: previsaoRetorno || null
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        const fornSel = fornecedores.find(f => Number(f.id) === Number(fornecedorSaidaId));
+        setGuiaImpressao({
+          chamadoId: id,
+          equipamento: {
+            nome: chamado.eq_nome,
+            modelo: chamado.modelo,
+            patrimonio: chamado.patrimonio,
+            num_serie: chamado.num_serie,
+            fabricante: chamado.fabricante,
+            setor_nome: chamado.setor_nome
+          },
+          fornecedor: fornSel,
+          motivo: motivoSaida,
+          previsao: previsaoRetorno,
+          dataSaida: new Date().toLocaleDateString('pt-BR')
+        });
+
+        alert("Equipamento encaminhado para manutenção externa via OS! 🚚✅");
+        setModalSaidaExterna(false);
+        setMotivoSaida("");
+        setPrevisaoRetorno("");
+        await carregarTodosOsDados();
+      } else {
+        alert(`Erro: ${data.error || 'Falha ao registrar saída externa.'}`);
+      }
+    } catch (err) {
+      alert("Erro ao conectar com o servidor.");
+    } finally {
+      setEnviandoSaida(false);
+    }
+  };
+
+  // 🛬 REGISTRAR RETORNO DE MANUTENÇÃO EXTERNA
+  const handleConfirmarRetornoExterno = async (e) => {
+    e.preventDefault();
+    setEnviandoRetorno(true);
+
+    const usuarioSalvo = localStorage.getItem('user');
+    const usuarioLogado = usuarioSalvo ? JSON.parse(usuarioSalvo) : null;
+
+    const formData = new FormData();
+    formData.append('numero_nf', nfRetorno);
+    formData.append('valor_servico', custoRetorno || 0);
+    formData.append('observacao', observacaoRetorno);
+    formData.append('tecnico_nome', usuarioLogado?.nome || "Técnico");
+    if (arquivoLaudo) {
+      formData.append('laudo_tecnico', arquivoLaudo);
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/chamados/${id}/retorno-externo`, {
+        method: "POST",
+        headers: {
+          "x-usuario-nivel": usuarioLogado?.nivel || ""
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert("Retorno de manutenção externa concluído e ativo reativado! 🛬✅");
+        setModalRetornoExterno(false);
+        setNfRetorno("");
+        setCustoRetorno("");
+        setObservacaoRetorno("");
+        setArquivoLaudo(null);
+        await carregarTodosOsDados();
+      } else {
+        alert(`Erro: ${data.error || 'Falha ao registrar retorno.'}`);
+      }
+    } catch (err) {
+      alert("Erro ao conectar com o servidor.");
+    } finally {
+      setEnviandoRetorno(false);
+    }
+  };
+
+  // 📄 REIMPRIMIR GUIA A PARTIR DO HISTÓRICO DA OS
+  const handleReimprimirGuiaHistorico = (dataRegistroMomento) => {
+    const fornSel = fornecedores.find(f => Number(f.id) === Number(chamado?.fornecedor_externo_id));
+    
+    setGuiaImpressao({
+      chamadoId: id,
+      equipamento: {
+        nome: chamado?.eq_nome,
+        modelo: chamado?.modelo,
+        patrimonio: chamado?.patrimonio,
+        num_serie: chamado?.num_serie,
+        fabricante: chamado?.fabricante,
+        setor_nome: chamado?.setor_nome
+      },
+      fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome || 'Terceirizado Homologado' },
+      motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
+      previsao: chamado?.data_previsao_retorno_externa,
+      dataSaida: dataRegistroMomento 
+        ? new Date(dataRegistroMomento).toLocaleDateString('pt-BR') 
+        : new Date(chamado?.data_saida_externa || Date.now()).toLocaleDateString('pt-BR')
+    });
+
+    setTimeout(() => {
+      window.print();
+    }, 200);
+  };
 
   const handleAdicionarPeca = (e) => {
     e.preventDefault()
@@ -292,11 +443,30 @@ export function TratarChamado() {
     </div>
   );
 
-  const isConcluido = chamado?.status === "Concluído"
+  const isConcluido = chamado?.status === "Concluído";
+  const isEmExterna = chamado?.status === "Aguardando Externa" || Number(chamado?.em_manutencao_externa) === 1;
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
+      {/* 🖨️ ESTILO DE IMPRESSÃO EXCLUSIVO PARA GUIA DE REMESSA (FOLHA ÚNICA) */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; background: white !important; }
+          #guia-os-impressao, #guia-os-impressao * { visibility: visible !important; }
+          #guia-os-impressao {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            padding: 4px !important;
+            margin: 0 !important;
+            display: flex !important;
+          }
+          @page { size: A4 portrait; margin: 6mm; }
+        }
+      `}</style>
+
       {/* 🧭 HEADER COMPACTO COM STATUS E AÇÕES RÁPIDAS */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
         <div className="flex items-center gap-4">
@@ -324,7 +494,28 @@ export function TratarChamado() {
         </div>
         
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {/* 🚚 BOTÃO DE SAÍDA OU RETORNO EXTERNO CONTEXTUAL */}
           {chamado?.equipamento_id && !isConcluido && (
+            isEmExterna ? (
+              <button
+                type="button"
+                onClick={() => setModalRetornoExterno(true)}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-emerald-100 active:scale-95 flex items-center gap-1.5"
+              >
+                <span>🛬</span> Registrar Retorno
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setModalSaidaExterna(true)}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-indigo-100 active:scale-95 flex items-center gap-1.5"
+              >
+                <span>🚚</span> Saída Externa
+              </button>
+            )
+          )}
+
+          {chamado?.equipamento_id && !isConcluido && !isEmExterna && (
             <button
               type="button"
               onClick={() => setExibirPainelTroca(!exibirPainelTroca)}
@@ -343,6 +534,62 @@ export function TratarChamado() {
           </button>
         </div>
       </div>
+
+      {/* ⚠️ ALERTA DE EQUIPAMENTO EM MANUTENÇÃO EXTERNA ATIVA */}
+      {isEmExterna && (
+        <div className="mb-6 bg-indigo-50 border-2 border-indigo-200 p-5 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="space-y-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700 bg-indigo-100 px-2.5 py-0.5 rounded-full inline-block">
+              🚚 Equipamento em Manutenção Externa
+            </span>
+            <p className="text-xs font-bold text-slate-700">
+              Fornecedor Responsável: <strong className="text-slate-900">{chamado?.fornecedor_nome || 'Terceirizado Homologado'}</strong>
+            </p>
+            <p className="text-[11px] text-slate-500 font-medium">
+              Data de Saída: {chamado?.data_saida_externa ? new Date(chamado.data_saida_externa).toLocaleDateString('pt-BR') : '---'} 
+              {chamado?.data_previsao_retorno_externa && ` • Previsão: ${new Date(chamado.data_previsao_retorno_externa).toLocaleDateString('pt-BR')}`}
+            </p>
+            {chamado?.motivo_saida_externa && (
+              <p className="text-xs text-slate-600 italic mt-1">"{chamado.motivo_saida_externa}"</p>
+            )}
+          </div>
+
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                const fornSel = fornecedores.find(f => Number(f.id) === Number(chamado?.fornecedor_externo_id));
+                setGuiaImpressao({
+                  chamadoId: id,
+                  equipamento: {
+                    nome: chamado.eq_nome,
+                    modelo: chamado.modelo,
+                    patrimonio: chamado.patrimonio,
+                    num_serie: chamado.num_serie,
+                    fabricante: chamado.fabricante,
+                    setor_nome: chamado.setor_nome
+                  },
+                  fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome },
+                  motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
+                  previsao: chamado?.data_previsao_retorno_externa,
+                  dataSaida: new Date(chamado?.data_saida_externa || Date.now()).toLocaleDateString('pt-BR')
+                });
+                setTimeout(() => window.print(), 200);
+              }}
+              className="px-3.5 py-2 bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-black uppercase transition-all shadow-xs"
+            >
+              📄 Imprimir Guia
+            </button>
+            <button
+              type="button"
+              onClick={() => setModalRetornoExterno(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md shadow-emerald-100"
+            >
+              🛬 Dar Entrada / Retorno
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 🔄 PAINEL DE SUBSTITUIÇÃO EMERGENCIAL DE ATIVO */}
       {exibirPainelTroca && chamado?.equipamento_id && (
@@ -597,7 +844,7 @@ export function TratarChamado() {
               </button>
             </div>
 
-            {/* CAMPOS SE FOR FORNECEDOR EXTERNO */}
+            {/* CAMPOS SE FOR FORNECEDOR EXTERNO MANUAL */}
             {tipoAtendimento === "Externo" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in duration-150">
                 <div>
@@ -624,6 +871,7 @@ export function TratarChamado() {
                 <select disabled={isConcluido} className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none focus:border-blue-500" value={status} onChange={e => setStatus(e.target.value)}>
                   <option value="Aberto">🔴 Aberto</option>
                   <option value="Em Atendimento">🟡 Em Atendimento</option>
+                  <option value="Aguardando Externa">🚚 Aguardando Externa</option>
                   <option value="Concluído">🟢 Concluído</option>
                 </select>
               </div>
@@ -696,7 +944,7 @@ export function TratarChamado() {
             <div className="overflow-y-auto max-h-56 pr-1 space-y-3">
               {chamado?.historico?.map((h, i) => (
                 <div key={i} className="flex gap-3 text-xs">
-                  <div className={`w-2 rounded-full shrink-0 mt-1 ${h.tecnico_nome?.includes('Terceirizado') ? 'bg-amber-500' : 'bg-blue-500'}`}></div>
+                  <div className={`w-2 rounded-full shrink-0 mt-1 ${h.tecnico_nome?.includes('Terceirizado') || h.texto_historico?.includes('MANUTENÇÃO EXTERNA') ? 'bg-indigo-600' : 'bg-blue-500'}`}></div>
                   <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div className="flex flex-wrap justify-between items-center gap-1 mb-1.5">
                       <div className="flex items-center gap-2">
@@ -719,6 +967,33 @@ export function TratarChamado() {
                     <p className="text-slate-600 font-medium whitespace-pre-wrap leading-relaxed">
                       {h.texto_historico}
                     </p>
+
+                    {/* ANEXO DO LAUDO (CASO RETORNO) */}
+                    {h.url_anexo && (
+                      <div className="pt-2">
+                        <a 
+                          href={`${BASE_URL}${h.url_anexo}`} 
+                          target="_blank" 
+                          rel="noreferrer" 
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline uppercase bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100"
+                        >
+                          📄 Visualizar Laudo do Fornecedor
+                        </a>
+                      </div>
+                    )}
+
+                    {/* 🖨️ BOTÃO DE REIMPRESSÃO DA GUIA NO HISTÓRICO */}
+                    {h.texto_historico?.includes('ENVIADO PARA MANUTENÇÃO EXTERNA') && (
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleReimprimirGuiaHistorico(h.data_registro)}
+                          className="inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-200 uppercase bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors shadow-xs"
+                        >
+                          <span>🖨️</span> Reimprimir Guia de Remessa
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -731,6 +1006,228 @@ export function TratarChamado() {
         </div>
 
       </div>
+
+      {/* 🚚 MODAL 1: REGISTRAR SAÍDA PARA FORNECEDOR EXTERNO */}
+      {modalSaidaExterna && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+            <div className="bg-indigo-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+              <span>🚚 Enviar Equipamento para Assistência Externa</span>
+              <button onClick={() => setModalSaidaExterna(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleConfirmarSaidaExterna} className="p-6 space-y-4 text-xs">
+              <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-100">
+                <span className="text-[10px] font-black text-indigo-700 uppercase block">Ativo a ser despachado:</span>
+                <p className="text-sm font-black text-slate-800 uppercase">{chamado?.eq_nome}</p>
+                <p className="text-[11px] text-slate-500 font-medium">Patrimônio: <strong>{chamado?.patrimonio || 'S/P'}</strong> | S/N: {chamado?.num_serie || 'N/A'}</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor / Assistência Técnica Homologada *</label>
+                <select
+                  required
+                  value={fornecedorSaidaId}
+                  onChange={e => setFornecedorSaidaId(e.target.value)}
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-indigo-500 text-slate-800"
+                >
+                  <option value="">Selecione a empresa prestadora...</option>
+                  {fornecedores.map(f => (
+                    <option key={f.id} value={f.id}>
+                      {f.nome_fantasia} {f.cnpj ? `(CNPJ: ${f.cnpj})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Previsão Estimada de Retorno (Opcional)</label>
+                <input
+                  type="date"
+                  value={previsaoRetorno}
+                  onChange={e => setPrevisaoRetorno(e.target.value)}
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-indigo-500 text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Defeito Reclamado / Peças e Acessórios Enviados *</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={motivoSaida}
+                  onChange={e => setMotivoSaida(e.target.value)}
+                  placeholder="Ex: Placa de fonte em curto. Acompanha cabo de força e sensor original..."
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl font-medium bg-slate-50 outline-none focus:border-indigo-500 text-slate-800 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalSaidaExterna(false)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-black uppercase text-[11px]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={enviandoSaida}
+                  className="flex-[2] py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black uppercase text-[11px] shadow-lg shadow-indigo-100"
+                >
+                  {enviandoSaida ? "Despachando..." : "Confirmar Envio & Gerar Guia"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🛬 MODAL 2: REGISTRAR RETORNO DE MANUTENÇÃO EXTERNA */}
+      {modalRetornoExterno && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+            <div className="bg-emerald-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+              <span>🛬 Registrar Retorno de Manutenção Externa</span>
+              <button onClick={() => setModalRetornoExterno(false)}>✕</button>
+            </div>
+
+            <form onSubmit={handleConfirmarRetornoExterno} className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Nº Nota Fiscal / Recibo</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: NF-e 4589"
+                    value={nfRetorno}
+                    onChange={e => setNfRetorno(e.target.value)}
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-emerald-500 text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Custo do Reparo (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={custoRetorno}
+                    onChange={e => setCustoRetorno(e.target.value)}
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono font-bold bg-slate-50 outline-none focus:border-emerald-500 text-slate-800"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Anexar Laudo Técnico da Assistência (PDF ou Foto)</label>
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={e => setArquivoLaudo(e.target.files[0])}
+                  className="w-full p-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 bg-slate-50"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Parecer dos Testes de Recebimento Interno</label>
+                <textarea
+                  rows={3}
+                  value={observacaoRetorno}
+                  onChange={e => setObservacaoRetorno(e.target.value)}
+                  placeholder="Descreva o serviço executado pelo fornecedor e a validação do teste funcional interno..."
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl font-medium bg-slate-50 outline-none focus:border-emerald-500 text-slate-800 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalRetornoExterno(false)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-black uppercase text-[11px]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={enviandoRetorno}
+                  className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black uppercase text-[11px] shadow-lg shadow-emerald-100"
+                >
+                  {enviandoRetorno ? "Reativando..." : "Confirmar Retorno & Reativar Ativo"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🖨️ GUIA DE REMESSA PARA IMPRESSÃO NATIVA (FOLHA ÚNICA A4) */}
+      {guiaImpressao && (
+        <div id="guia-os-impressao" className="hidden print:flex flex-col justify-between h-[96vh] font-sans text-slate-900 bg-white p-2 box-border">
+          <div>
+            <div className="border-b-2 border-slate-900 pb-2 mb-3 flex justify-between items-center">
+              <div>
+                <h1 className="text-sm font-black uppercase">CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO</h1>
+                <p className="text-[10px] font-bold text-slate-600 uppercase">Engenharia Clínica & Gestão Hospitalar — Guia de Remessa de Ativo</p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-mono font-black border border-slate-900 px-2 py-0.5 rounded inline-block">
+                  GUIA OS #{guiaImpressao.chamadoId} / {new Date().getFullYear()}
+                </span>
+                <p className="text-[9px] font-bold text-slate-500 mt-0.5">Emissão: {guiaImpressao.dataSaida}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-[11px]">
+              <div className="border border-slate-300 p-2.5 rounded-xl bg-slate-50/50">
+                <h3 className="font-black uppercase text-[10px] mb-1 text-slate-800">1. Identificação do Ativo Hospitalar</h3>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <div><strong>Equipamento:</strong> {guiaImpressao.equipamento?.nome}</div>
+                  <div><strong>Fabricante:</strong> {guiaImpressao.equipamento?.fabricante || '---'}</div>
+                  <div><strong>Modelo:</strong> {guiaImpressao.equipamento?.modelo || '---'}</div>
+                  <div><strong>Patrimônio:</strong> {guiaImpressao.equipamento?.patrimonio || 'S/P'}</div>
+                  <div><strong>Nº de Série:</strong> {guiaImpressao.equipamento?.num_serie || 'N/A'}</div>
+                  <div><strong>Setor de Origem:</strong> {guiaImpressao.equipamento?.setor_nome || 'Geral'}</div>
+                </div>
+              </div>
+
+              <div className="border border-slate-300 p-2.5 rounded-xl bg-slate-50/50">
+                <h3 className="font-black uppercase text-[10px] mb-1 text-slate-800">2. Destino / Assistência Técnica</h3>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <div><strong>Empresa:</strong> {guiaImpressao.fornecedor?.nome_fantasia || 'Terceirizado'}</div>
+                  <div><strong>CNPJ:</strong> {guiaImpressao.fornecedor?.cnpj || 'Não informado'}</div>
+                  <div><strong>Contato:</strong> {guiaImpressao.fornecedor?.telefone || '---'}</div>
+                  <div><strong>Previsão de Retorno:</strong> {guiaImpressao.previsao ? new Date(guiaImpressao.previsao).toLocaleDateString('pt-BR') : 'A definir'}</div>
+                </div>
+              </div>
+
+              <div className="border border-slate-300 p-2.5 rounded-xl bg-slate-50/50">
+                <h3 className="font-black uppercase text-[10px] mb-0.5 text-slate-800">3. Condições de Envio & Defeito Diagnosticado</h3>
+                <p className="font-medium text-slate-800 leading-snug">{guiaImpressao.motivo}</p>
+              </div>
+            </div>
+
+            <p className="text-[8px] text-slate-500 mt-2.5 italic">
+              Declaramos para os devidos fins que o equipamento acima especificado foi retirado sob responsabilidade técnica para conserto ou orçamento externo.
+            </p>
+          </div>
+
+          {/* ÁREA DE ASSINATURAS FIXADA NO FINAL DA FOLHA ÚNICA */}
+          <div className="grid grid-cols-3 gap-4 text-center pb-2 text-[10px]">
+            <div>
+              <p className="border-t border-slate-800 pt-1 font-bold">_______________________</p>
+              <p className="text-[8px] text-slate-500 uppercase font-bold">Engenharia Clínica / Liberação</p>
+            </div>
+            <div>
+              <p className="border-t border-slate-800 pt-1 font-bold">_______________________</p>
+              <p className="text-[8px] text-slate-500 uppercase font-bold">Portador / Transportador</p>
+            </div>
+            <div>
+              <p className="border-t border-slate-800 pt-1 font-bold">_______________________</p>
+              <p className="text-[8px] text-slate-500 uppercase font-bold">Recebedor (Fornecedor)</p>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
