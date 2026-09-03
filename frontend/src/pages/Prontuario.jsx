@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 
 const Prontuario = () => {
     const { id } = useParams();
@@ -59,6 +59,26 @@ const Prontuario = () => {
 
     const user = obterUsuario();
     const isAdminOuCoord = ['admin', 'coordenador'].includes(user?.nivel?.toLowerCase().trim());
+
+    // 🛡️ FORMATAÇÃO SEGURA DE DATA (EVITA O BUG DO FUSO HORÁRIO)
+    const formatarDataSegura = (dataStr) => {
+        if (!dataStr) return 'Pendente';
+        const dataPura = String(dataStr).split('T')[0];
+        const partes = dataPura.split('-');
+        if (partes.length !== 3) return dataStr;
+        const [ano, mes, dia] = partes;
+        return `${dia}/${mes}/${ano}`;
+    };
+
+    const formatarDataHoraSegura = (dataStr) => {
+        if (!dataStr) return '---';
+        const [dataPart, horaPart] = String(dataStr).replace('T', ' ').split(' ');
+        const dataFormatada = formatarDataSegura(dataPart);
+        if (horaPart) {
+            return `${dataFormatada} às ${horaPart.substring(0, 5)}`;
+        }
+        return dataFormatada;
+    };
 
     const gerarLinkQRCodeLocal = (equipId) => {
         const urlDestino = `${window.location.origin}/prontuario/${equipId}`;
@@ -299,20 +319,6 @@ const Prontuario = () => {
         }
     };
 
-    const formatarDataHora = (dataStr) => {
-        if (!dataStr) return '---';
-        const [dataPart, horaPart] = dataStr.replace('T', ' ').split(' ');
-        const partesData = dataPart.split('-');
-        if (partesData.length < 3) return dataStr;
-        const [ano, mes, dia] = partesData;
-        const dataBR = `${dia}/${mes}/${ano}`;
-        if (horaPart) {
-            const horaLimpa = horaPart.substring(0, 5);
-            return `${dataBR} às ${horaLimpa}`;
-        }
-        return dataBR;
-    };
-
     const isImagem = (url) => {
         if (!url) return false;
         const ext = url.toLowerCase().split('.').pop();
@@ -422,7 +428,6 @@ const Prontuario = () => {
                 </div>
 
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
-                    {/* ✏️ BOTÃO DE EDITAR ATIVO */}
                     {isAdminOuCoord && (
                         <button
                             type="button"
@@ -580,7 +585,7 @@ const Prontuario = () => {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Última Preventiva:</span>
-                                    <span className="font-bold text-slate-700">{equip.data_ultima_preventiva ? new Date(equip.data_ultima_preventiva).toLocaleDateString('pt-BR') : 'Pendente'}</span>
+                                    <span className="font-bold text-slate-700">{formatarDataSegura(equip.data_ultima_preventiva)}</span>
                                 </div>
 
                                 <div className="p-3.5 bg-red-50 rounded-2xl border border-red-100 mt-4 print:bg-none print:border-slate-200">
@@ -695,7 +700,7 @@ const Prontuario = () => {
                                                     )}
                                                 </div>
                                                 <span className="font-mono text-[10px] text-slate-400 font-bold">
-                                                    {formatarDataHora(item.data)}
+                                                    {formatarDataHoraSegura(item.data)}
                                                 </span>
                                             </div>
 
@@ -987,6 +992,7 @@ const Prontuario = () => {
                                     <input 
                                         type="number" 
                                         step="0.01" 
+                                        min="0"
                                         placeholder="0.00"
                                         value={valorServico} 
                                         onChange={e => setValorServico(e.target.value)}
@@ -1060,7 +1066,7 @@ const Prontuario = () => {
                                 <div><strong>Empresa / Fornecedor:</strong> {guiaImpressao.fornecedor?.nome_fantasia || 'Terceirizado'}</div>
                                 <div><strong>CNPJ:</strong> {guiaImpressao.fornecedor?.cnpj || 'Não cadastrado'}</div>
                                 <div><strong>Contato / Tel:</strong> {guiaImpressao.fornecedor?.telefone || guiaImpressao.fornecedor?.contato || '---'}</div>
-                                <div><strong>Previsão de Retorno:</strong> {guiaImpressao.previsao ? formatarDataHora(guiaImpressao.previsao) : 'A definir'}</div>
+                                <div><strong>Previsão de Retorno:</strong> {guiaImpressao.previsao ? formatarDataSegura(guiaImpressao.previsao) : 'A definir'}</div>
                             </div>
                         </div>
 

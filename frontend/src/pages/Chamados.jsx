@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 
+
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -120,12 +121,13 @@ const Chamados = ({ user: userProp }) => {
     }
   }, [location.state, navigate, location.pathname]);
 
+  // ⚡ CAPTURA O ATIVO VINCULADO VINDO DA PÁGINA DE EQUIPAMENTOS
   useEffect(() => {
     if (location.state?.pre_configurado) {
       setForm(prev => ({
         ...prev,
-        setor_id: location.state.setor_id || '',
-        equipamento_id: location.state.equipamento_id || ''
+        setor_id: location.state.setor_id ? String(location.state.setor_id) : '',
+        equipamento_id: location.state.equipamento_id ? String(location.state.equipamento_id) : ''
       }));
       setModalAberta(true);
       navigate(location.pathname, { replace: true, state: null });
@@ -204,7 +206,6 @@ const Chamados = ({ user: userProp }) => {
     formData.append('equipamento_id', form.equipamento_id);
     formData.append('titulo', form.titulo);
     
-    // Concatena impacto e ramal de forma limpa na descrição do problema para retenção integral
     let relatoFormatado = form.descricao_problema;
     if (form.impacto === 'Paralisado' || form.ramal_contato) {
       const prefixos = [];
@@ -974,7 +975,7 @@ const Chamados = ({ user: userProp }) => {
                           </div>
 
                           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-center">
-                            <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Recebido no Setor</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase block">Recebido no Setor</span>
                             {chamadoSelecionado.assinatura_setor ? (
                               <img src={chamadoSelecionado.assinatura_setor} className="h-14 mx-auto object-contain" alt="Assinatura Setor" />
                             ) : (

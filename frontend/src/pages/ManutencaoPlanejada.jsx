@@ -50,6 +50,16 @@ export function ManutencaoPlanejada({ user: userProp }) {
     'x-usuario-nivel': user?.nivel || ''
   });
 
+  // 🛡️ FORMATAÇÃO SEGURA DE DATA (EVITA O FUSO HORÁRIO QUE VOLTA UM DIA)
+  const formatarDataSegura = (dataStr) => {
+    if (!dataStr) return '---';
+    const dataPura = String(dataStr).split('T')[0];
+    const partes = dataPura.split('-');
+    if (partes.length !== 3) return dataStr;
+    const [ano, mes, dia] = partes;
+    return `${dia}/${mes}/${ano}`;
+  };
+
   const carregarDados = async () => {
     try {
       const headers = obterHeaders();
@@ -334,10 +344,10 @@ export function ManutencaoPlanejada({ user: userProp }) {
                   </span>
                 </div>
 
-                {/* Info Data e Setor */}
+                {/* Info Data e Setor (USANDO FORMATO SEGURO) */}
                 <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1 text-xs">
                   <div className="flex justify-between text-slate-600 font-bold text-[11px]">
-                    <span>📅 Data: <strong className="text-slate-800">{new Date(item.data_programada).toLocaleDateString('pt-BR')}</strong></span>
+                    <span>📅 Data: <strong className="text-slate-800">{formatarDataSegura(item.data_programada)}</strong></span>
                     <span>⏰ Hora: <strong className="text-slate-800">{item.hora_programada ? item.hora_programada.slice(0, 5) : 'A definir'}</strong></span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-medium">
