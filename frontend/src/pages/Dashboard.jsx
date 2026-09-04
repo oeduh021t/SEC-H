@@ -571,7 +571,7 @@ const Dashboard = ({ user }) => {
                         </div>
                         
                         <div className="divide-y divide-slate-100 p-2 max-h-56 overflow-y-auto">
-                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').map(ext => (
+                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa' || Number(r.em_manutencao_externa) === 1).map(ext => (
                                 <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
                                     <div className="min-w-0 flex-1 mr-2">
                                         <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
@@ -588,7 +588,7 @@ const Dashboard = ({ user }) => {
                                 </div>
                             ))}
 
-                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').length === 0 && (
+                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa' || Number(r.em_manutencao_externa) === 1).length === 0 && (
                                 <p className="text-xs text-slate-400 font-bold italic text-center py-6">
                                     Nenhum equipamento externo no momento. Parque interno 100% assistido na unidade.
                                 </p>

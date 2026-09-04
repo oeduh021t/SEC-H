@@ -180,7 +180,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             GROUP BY tecnico_responsavel ORDER BY total DESC`,
 
         recentes: `
-            SELECT c.id, c.titulo, c.status, c.data_abertura, f.nome_fantasia as fornecedor_nome
+            SELECT c.id, c.titulo, c.status, c.em_manutencao_externa, c.data_abertura, f.nome_fantasia as fornecedor_nome
             FROM chamados c
             LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
             ${filtroAberturaData ? filtroAberturaData.replace('data_abertura', 'c.data_abertura') : ''}
@@ -189,7 +189,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         statusAtivos: `
             SELECT 
                 SUM(CASE WHEN status = 'Ativo' THEN 1 ELSE 0 END) AS ativos,
-                SUM(CASE WHEN status = 'Em Manutenção' OR em_manutencao_externa = 1 THEN 1 ELSE 0 END) AS manutencao,
+                SUM(CASE WHEN status = 'Em Manutenção' THEN 1 ELSE 0 END) AS manutencao,
                 SUM(CASE WHEN status = 'Reserva' THEN 1 ELSE 0 END) AS reserva,
                 SUM(CASE WHEN status IN ('Inoperante', 'Baixado/Quebrado') THEN 1 ELSE 0 END) AS inoperantes,
                 COUNT(*) AS total
