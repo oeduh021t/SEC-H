@@ -981,7 +981,7 @@ app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecn
     });
 });
 
-app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+app.get('/api/equipamentos/:id/prontuario', (req, res) => {
     const { id } = req.params;
     const queryEquip = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id WHERE e.id = ?`;
     
@@ -1059,19 +1059,46 @@ app.get('/api/equipamentos/:id/prontuario', permitirApenas(['admin', 'coordenado
         if (err) return res.status(500).json(err);
         if (equip.length === 0) return res.status(404).json({ message: "Não encontrado" });
         
-        // 5 parâmetros do ID (um para cada SELECT do UNION)
         db.query(queryTimeline, [id, id, id, id, id], (errTimeline, timeline) => {
             if (errTimeline) return res.status(500).json(errTimeline);
             
             const queryCusto = `
                 SELECT (SELECT IFNULL(SUM(custo_servico), 0) FROM chamados WHERE equipamento_id = ? AND status = 'Concluído') +
-                        (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?) +
-                        (SELECT IFNULL(valor, 0) FROM equipamentos WHERE id = ?)
+                       (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?) +
+                       (SELECT IFNULL(valor, 0) FROM equipamentos WHERE id = ?)
                 as total`;
                 
             db.query(queryCusto, [id, id, id], (errCusto, custo) => {
                 if (errCusto) return res.status(500).json(errCusto);
-                res.json({ dados: equip[0], timeline, custoAcumulado: custo[0].total || 0 });
+
+                const queryOrcamentos = `
+                    SELECT 
+                        oi.id AS item_id,
+                        oi.descricao_proposta,
+                        oi.valor_unitario,
+                        o.id AS orcamento_id,
+                        o.codigo_orcamento,
+                        o.data_emissao,
+                        o.status AS orcamento_status,
+                        f.nome_fantasia AS fornecedor_nome,
+                        c.id AS chamado_id,
+                        c.titulo AS chamado_titulo
+                    FROM orcamentos_externos_itens oi
+                    JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+                    LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+                    LEFT JOIN chamados c ON oi.chamado_id = c.id
+                    WHERE oi.equipamento_id = ?
+                    ORDER BY o.data_emissao DESC, oi.id DESC
+                `;
+
+                db.query(queryOrcamentos, [id], (errOrc, orcamentos) => {
+                    res.json({ 
+                        dados: equip[0], 
+                        timeline, 
+                        custoAcumulado: custo[0].total || 0,
+                        orcamentos: orcamentos || []
+                    });
+                });
             });
         });
     });
@@ -4667,6 +4694,173 @@ app.get('/api/categorias-chamado', (req, res) => {
     });
 });
 
+// ==========================================
+// 📑 MÓDULO: ORÇAMENTOS EXTERNOS CONSOLIDADOS
+// ==========================================
+
+// 1. Listar todos os orçamentos (Admin e Coordenador)
+app.get('/api/orcamentos-externos', (req, res) => {
+    const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
+    if (!['admin', 'coordenador'].includes(nivel)) {
+        return res.status(403).json({ error: 'Acesso não autorizado.' });
+    }
+
+    const query = `
+        SELECT o.id, o.codigo_orcamento, o.fornecedor_id, o.data_emissao, 
+               o.valor_total, o.status, o.observacoes, o.created_at,
+               f.nome_fantasia AS fornecedor_nome,
+               (SELECT COUNT(*) FROM orcamentos_externos_itens oi WHERE oi.orcamento_id = o.id) AS total_itens
+        FROM orcamentos_externos o
+        LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+        ORDER BY o.id DESC
+    `;
+
+    db.query(query, (err, rows) => {
+        if (err) {
+            console.error("❌ Erro ao listar orçamentos:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+// 2. Buscar chamados disponíveis para orçar (Admin, Coordenador e Técnico)
+app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
+    const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
+    if (!['admin', 'coordenador', 'tecnico'].includes(nivel)) {
+        return res.status(403).json({ error: 'Acesso não autorizado.' });
+    }
+
+    const query = `
+        SELECT c.id, c.titulo, c.equipamento_id, c.fornecedor_id, c.status, c.em_manutencao_externa,
+               e.nome AS equipamento_nome, e.patrimonio, e.num_serie, s.nome AS setor_nome
+        FROM chamados c
+        LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        LEFT JOIN setores s ON c.setor_id = s.id
+        WHERE (
+            c.status = 'Aguardando Externa'
+            OR c.status LIKE '%Externa%'
+            OR c.em_manutencao_externa = 1
+            OR c.em_manutencao_externa = '1'
+        )
+        AND c.status != 'Concluído'
+        ORDER BY c.id DESC
+    `;
+
+    db.query(query, (err, rows) => {
+        if (err) {
+            console.error("❌ Erro na busca de chamados externos disponíveis:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+// 3. Criar novo orçamento em lote (Admin e Coordenador)
+app.post('/api/orcamentos-externos', (req, res) => {
+    const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
+    if (!['admin', 'coordenador'].includes(nivel)) {
+        return res.status(403).json({ error: 'Acesso não autorizado.' });
+    }
+
+    const { fornecedor_id, observacoes, itens } = req.body;
+
+    if (!fornecedor_id || !Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ error: 'Fornecedor e itens são obrigatórios.' });
+    }
+
+    const codigo = `ORC-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`;
+    const valorTotal = itens.reduce((acc, it) => acc + (Number(it.valor_unitario) || 0), 0);
+    const usuarioId = req.headers['x-usuario-id'] || 1;
+
+    const queryMestre = `
+        INSERT INTO orcamentos_externos 
+        (codigo_orcamento, fornecedor_id, data_emissao, valor_total, observacoes, criado_por_id)
+        VALUES (?, ?, CURDATE(), ?, ?, ?)
+    `;
+
+    db.query(queryMestre, [codigo, fornecedor_id, valorTotal, observacoes || null, usuarioId], (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao criar orçamento mestre:", err.message);
+            return res.status(500).json({ error: `Erro no banco: ${err.message}` });
+        }
+
+        const orcamentoId = result.insertId;
+
+        itens.forEach((item) => {
+            const queryItem = `
+                INSERT INTO orcamentos_externos_itens 
+                (orcamento_id, chamado_id, equipamento_id, descricao_proposta, valor_unitario)
+                VALUES (?, ?, ?, ?, ?)
+            `;
+
+            db.query(queryItem, [
+                orcamentoId,
+                item.chamado_id,
+                item.equipamento_id || null,
+                item.descricao_proposta || '',
+                Number(item.valor_unitario) || 0
+            ], (errItem) => {
+                if (errItem) console.error("⚠️ Erro ao inserir item do lote:", errItem.message);
+            });
+
+            // Atualiza custo e fornecedor no chamado
+            db.query(
+                `UPDATE chamados SET custo_servico = ?, fornecedor_id = ? WHERE id = ?`,
+                [Number(item.valor_unitario) || 0, fornecedor_id, item.chamado_id]
+            );
+
+            // Adiciona evento na linha do tempo da OS
+            db.query(
+                `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
+                [item.chamado_id, `[ORÇAMENTO GERADO] Lote ${codigo} registrado no valor de R$ ${Number(item.valor_unitario).toFixed(2)}.`]
+            );
+        });
+
+        return res.json({ success: true, orcamentoId, codigo });
+    });
+});
+
+// 4. Detalhes completos para consulta e impressão
+app.get('/api/orcamentos-externos/:id', (req, res) => {
+    const nivelHeader = req.headers['x-usuario-nivel'] || '';
+    const nivel = nivelHeader.toLowerCase().trim();
+
+    if (nivel && !['admin', 'coordenador', 'tecnico'].includes(nivel)) {
+        return res.status(403).json({ error: 'Acesso não autorizado.' });
+    }
+
+    const queryOrc = `
+        SELECT o.*, f.nome_fantasia AS fornecedor_nome, f.razao_social, f.cnpj, f.telefone, f.email
+        FROM orcamentos_externos o
+        LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+        WHERE o.id = ?
+    `;
+
+    db.query(queryOrc, [req.params.id], (err, rows) => {
+        if (err || rows.length === 0) {
+            return res.status(404).json({ error: 'Orçamento não encontrado.' });
+        }
+
+        const orcamento = rows[0];
+
+        const queryItens = `
+            SELECT oi.*, c.titulo AS chamado_titulo, e.nome AS equipamento_nome, e.patrimonio, e.num_serie, e.modelo, s.nome AS setor_nome
+            FROM orcamentos_externos_itens oi
+            JOIN chamados c ON oi.chamado_id = c.id
+            LEFT JOIN equipamentos e ON oi.equipamento_id = e.id
+            LEFT JOIN setores s ON c.setor_id = s.id
+            WHERE oi.orcamento_id = ?
+        `;
+
+        db.query(queryItens, [req.params.id], (errItens, itens) => {
+            if (errItens) {
+                return res.status(500).json({ error: errItens.message });
+            }
+            res.json({ orcamento, itens });
+        });
+    });
+});
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));

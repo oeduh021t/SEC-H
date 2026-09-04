@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 
 const Prontuario = () => {
     const { id } = useParams();
@@ -338,6 +338,8 @@ const Prontuario = () => {
     }
 
     const equip = dados.dados;
+    const orcamentosAtivo = dados.orcamentos || [];
+
     const timelineFiltrada = (dados.timeline || []).filter(item => {
         if (filtroTimeline === 'todos') return true;
         if (filtroTimeline === 'os') return item.tipo?.toLowerCase().includes('abertura') || item.tipo?.toLowerCase().includes('intervenção');
@@ -440,8 +442,8 @@ const Prontuario = () => {
                     )}
 
                     <button 
-                        type="button"
-                        onClick={handleImprimirFicha}
+                        type="button" 
+                        onClick={handleImprimirFicha} 
                         className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                     >
                         🖨️ Imprimir Ficha
@@ -449,8 +451,8 @@ const Prontuario = () => {
 
                     {guiaImpressao && (
                         <button 
-                            type="button"
-                            onClick={handleImprimirGuiaSaida}
+                            type="button" 
+                            onClick={handleImprimirGuiaSaida} 
                             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                         >
                             🖨️ Guia de Saída
@@ -459,16 +461,16 @@ const Prontuario = () => {
                     
                     {equip.status === 'Em Manutenção' ? (
                         <button 
-                            type="button"
-                            onClick={() => setModalRetorno(true)}
+                            type="button" 
+                            onClick={() => setModalRetorno(true)} 
                             className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-emerald-100 flex items-center gap-1.5"
                         >
                             🛬 Retorno de Manutenção
                         </button>
                     ) : (
                         <button 
-                            type="button"
-                            onClick={() => setModalSaidaExterna(true)}
+                            type="button" 
+                            onClick={() => setModalSaidaExterna(true)} 
                             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase transition-all active:scale-95 shadow-md shadow-indigo-100 flex items-center gap-1.5"
                         >
                             🚚 Saída Externa
@@ -476,8 +478,8 @@ const Prontuario = () => {
                     )}
 
                     <button 
-                        type="button"
-                        onClick={handleCriarChamadoContextualizado}
+                        type="button" 
+                        onClick={handleCriarChamadoContextualizado} 
                         className="bg-amber-500 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase hover:bg-amber-600 transition-all active:scale-95 shadow-md shadow-amber-100 flex items-center gap-1.5"
                     >
                         <span>🚨</span> Abrir OS
@@ -614,8 +616,75 @@ const Prontuario = () => {
                         </div>
                     </div>
 
-                    {/* COLUNA DIREITA: LINHA DO TEMPO & CRONOLOGIA VERTICAL */}
-                    <div className="lg:col-span-8 space-y-4">
+                    {/* COLUNA DIREITA: ORÇAMENTOS EXTERNOS & LINHA DO TEMPO */}
+                    <div className="lg:col-span-8 space-y-6">
+
+                        {/* 📑 SEÇÃO DE ORÇAMENTOS E REPAROS EXTERNOS DO ATIVO */}
+                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 print:border print:border-slate-200">
+                            <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4">
+                                <div>
+                                    <h3 className="font-black text-slate-800 text-sm uppercase tracking-widest flex items-center gap-2">
+                                        <span>📑</span> Orçamentos & Serviços Externos
+                                    </h3>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                        {orcamentosAtivo.length} proposta(s) / reparo(s) consolidado(s)
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3">
+                                {orcamentosAtivo.map((orc) => (
+                                    <div 
+                                        key={orc.item_id} 
+                                        className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+                                    >
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-black text-blue-600 font-mono text-xs">
+                                                    {orc.codigo_orcamento}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-bold">
+                                                    • OS #{orc.chamado_id}
+                                                </span>
+                                                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                                    {orc.fornecedor_nome}
+                                                </span>
+                                            </div>
+
+                                            <p className="text-xs text-slate-700 font-medium whitespace-pre-wrap">
+                                                {orc.descricao_proposta}
+                                            </p>
+
+                                            <p className="text-[10px] text-slate-400">
+                                                Data: {formatarDataSegura(orc.data_emissao)}
+                                            </p>
+                                        </div>
+
+                                        <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-2 shrink-0">
+                                            <span className="text-xs font-black font-mono text-slate-800">
+                                                R$ {Number(orc.valor_unitario).toFixed(2)}
+                                            </span>
+
+                                            <Link
+                                                to={`/orcamentos-externos/${orc.orcamento_id}/imprimir`}
+                                                target="_blank"
+                                                className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black uppercase transition-all shadow-xs hide-print"
+                                            >
+                                                Ver Lote ↗
+                                            </Link>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {orcamentosAtivo.length === 0 && (
+                                    <p className="text-xs text-slate-400 italic text-center py-4">
+                                        Nenhum reparo externo registrado para este ativo até o momento.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* LINHA DO TEMPO & CRONOLOGIA VERTICAL */}
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 print:border print:border-slate-200">
                             
                             {/* CABEÇALHO DO FEED COM FILTROS */}

@@ -33,18 +33,33 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeVerDashboard = isGestao;
   const podeVerPlanejadas = isGestao || isTecnico;
   const podeVerEquipamentos = isGestao;
-  const podeGerenciarEstrutura = isAdmin; // 👈 Exclusivo para você: Tipos, Setores e Repositório Global
+  const podeGerenciarEstrutura = isAdmin; // 👈 Exclusivo para admin: Tipos, Setores e Repositório Global
   const podeVerSuprimentos = isGestao;
   const podeVerUtilidades = isGestao;
   const podeVerFiltrosAgua = isAdmin;
   const podeVerRelatorios = isGestao;
   const podeGerenciarUsuarios = isAdmin;
 
-  // Verificadores de submenus ativos
-  const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('tipos-equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
-  const isSuprimentosActive = location.pathname.includes('estoque') || location.pathname.includes('compras') || location.pathname.includes('fornecedores') || location.pathname.includes('notas-fiscais') || location.pathname.includes('locais-estoque');
-  const isUtilidadesActive = location.pathname.includes('filtros') || location.pathname.includes('gases') || location.pathname.includes('controle-epi');
-  const isRelatActive = location.pathname.includes('relatorios') || location.pathname.includes('relatorio-filtros');
+  // Verificadores de submenus ativos (incluindo 'orcamentos-externos')
+  const isAtivosActive = location.pathname.includes('equipamentos') || 
+                        location.pathname.includes('tipos-equipamentos') || 
+                        location.pathname.includes('preventivas') || 
+                        location.pathname.includes('setores') || 
+                        location.pathname.includes('documentos') ||
+                        location.pathname.includes('orcamentos-externos');
+                        
+  const isSuprimentosActive = location.pathname.includes('estoque') || 
+                             location.pathname.includes('compras') || 
+                             location.pathname.includes('fornecedores') || 
+                             location.pathname.includes('notas-fiscais') || 
+                             location.pathname.includes('locais-estoque');
+                             
+  const isUtilidadesActive = location.pathname.includes('filtros') || 
+                            location.pathname.includes('gases') || 
+                            location.pathname.includes('controle-epi');
+                            
+  const isRelatActive = location.pathname.includes('relatorios') || 
+                        location.pathname.includes('relatorio-filtros');
 
   // Buscar alertas de manutenções programadas para o dia
   useEffect(() => {
@@ -227,6 +242,15 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
                       >
                         <span>• Listar Ativos</span>
+                      </Link>
+
+                      {/* 📑 NOVO: Orçamentos & Lotes Externos */}
+                      <Link 
+                        to="/orcamentos-externos" 
+                        onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
+                        className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/orcamentos-externos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        <span>• Orçamentos Externos</span>
                       </Link>
 
                       {/* 🔒 EXCLUSIVO ADMIN: Gerenciar Tipos */}
