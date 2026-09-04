@@ -156,6 +156,16 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         chamadosAndamento: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Em Atendimento'${filtroChamadosData}`,
         chamadosExternos: `SELECT COUNT(*) as total FROM chamados WHERE (status = 'Aguardando Externa' OR em_manutencao_externa = 1)${filtroChamadosData}`,
         chamadosConcluidos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'${filtroChamadosData}`,
+
+        // 🚚 LISTA COMPLETA DEDICADA DE ATIVOS EM CUSTÓDIA EXTERNA
+        chamadosExternosLista: `
+            SELECT c.id, c.titulo, c.status, c.em_manutencao_externa, c.data_abertura, f.nome_fantasia as fornecedor_nome
+            FROM chamados c
+            LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+            WHERE (c.status = 'Aguardando Externa' OR c.em_manutencao_externa = 1)
+              AND c.status != 'Concluído'
+            ${filtroChamadosData ? filtroChamadosData.replace('data_abertura', 'c.data_abertura') : ''}
+            ORDER BY c.id DESC`,
             
         preventivasAtrasadas: `
             SELECT COUNT(*) as total FROM equipamentos
@@ -358,6 +368,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 'chamadosAbertos',
                 'chamadosAndamento',
                 'chamadosExternos',
+                'chamadosExternosLista',
                 'chamadosConcluidos',
                 'porEquipamento',
                 'porTecnico',

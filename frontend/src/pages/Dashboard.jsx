@@ -99,10 +99,15 @@ const Dashboard = ({ user }) => {
         return `${h}h ${m > 0 ? `${m}m` : ''}`;
     };
 
+    // Lista de Chamados Externos (Prioriza o endpoint dedicado, com fallback resiliente)
+    const listaExternos = stats?.chamadosExternosLista 
+        ? asArray(stats.chamadosExternosLista) 
+        : asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa' || Number(r.em_manutencao_externa) === 1);
+
     // Cálculos Operacionais
     const totalAbertos = Number(stats?.chamadosAbertos?.[0]?.total || 0);
     const totalAndamento = Number(stats?.chamadosAndamento?.[0]?.total || 0);
-    const totalExternos = Number(stats?.chamadosExternos?.[0]?.total || asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa').length || 0);
+    const totalExternos = Number(stats?.chamadosExternos?.[0]?.total || listaExternos.length || 0);
     const totalConcluidos = Number(stats?.chamadosConcluidos?.[0]?.total || 0);
     const totalGeralChamados = totalAbertos + totalAndamento + totalExternos + totalConcluidos;
     const taxaResolucao = totalGeralChamados > 0 ? Math.round((totalConcluidos / totalGeralChamados) * 100) : 100;
@@ -132,7 +137,7 @@ const Dashboard = ({ user }) => {
     const savingStats = stats?.savingCompras?.[0] || { total_estimado: 0, total_real: 0, total_pedidos_baixados: 0 };
     const estimadoTotalCompras = Number(savingStats.total_estimado || 0);
     const realTotalCompras = Number(savingStats.total_real || 0);
-    const diferencaSaving = estimadoTotalCompras - realTotalCompras; // Positivo = Economia (Saving), Negativo = Estouro
+    const diferencaSaving = estimadoTotalCompras - realTotalCompras;
     const percentualSaving = estimadoTotalCompras > 0 ? ((diferencaSaving / estimadoTotalCompras) * 100).toFixed(1) : '0.0';
 
     // Dados Gráficos protegidos
@@ -565,13 +570,17 @@ const Dashboard = ({ user }) => {
                                     Equipamentos fora da unidade hospitalar aguardando laudo técnico ou retorno
                                 </p>
                             </div>
-                            <Link to="/chamados" className="text-[10px] font-black text-purple-700 hover:underline uppercase">
+                            <Link 
+                                to="/chamados" 
+                                state={{ filtroInicial: 'Aguardando Externa' }}
+                                className="text-[10px] font-black text-purple-700 hover:underline uppercase"
+                            >
                                 Filtrar na Lista ↗
                             </Link>
                         </div>
                         
                         <div className="divide-y divide-slate-100 p-2 max-h-56 overflow-y-auto">
-                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa' || Number(r.em_manutencao_externa) === 1).map(ext => (
+                            {listaExternos.map(ext => (
                                 <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
                                     <div className="min-w-0 flex-1 mr-2">
                                         <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
@@ -588,7 +597,7 @@ const Dashboard = ({ user }) => {
                                 </div>
                             ))}
 
-                            {asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa' || Number(r.em_manutencao_externa) === 1).length === 0 && (
+                            {listaExternos.length === 0 && (
                                 <p className="text-xs text-slate-400 font-bold italic text-center py-6">
                                     Nenhum equipamento externo no momento. Parque interno 100% assistido na unidade.
                                 </p>
@@ -732,7 +741,6 @@ const Dashboard = ({ user }) => {
             {visaoAtual === 'financeira' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
-                    {/* 🛒 NOVO PAINEL EXECUTIVO DE SUPRIMENTOS & SAVING */}
                     <div className="bg-gradient-to-r from-emerald-900 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                         <div className="space-y-1">
                             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 bg-emerald-800/60 px-2.5 py-0.5 rounded-full inline-block">
