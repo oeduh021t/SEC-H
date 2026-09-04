@@ -5,6 +5,9 @@ export function TratarChamado() {
   const { id } = useParams();
   const navigate = useNavigate();
 
+  // Chave única para persistência no storage do navegador
+  const CHAVE_RASCUNHO = `rascunho_os_${id}`;
+
   // Dados do Usuário Logado
   const [usuarioLogado] = useState(() => {
     const salvo = localStorage.getItem('user');
@@ -20,6 +23,9 @@ export function TratarChamado() {
   const [fornecedores, setFornecedores] = useState([]);
   const [tecnicos, setTecnicos] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // 📱 Estado para Visualizador Interno de Anexos/Imagens (Mobile Friendly)
+  const [visualizadorAnexo, setVisualizadorAnexo] = useState(null); // { url, titulo, tipo }
 
   // Estados de Troca de Ativo
   const [equipamentosReserva, setEquipamentosReserva] = useState([]);
@@ -63,14 +69,60 @@ export function TratarChamado() {
   const [nfReferencia, setNfReferencia] = useState("");
   const [custoServico, setCustoServico] = useState(0);
 
+  // Sinalizador de rascunho recuperado
+  const [temRascunhoRecuperado, setTemRascunhoRecuperado] = useState(false);
+
   const API_URL = "/api";
   const BASE_URL = "";
+
+  // 📱 Trava o botão físico "Voltar" do celular para fechar modais/anexos em vez de fechar o app
+  useEffect(() => {
+    const handlePopState = () => {
+      if (visualizadorAnexo) {
+        setVisualizadorAnexo(null);
+      } else if (modalSaidaExterna) {
+        setModalSaidaExterna(false);
+      } else if (modalRetornoExterno) {
+        setModalRetornoExterno(false);
+      } else if (exibirPainelTroca) {
+        setExibirPainelTroca(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [visualizadorAnexo, modalSaidaExterna, modalRetornoExterno, exibirPainelTroca]);
+
+  const abrirVisualizadorInterno = (url, titulo = 'Visualização de Documento', tipo = 'imagem') => {
+    window.history.pushState({ visualizando: true }, '');
+    setVisualizadorAnexo({ url, titulo, tipo });
+  };
+
+  const fecharVisualizadorInterno = () => {
+    setVisualizadorAnexo(null);
+  };
 
   const totalPecas = (Array.isArray(chamado?.itens_vinculados) ? chamado.itens_vinculados : []).reduce(
     (acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 
     0
   );
   const custoTotalOS = (Number(custoServico) || 0) + (Number(chamado?.valor_servico_externo) || 0) + totalPecas;
+
+  // 💾 Auto-save do rascunho no localStorage enquanto o técnico digita
+  useEffect(() => {
+    if (!loading && chamado && chamado.status !== "Concluído") {
+      const dadosRascunho = {
+        descricaoSolucao,
+        status,
+        tipoAtendimento,
+        tecnicoId,
+        fornecedorId,
+        nfReferencia,
+        custoServico
+      };
+      localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify(dadosRascunho));
+    }
+  }, [descricaoSolucao, status, tipoAtendimento, tecnicoId, fornecedorId, nfReferencia, custoServico, loading, chamado]);
 
   const carregarTodosOsDados = async () => {
     try {
@@ -79,7 +131,6 @@ export function TratarChamado() {
         'x-usuario-nivel': nivelUsuario
       };
 
-      // Carregamento blindado contra rotas proibidas (403)
       const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos] = await Promise.all([
         fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.ok ? res.json() : null),
         isGestao 
@@ -92,13 +143,38 @@ export function TratarChamado() {
 
       if (resChamado) {
         setChamado(resChamado);
-        setTipoAtendimento(resChamado.tipo_atendimento || "Interno");
-        setStatus(resChamado.status || "Em Atendimento");
-        setFornecedorId(resChamado.fornecedor_id || "");
-        setNfReferencia(resChamado.nf_referencia || "");
-        setCustoServico(resChamado.custo_servico || 0);
-        setDescricaoSolucao(resChamado.descricao_solucao || "");
-        setTecnicoId(resChamado.tecnico_id || "");
+
+        // 🔍 Checagem de Rascunho Salvo em caso de reinício por pressão de memória do celular
+        const rascunhoJson = localStorage.getItem(CHAVE_RASCUNHO);
+        let rascunho = null;
+        if (rascunhoJson) {
+          try {
+            rascunho = JSON.parse(rascunhoJson);
+          } catch (e) {
+            console.error("Erro ao analisar rascunho", e);
+          }
+        }
+
+        if (rascunho && resChamado.status !== "Concluído") {
+          setTipoAtendimento(rascunho.tipoAtendimento || resChamado.tipo_atendimento || "Interno");
+          setStatus(rascunho.status || resChamado.status || "Em Atendimento");
+          setFornecedorId(rascunho.fornecedorId || resChamado.fornecedor_id || "");
+          setNfReferencia(rascunho.nfReferencia || resChamado.nf_referencia || "");
+          setCustoServico(rascunho.custoServico !== undefined ? rascunho.custoServico : (resChamado.custo_servico || 0));
+          setDescricaoSolucao(rascunho.descricaoSolucao !== undefined ? rascunho.descricaoSolucao : (resChamado.descricao_solucao || ""));
+          setTecnicoId(rascunho.tecnicoId || resChamado.tecnico_id || "");
+          if (rascunho.descricaoSolucao && rascunho.descricaoSolucao.trim() !== "") {
+            setTemRascunhoRecuperado(true);
+          }
+        } else {
+          setTipoAtendimento(resChamado.tipo_atendimento || "Interno");
+          setStatus(resChamado.status || "Em Atendimento");
+          setFornecedorId(resChamado.fornecedor_id || "");
+          setNfReferencia(resChamado.nf_referencia || "");
+          setCustoServico(resChamado.custo_servico || 0);
+          setDescricaoSolucao(resChamado.descricao_solucao || "");
+          setTecnicoId(resChamado.tecnico_id || "");
+        }
 
         if (resChamado.equipamento_id && isGestao) {
           carregarEquipamentosReserva(resChamado.equipamento_id, headers);
@@ -115,6 +191,14 @@ export function TratarChamado() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const descartarRascunho = () => {
+    localStorage.removeItem(CHAVE_RASCUNHO);
+    setDescricaoSolucao(chamado?.descricao_solucao || "");
+    setStatus(chamado?.status || "Em Atendimento");
+    setTipoAtendimento(chamado?.tipo_atendimento || "Interno");
+    setTemRascunhoRecuperado(false);
   };
 
   const carregarEquipamentosReserva = async (equipamentoId, headers) => {
@@ -368,6 +452,10 @@ export function TratarChamado() {
       });
 
       if (res.ok) {
+        // 🧹 Limpa o rascunho persistido após salvar com sucesso
+        localStorage.removeItem(CHAVE_RASCUNHO);
+        setTemRascunhoRecuperado(false);
+
         if (status === "Concluído") {
           alert("Chamado concluído com sucesso! 🎉");
           navigate("/chamados");
@@ -453,7 +541,7 @@ export function TratarChamado() {
   const isEmExterna = chamado?.status === "Aguardando Externa" || Number(chamado?.em_manutencao_externa) === 1;
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
+    <div className="p-3 sm:p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
       {/* 🖨️ GUIA DE REMESSA PRINT STYLES */}
       <style>{`
@@ -474,8 +562,8 @@ export function TratarChamado() {
       `}</style>
 
       {/* 🧭 HEADER */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100">
+        <div className="flex items-center gap-3 sm:gap-4">
           <button 
             onClick={() => navigate(-1)} 
             className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black uppercase transition-all flex items-center gap-1 active:scale-95"
@@ -488,11 +576,11 @@ export function TratarChamado() {
               <span className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 rounded-md">
                 OS #{id}
               </span>
-              <h1 className="text-xl font-black text-slate-800 uppercase tracking-tight truncate max-w-lg">
+              <h1 className="text-base sm:text-xl font-black text-slate-800 uppercase tracking-tight truncate max-w-[220px] sm:max-w-lg">
                 {chamado?.titulo}
               </h1>
             </div>
-            <p className="text-[11px] text-slate-400 font-bold uppercase mt-0.5">
+            <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold uppercase mt-0.5">
               📍 Setor: <span className="text-slate-700">{chamado?.setor_nome || "Geral"}</span> 
               {chamado?.solicitante_nome && ` • 👤 Solicitante: ${chamado.solicitante_nome}`}
             </p>
@@ -667,7 +755,7 @@ export function TratarChamado() {
         <div className="lg:col-span-5 space-y-6">
 
           {/* PROBLEMA REPORTADO */}
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+          <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center justify-between">
               <span>🚨 Problema Reportado</span>
               <span className={`text-[10px] px-2 py-0.5 rounded-full text-white ${
@@ -685,7 +773,7 @@ export function TratarChamado() {
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-2xl space-y-1">
                 <span className="text-[10px] font-black text-blue-600 uppercase block">Equipamento Vinculado:</span>
                 <p className="text-xs font-black text-slate-800 uppercase">{chamado.eq_nome}</p>
-                <div className="text-[10px] text-slate-500 font-bold flex gap-3">
+                <div className="text-[10px] text-slate-500 font-bold flex flex-wrap gap-x-3 gap-y-1">
                   <span>PAT: <strong>{chamado.patrimonio || 'S/P'}</strong></span>
                   <span>S/N: <strong>{chamado.num_serie || 'N/A'}</strong></span>
                   <span>Marca: <strong>{chamado.fabricante || 'S/M'}</strong></span>
@@ -699,16 +787,16 @@ export function TratarChamado() {
                 <img 
                   src={`${BASE_URL}${chamado.foto_abertura}`} 
                   className="w-full h-36 object-cover rounded-2xl border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity shadow-sm"
-                  onClick={() => window.open(`${BASE_URL}${chamado.foto_abertura}`)}
+                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamado.foto_abertura}`, `Foto de Abertura - OS #${id}`, 'imagem')}
                   alt="Foto Abertura"
-                  title="Clique para ampliar"
+                  title="Toque para ampliar"
                 />
               </div>
             )}
           </div>
 
-          {/* CARD DE PEÇAS (ADMIN E COORDENADOR PODEM LANÇAR; TÉCNICO APENAS VISUALIZA) */}
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+          {/* CARD DE PEÇAS */}
+          <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <div className="flex justify-between items-center border-b pb-2">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
                 📦 Insumos & Peças
@@ -766,8 +854,8 @@ export function TratarChamado() {
             </div>
           </div>
 
-          {/* CARD DE ANEXOS */}
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
+          {/* CARD DE ANEXOS COM VISUALIZAÇÃO INTERNA */}
+          <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
               📎 Laudos & Arquivos ({listaDocumentos.length})
             </h3>
@@ -783,28 +871,33 @@ export function TratarChamado() {
               <button 
                 disabled={isConcluido || !documentoSelecionado} 
                 type="submit" 
-                className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm disabled:opacity-50"
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm disabled:opacity-50"
               >
                 + Anexar Laudo
               </button>
             </form>
 
-            <div className="space-y-1.5 max-h-32 overflow-y-auto">
-              {listaDocumentos.map((doc) => (
-                <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
-                  <span className="font-bold text-slate-700 truncate max-w-[200px]" title={doc.nome_original}>
-                    {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
-                  </span>
-                  <a 
-                    href={`${BASE_URL}${doc.url_arquivo}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="text-blue-600 font-black text-[10px] uppercase bg-white px-2 py-1 rounded shadow-sm border border-slate-100"
-                  >
-                    Abrir ↗
-                  </a>
-                </div>
-              ))}
+            <div className="space-y-1.5 max-h-36 overflow-y-auto">
+              {listaDocumentos.map((doc) => {
+                const isPdf = doc.tipo_mimetype?.includes('pdf') || doc.nome_original?.toLowerCase().endsWith('.pdf');
+                return (
+                  <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-700 truncate max-w-[190px]" title={doc.nome_original}>
+                      {isPdf ? '📄' : '📷'} {doc.nome_original}
+                    </span>
+                    <button 
+                      type="button"
+                      onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? 'pdf' : 'imagem')}
+                      className="text-blue-600 font-black text-[10px] uppercase bg-white px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-100 active:scale-95 transition-all"
+                    >
+                      Ver ↗
+                    </button>
+                  </div>
+                );
+              })}
+              {listaDocumentos.length === 0 && (
+                <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>
+              )}
             </div>
           </div>
 
@@ -813,11 +906,26 @@ export function TratarChamado() {
         {/* COLUNA DIREITA: FORMULÁRIO DE SOLUÇÃO E HISTÓRICO */}
         <div className="lg:col-span-7 space-y-6">
 
-          <form onSubmit={handleSalvarAtendimento} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-5">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                📝 Diagnóstico & Parecer Técnico
-              </h3>
+          <form onSubmit={handleSalvarAtendimento} className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 space-y-5">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-2 gap-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                  📝 Diagnóstico & Parecer Técnico
+                </h3>
+                {temRascunhoRecuperado && (
+                  <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1">
+                    💾 Rascunho Restaurado
+                    <button 
+                      type="button" 
+                      onClick={descartarRascunho} 
+                      className="ml-1 text-red-500 hover:text-red-700 font-black"
+                      title="Descartar rascunho recuperado"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                )}
+              </div>
               <div className="text-xs font-black text-slate-700">
                 Custo Total OS: <strong className="text-emerald-600">R$ {custoTotalOS.toFixed(2)}</strong>
               </div>
@@ -941,7 +1049,7 @@ export function TratarChamado() {
           </form>
 
           {/* HISTÓRICO DE ATIVIDADES */}
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
+          <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
               🕒 Histórico de Atividades Desta OS
             </h3>
@@ -972,18 +1080,21 @@ export function TratarChamado() {
                       {h.texto_historico}
                     </p>
 
-                    {h.url_anexo && (
-                      <div className="pt-2">
-                        <a 
-                          href={`${BASE_URL}${h.url_anexo}`} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline uppercase bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100"
-                        >
-                          📄 Visualizar Laudo do Fornecedor
-                        </a>
-                      </div>
-                    )}
+                    {/* Botão para laudo do fornecedor com visualizador interno */}
+                    {h.url_anexo && (() => {
+                      const isPdf = h.url_anexo.toLowerCase().endsWith('.pdf');
+                      return (
+                        <div className="pt-2">
+                          <button 
+                            type="button"
+                            onClick={() => abrirVisualizadorInterno(`${BASE_URL}${h.url_anexo}`, `Laudo Técnico - OS #${id}`, isPdf ? 'pdf' : 'imagem')}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline uppercase bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100 active:scale-95 transition-all"
+                          >
+                            {isPdf ? '📄' : '📷'} Visualizar Laudo do Fornecedor
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {h.texto_historico?.includes('ENVIADO PARA MANUTENÇÃO EXTERNA') && (
                       <div className="pt-2">
@@ -1008,6 +1119,45 @@ export function TratarChamado() {
         </div>
 
       </div>
+
+      {/* 📱 VISUALIZADOR INTERNO DE ANEXOS / LAUDOS / FOTOS EM TELA CHEIA */}
+      {visualizadorAnexo && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
+          <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">
+            <button 
+              onClick={fecharVisualizadorInterno}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-black text-xs uppercase flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"
+            >
+              <span>←</span> Voltar ao Atendimento
+            </button>
+            <span className="text-xs font-black uppercase truncate max-w-[200px] text-slate-300">
+              {visualizadorAnexo.titulo}
+            </span>
+            <button 
+              onClick={fecharVisualizadorInterno}
+              className="text-xl text-slate-400 hover:text-white px-2"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto flex items-center justify-center p-2 sm:p-4">
+            {visualizadorAnexo.tipo === 'imagem' ? (
+              <img 
+                src={visualizadorAnexo.url} 
+                alt="Documento ampliado" 
+                className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              />
+            ) : (
+              <iframe 
+                src={visualizadorAnexo.url} 
+                title="Visualizador de PDF"
+                className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 🚚 MODAL: SAÍDA EXTERNA */}
       {modalSaidaExterna && (

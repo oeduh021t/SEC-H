@@ -12,7 +12,7 @@ const Chamados = ({ user: userProp }) => {
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
   
-  // 🏷️ Categorias dinâmicas vindas da tabela do banco de dados (com fallback padrão)
+  // 🏷️ Categorias dinâmicas
   const [categorias, setCategorias] = useState([
     { id: 1, nome: 'Engenharia Clínica', icone: '🤖' },
     { id: 2, nome: 'Refrigeração', icone: '❄️' },
@@ -39,7 +39,14 @@ const Chamados = ({ user: userProp }) => {
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
   const [modalEditarAberta, setModalEditarAberta] = useState(false);
 
-  const [filtroStatus, setFiltroStatus] = useState('Todos');
+  // 📱 Estado para Visualizador Interno de Anexos/Imagens (Mobile Friendly)
+  const [visualizadorAnexo, setVisualizadorAnexo] = useState(null); // { url, titulo, tipo }
+
+  // ⚡ Captura o filtro inicial vindo da navegação (ex: "Aguardando Externa")
+  const [filtroStatus, setFiltroStatus] = useState(() => {
+    return location.state?.filtroInicial || 'Todos';
+  });
+
   const [busca, setBusca] = useState('');
   const [chamadoSelecionado, setChamadoSelecionado] = useState(null);
 
@@ -85,6 +92,35 @@ const Chamados = ({ user: userProp }) => {
     return () => clearInterval(timer);
   }, []);
 
+  // 📱 Trava o botão físico "Voltar" do celular para fechar os modais em vez de fechar o app
+  useEffect(() => {
+    const handlePopState = () => {
+      if (visualizadorAnexo) {
+        setVisualizadorAnexo(null);
+      } else if (modalDetalhesAberta) {
+        setModalDetalhesAberta(false);
+      } else if (modalAberta) {
+        setModalAberta(false);
+      } else if (modalEditarAberta) {
+        setModalEditarAberta(false);
+      } else if (modalObsAberta) {
+        setModalObsAberta(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [visualizadorAnexo, modalDetalhesAberta, modalAberta, modalEditarAberta, modalObsAberta]);
+
+  const abrirVisualizadorInterno = (url, titulo = 'Visualização de Arquivo', tipo = 'imagem') => {
+    window.history.pushState({ visualizando: true }, '');
+    setVisualizadorAnexo({ url, titulo, tipo });
+  };
+
+  const fecharVisualizadorInterno = () => {
+    setVisualizadorAnexo(null);
+  };
+
   const calcularTempoSLA = (dataInicioStr, dataFimStr, prioridade = 'Média') => {
     if (!dataInicioStr) {
       return { texto: '---', horasDecorridas: 0, percentual: 0, atrasado: false, metaHoras: 24 };
@@ -124,7 +160,6 @@ const Chamados = ({ user: userProp }) => {
     fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).then(setSetores).catch(err => console.error(err));
     fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()).then(setEquipamentos).catch(err => console.error(err));
 
-    // Busca categorias configuradas no banco
     fetch(`${API_URL}/categorias-chamado`, { headers })
       .then(res => res.ok ? res.json() : [])
       .then(data => {
@@ -138,6 +173,13 @@ const Chamados = ({ user: userProp }) => {
   useEffect(() => {
     carregarDados();
   }, []);
+
+  useEffect(() => {
+    if (location.state?.filtroInicial) {
+      setFiltroStatus(location.state.filtroInicial);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, navigate, location.pathname]);
 
   useEffect(() => {
     if (location.state?.buscaId) {
@@ -168,6 +210,7 @@ const Chamados = ({ user: userProp }) => {
       .then(res => res.json())
       .then(data => {
         setChamadoSelecionado(data);
+        window.history.pushState({ modalDetalhes: true }, '');
         setModalDetalhesAberta(true);
 
         if (!isUsuarioComum) {
@@ -263,7 +306,7 @@ const Chamados = ({ user: userProp }) => {
         titulo: '',
         descricao_problema: '',
         prioridade: 'Média',
-        categoria: 'Engenharia Clínica',
+        categoria: categorias[0]?.nome || 'Engenharia Clínica',
         impacto: 'Normal',
         ramal_contato: ''
       });
@@ -423,19 +466,32 @@ const Chamados = ({ user: userProp }) => {
   });
 
   return (
-    <div className="p-4 bg-slate-50 min-h-screen font-sans text-dark">
+    <div className="p-3 sm:p-4 bg-slate-50 min-h-screen font-sans text-dark">
       {/* HEADER PRINCIPAL */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <h1 className="text-3xl font-black text-slate-800 flex items-center gap-3">
-          <span className="bg-amber-100 p-2 rounded-xl text-amber-600">🎫</span>
-          CHAMADOS / OS
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100">
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-800 flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+          <div className="flex items-center gap-2.5">
+            <span className="bg-amber-100 p-2 rounded-xl text-amber-600">🎫</span>
+            CHAMADOS / OS
+          </div>
+          {!isUsuarioComum && (
+            <Link
+              to="/painel-chamados"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="md:hidden bg-indigo-600 text-white p-2 rounded-xl font-black text-xs shadow-md"
+              title="Painel TV"
+            >
+              📺 TV
+            </Link>
+          )}
         </h1>
-        <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch sm:items-center">
           <input 
             type="text" 
             placeholder="Buscar por OS, ativo, setor..." 
             value={busca}
-            className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800 focus:border-blue-500 transition-colors" 
+            className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800 focus:border-blue-500 transition-colors text-sm" 
             onChange={(e) => setBusca(e.target.value)} 
           />
 
@@ -444,7 +500,7 @@ const Chamados = ({ user: userProp }) => {
               to="/painel-chamados"
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all flex items-center gap-2 active:scale-95"
+              className="hidden md:flex bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all items-center gap-2 active:scale-95"
               title="Abrir Painel de TV em tempo real"
             >
               <span>📺</span> PAINEL TV
@@ -465,19 +521,19 @@ const Chamados = ({ user: userProp }) => {
               }); 
               setModalAberta(true); 
             }} 
-            className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all active:scale-95"
+            className="bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 sm:py-2.5 rounded-xl font-black shadow-lg shadow-amber-100 transition-all active:scale-95 text-center text-sm"
           >
             + NOVO CHAMADO
           </button>
         </div>
       </div>
 
-      {/* BARRA DE ABAS / FILTROS */}
-      <div className="flex flex-wrap items-center gap-2 mb-6 bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
+      {/* BARRA DE ABAS / FILTROS RESPONSIVA COM SCROLL HORIZONTAL */}
+      <div className="flex items-center gap-2 mb-6 bg-white p-2 sm:p-3 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto no-scrollbar">
         <button
           type="button"
           onClick={() => setFiltroStatus('Todos')}
-          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             filtroStatus === 'Todos'
               ? 'bg-slate-900 text-white shadow-md shadow-slate-200'
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -489,7 +545,7 @@ const Chamados = ({ user: userProp }) => {
         <button
           type="button"
           onClick={() => setFiltroStatus('Aberto')}
-          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             filtroStatus === 'Aberto'
               ? 'bg-red-500 text-white shadow-md shadow-red-100'
               : 'bg-red-50 text-red-700 hover:bg-red-100'
@@ -501,7 +557,7 @@ const Chamados = ({ user: userProp }) => {
         <button
           type="button"
           onClick={() => setFiltroStatus('Em Atendimento')}
-          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             filtroStatus === 'Em Atendimento'
               ? 'bg-amber-500 text-white shadow-md shadow-amber-100'
               : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
@@ -513,7 +569,7 @@ const Chamados = ({ user: userProp }) => {
         <button
           type="button"
           onClick={() => setFiltroStatus('Aguardando Externa')}
-          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             filtroStatus === 'Aguardando Externa'
               ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
               : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/50'
@@ -525,7 +581,7 @@ const Chamados = ({ user: userProp }) => {
         <button
           type="button"
           onClick={() => setFiltroStatus('Concluído')}
-          className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 ${
+          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
             filtroStatus === 'Concluído'
               ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100'
               : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
@@ -536,7 +592,7 @@ const Chamados = ({ user: userProp }) => {
       </div>
 
       {/* GRID DE CARDS */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {filtrados.map(c => {
           const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
           const isConcluido = c.status === 'Concluído';
@@ -548,7 +604,7 @@ const Chamados = ({ user: userProp }) => {
               key={c.id} 
               className={`rounded-3xl border-2 border-l-[10px] flex flex-col justify-between overflow-hidden transition-all hover:shadow-xl hover:-translate-y-0.5 ${obterEstiloCard(c)}`}
             >
-              <div className="p-5 flex-1 flex flex-col justify-between">
+              <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <div className="flex-1 min-w-0">
@@ -556,11 +612,11 @@ const Chamados = ({ user: userProp }) => {
                         <span className="bg-white/80 text-slate-800 font-black text-[10px] px-2 py-0.5 rounded-md border border-slate-200/60 shadow-xs">
                           #{c.id}
                         </span>
-                        <h3 className="font-black text-slate-800 text-base uppercase truncate" title={c.titulo}>
+                        <h3 className="font-black text-slate-800 text-sm sm:text-base uppercase truncate" title={c.titulo}>
                           {c.titulo}
                         </h3>
                       </div>
-                      <div className="text-[11px] text-slate-500 font-bold uppercase mt-0.5 flex items-center gap-2">
+                      <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold uppercase mt-0.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
                         <span>📍 {c.setor_nome || 'Setor Geral'}</span>
                         <span>•</span>
                         <span>📅 {c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '---'}</span>
@@ -575,12 +631,12 @@ const Chamados = ({ user: userProp }) => {
 
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${obterBadgeStatus(c)}`}>
-                        {emExterna ? '🚚 Aguardando Externa' : c.status}
+                        {emExterna ? '🚚 Externa' : c.status}
                       </span>
                       <span className={`text-[9px] font-black uppercase ${
                         c.prioridade === 'Urgente' ? 'text-red-600' : c.prioridade === 'Alta' ? 'text-amber-600' : 'text-slate-500'
                       }`}>
-                        Prioridade: {c.prioridade || 'Média'}
+                        {c.prioridade || 'Média'}
                       </span>
                     </div>
                   </div>
@@ -606,17 +662,17 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   )}
 
-                  <div className="flex gap-3 bg-white/80 p-3 rounded-2xl border border-slate-200/60 mb-3">
+                  <div className="flex gap-3 bg-white/80 p-2.5 sm:p-3 rounded-2xl border border-slate-200/60 mb-3">
                     {c.foto_abertura ? (
                       <img 
                         src={`${BASE_URL}${c.foto_abertura}`} 
-                        className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
-                        onClick={() => window.open(`${BASE_URL}${c.foto_abertura}`)} 
+                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
+                        onClick={() => abrirVisualizadorInterno(`${BASE_URL}${c.foto_abertura}`, `Foto de Abertura - OS #${c.id}`, 'imagem')} 
                         alt="Miniatura Abertura" 
-                        title="Clique para ampliar a foto"
+                        title="Toque para ampliar"
                       />
                     ) : (
-                      <div className="w-16 h-16 rounded-xl border border-dashed border-slate-200 bg-white flex flex-col items-center justify-center text-[8px] font-bold text-slate-300 uppercase shrink-0">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl border border-dashed border-slate-200 bg-white flex flex-col items-center justify-center text-[8px] font-bold text-slate-300 uppercase shrink-0">
                         <span>📷</span>
                         <span>Sem foto</span>
                       </div>
@@ -651,7 +707,7 @@ const Chamados = ({ user: userProp }) => {
                   <div className="flex flex-wrap gap-1.5">
                     <button 
                       onClick={() => abrirDetalhes(c.id)} 
-                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[10px] font-black uppercase transition-all shadow-xs"
+                      className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[10px] font-black uppercase transition-all shadow-xs active:scale-95"
                     >
                       Detalhes
                     </button>
@@ -659,8 +715,8 @@ const Chamados = ({ user: userProp }) => {
                     {isAdminOuCoord && !isConcluido && (
                       <button
                         onClick={() => abrirModalEdicao(c)}
-                        className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-[10px] font-black uppercase transition-all"
-                        title="Editar setor, equipamento ou detalhes da solicitação"
+                        className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-[10px] font-black uppercase transition-all active:scale-95"
+                        title="Editar solicitação"
                       >
                         ✏️ Editar
                       </button>
@@ -703,7 +759,7 @@ const Chamados = ({ user: userProp }) => {
                     {isAdminOuCoord && (
                       <button 
                         onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} 
-                        className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 rounded-xl text-[10px] font-black uppercase transition-all"
+                        className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 rounded-xl text-[10px] font-black uppercase transition-all active:scale-95"
                         title="Adicionar nota de coordenação"
                       >
                         💬 Obs
@@ -717,6 +773,47 @@ const Chamados = ({ user: userProp }) => {
           );
         })}
       </div>
+
+      {/* 📱 NOVO: VISUALIZADOR INTERNO DE ANEXOS / FOTOS EM TELA CHEIA */}
+      {visualizadorAnexo && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
+          {/* Barra Superior com botão Voltar / Fechar nítido */}
+          <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">
+            <button 
+              onClick={fecharVisualizadorInterno}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-black text-xs uppercase flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"
+            >
+              <span>←</span> Voltar ao Chamado
+            </button>
+            <span className="text-xs font-black uppercase truncate max-w-[200px] text-slate-300">
+              {visualizadorAnexo.titulo}
+            </span>
+            <button 
+              onClick={fecharVisualizadorInterno}
+              className="text-xl text-slate-400 hover:text-white px-2"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Área de Visualização Central */}
+          <div className="flex-1 overflow-auto flex items-center justify-center p-2 sm:p-4">
+            {visualizadorAnexo.tipo === 'imagem' ? (
+              <img 
+                src={visualizadorAnexo.url} 
+                alt="Documento ampliado" 
+                className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              />
+            ) : (
+              <iframe 
+                src={visualizadorAnexo.url} 
+                title="Visualizador de PDF"
+                className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MODAL: DETALHES DO CHAMADO */}
       {modalDetalhesAberta && chamadoSelecionado && (() => {
@@ -732,54 +829,63 @@ const Chamados = ({ user: userProp }) => {
 
         return (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white w-full max-w-6xl h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200 border border-slate-100">
+            <div className="bg-white w-full max-w-6xl h-[94vh] sm:h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200 border border-slate-100">
               
-              <div className="bg-slate-900 text-white px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
-                <div className="flex items-center gap-3">
+              <div className="bg-slate-900 text-white px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
+                <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+                  <div className="flex items-center gap-2.5">
+                    <button 
+                      onClick={() => setModalDetalhesAberta(false)} 
+                      className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-all text-white text-xs font-black uppercase flex items-center gap-1 active:scale-95"
+                    >
+                      <span>←</span> Voltar
+                    </button>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md">
+                          OS #{chamadoSelecionado.id}
+                        </span>
+                        <h2 className="font-black text-white text-sm sm:text-lg uppercase tracking-tight truncate max-w-[200px] sm:max-w-md">
+                          {chamadoSelecionado.titulo}
+                        </h2>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                        📍 {chamadoSelecionado.setor_nome || 'Setor Não Definido'}
+                      </p>
+                    </div>
+                  </div>
+
                   <button 
                     onClick={() => setModalDetalhesAberta(false)} 
-                    className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl transition-all text-white text-xs font-black uppercase flex items-center gap-1 active:scale-95"
+                    className="md:hidden text-lg text-slate-400"
                   >
-                    <span>←</span> Voltar
+                    ✕
                   </button>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md">
-                        OS #{chamadoSelecionado.id}
-                      </span>
-                      <h2 className="font-black text-white text-base sm:text-lg uppercase tracking-tight truncate max-w-md sm:max-w-xl">
-                        {chamadoSelecionado.titulo}
-                      </h2>
-                    </div>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                      📍 {chamadoSelecionado.setor_nome || 'Setor Não Definido'}
-                    </p>
-                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 bg-slate-800/90 px-4 py-1.5 rounded-2xl border border-slate-700">
-                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isAberto ? 'text-red-400' : 'text-slate-400'}`}>
+                <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1 rounded-2xl border border-slate-700 overflow-x-auto w-full md:w-auto justify-between">
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase whitespace-nowrap ${isAberto ? 'text-red-400' : 'text-slate-400'}`}>
                     <span className={`w-2 h-2 rounded-full ${isAberto ? 'bg-red-500 animate-ping' : 'bg-slate-600'}`}></span>
                     <span>Aberto</span>
                   </div>
 
                   <span className="text-slate-600 text-xs">➔</span>
 
-                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isEmAtendimento ? 'text-amber-400' : isConcluido ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase whitespace-nowrap ${isEmAtendimento ? 'text-amber-400' : isConcluido ? 'text-slate-400' : 'text-slate-500'}`}>
                     <span className={`w-2 h-2 rounded-full ${isEmAtendimento ? 'bg-amber-400 animate-ping' : isConcluido ? 'bg-amber-500/50' : 'bg-slate-600'}`}></span>
-                    <span>Em Atendimento</span>
+                    <span>Atendimento</span>
                   </div>
 
                   <span className="text-slate-600 text-xs">➔</span>
 
-                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isExternaModal ? 'text-purple-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase whitespace-nowrap ${isExternaModal ? 'text-purple-400' : 'text-slate-500'}`}>
                     <span className={`w-2 h-2 rounded-full ${isExternaModal ? 'bg-purple-500 animate-ping' : 'bg-slate-600'}`}></span>
                     <span>Externa</span>
                   </div>
 
                   <span className="text-slate-600 text-xs">➔</span>
 
-                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase ${isConcluido ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase whitespace-nowrap ${isConcluido ? 'text-emerald-400' : 'text-slate-500'}`}>
                     <span className={`w-2 h-2 rounded-full ${isConcluido ? 'bg-emerald-400' : 'bg-slate-600'}`}></span>
                     <span>Concluído</span>
                   </div>
@@ -787,27 +893,27 @@ const Chamados = ({ user: userProp }) => {
               </div>
 
               {/* BARRA DE INDICADORES */}
-              <div className={`bg-slate-100/70 p-4 grid grid-cols-2 ${!isUsuarioComum ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-3 border-b border-slate-200 shrink-0`}>
-                <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
+              <div className={`bg-slate-100/70 p-3 sm:p-4 grid grid-cols-2 ${!isUsuarioComum ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-2 sm:gap-3 border-b border-slate-200 shrink-0`}>
+                <div className="bg-white p-2.5 sm:p-3 rounded-2xl shadow-sm border border-slate-200/60">
                   <span className="text-[9px] font-black text-slate-400 uppercase block">Solicitante:</span>
                   <p className="font-bold text-xs text-slate-800 truncate mt-0.5">{chamadoSelecionado.solicitante_nome || 'Não identificado'}</p>
                 </div>
 
-                <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block">Técnico Responsável:</span>
-                  <p className="font-bold text-xs text-blue-600 truncate mt-0.5">{chamadoSelecionado.tecnico_responsavel || 'Aguardando Atribuição'}</p>
+                <div className="bg-white p-2.5 sm:p-3 rounded-2xl shadow-sm border border-slate-200/60">
+                  <span className="text-[9px] font-black text-slate-400 uppercase block">Técnico:</span>
+                  <p className="font-bold text-xs text-blue-600 truncate mt-0.5">{chamadoSelecionado.tecnico_responsavel || 'Aguardando'}</p>
                 </div>
 
-                <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block">SLA & Prazos:</span>
+                <div className="bg-white p-2.5 sm:p-3 rounded-2xl shadow-sm border border-slate-200/60">
+                  <span className="text-[9px] font-black text-slate-400 uppercase block">SLA:</span>
                   <p className={`font-black text-xs mt-0.5 ${slaModal.atrasado ? 'text-red-600' : 'text-slate-800'}`}>
-                    ⏱️ {slaModal.texto} <span className="text-[9px] font-bold text-slate-400">({slaModal.metaHoras}h meta)</span>
+                    ⏱️ {slaModal.texto}
                   </p>
                 </div>
 
                 {!isUsuarioComum && (
-                  <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/60">
-                    <span className="text-[9px] font-black text-slate-400 uppercase block">Custo Acumulado:</span>
+                  <div className="bg-white p-2.5 sm:p-3 rounded-2xl shadow-sm border border-slate-200/60">
+                    <span className="text-[9px] font-black text-slate-400 uppercase block">Custo OS:</span>
                     <p className="font-black text-xs text-emerald-600 mt-0.5">
                       R$ {custoTotalOS.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
@@ -854,7 +960,7 @@ const Chamados = ({ user: userProp }) => {
                             <img 
                               src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} 
                               className="rounded-xl border border-slate-200 w-full h-28 object-cover cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
-                              onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_abertura}`)} 
+                              onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamadoSelecionado.foto_abertura}`, `Foto de Abertura - OS #${chamadoSelecionado.id}`, 'imagem')} 
                               alt="Foto Abertura" 
                             />
                           ) : (
@@ -870,7 +976,7 @@ const Chamados = ({ user: userProp }) => {
                             <img 
                               src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} 
                               className="rounded-xl border border-slate-200 w-full h-28 object-cover cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
-                              onClick={() => window.open(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`)} 
+                              onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`, `Foto de Conclusão - OS #${chamadoSelecionado.id}`, 'imagem')} 
                               alt="Foto Conclusão" 
                             />
                           ) : (
@@ -895,27 +1001,29 @@ const Chamados = ({ user: userProp }) => {
                             className="text-xs w-full block file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
                             onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
                           />
-                          <button type="submit" className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95">
+                          <button type="submit" className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95">
                             + Enviar Laudo / Documento
                           </button>
                         </form>
 
                         <div className="space-y-2 max-h-36 overflow-y-auto">
-                          {listaDocumentos.map((doc) => (
-                            <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
-                              <span className="font-bold text-slate-700 truncate max-w-[180px]" title={doc.nome_original}>
-                                {doc.tipo_mimetype.includes('pdf') ? '📄' : '📷'} {doc.nome_original}
-                              </span>
-                              <a 
-                                href={`${BASE_URL}${doc.url_arquivo}`} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase bg-blue-50 px-2 py-1 rounded-md border border-blue-100"
-                              >
-                                Abrir ↗
-                              </a>
-                            </div>
-                          ))}
+                          {listaDocumentos.map((doc) => {
+                            const isPdf = doc.tipo_mimetype?.includes('pdf') || doc.nome_original?.toLowerCase().endsWith('.pdf');
+                            return (
+                              <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
+                                <span className="font-bold text-slate-700 truncate max-w-[170px]" title={doc.nome_original}>
+                                  {isPdf ? '📄' : '📷'} {doc.nome_original}
+                                </span>
+                                <button 
+                                  type="button"
+                                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? 'pdf' : 'imagem')}
+                                  className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 active:scale-95 transition-all shadow-xs"
+                                >
+                                  Ver ↗
+                                </button>
+                              </div>
+                            );
+                          })}
                           {listaDocumentos.length === 0 && (
                             <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>
                           )}
@@ -1024,27 +1132,27 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              <div className="bg-white px-6 py-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2 shrink-0">
+              <div className="bg-white px-4 sm:px-6 py-3 border-t border-slate-200 flex flex-wrap justify-between items-center gap-2 shrink-0">
                 <div className="text-[11px] font-bold text-slate-500">
                   Status Atual: <strong className="text-slate-800 uppercase">{chamadoSelecionado.status}</strong>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
                   {isAdminOuCoord && !isConcluido && (
                     <button 
                       onClick={() => abrirModalEdicao(chamadoSelecionado)}
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1"
+                      className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1"
                     >
-                      <span>✏️</span> Editar OS
+                      <span>✏️</span> Editar
                     </button>
                   )}
 
                   {isAdminOuCoord && (
                     <button 
                       onClick={() => { setTextoObs(''); setModalObsAberta(true); }} 
-                      className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95"
+                      className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95"
                     >
-                      + Obs Coordenação
+                      + Obs
                     </button>
                   )}
 
@@ -1054,9 +1162,9 @@ const Chamados = ({ user: userProp }) => {
                         setModalDetalhesAberta(false);
                         navigate(`/chamados/${chamadoSelecionado.id}/tratar`);
                       }}
-                      className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                     >
-                      <span>🛠️</span> Atender Chamado
+                      <span>🛠️</span> Atender
                     </button>
                   )}
 
@@ -1064,9 +1172,9 @@ const Chamados = ({ user: userProp }) => {
                     to={`/chamados/${chamadoSelecionado.id}/imprimir`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                   >
-                    <span>🖨️</span> Imprimir OS
+                    <span>🖨️</span> Imprimir
                   </Link>
                 </div>
               </div>
