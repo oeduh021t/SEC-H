@@ -25,6 +25,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const nivelUsuario = user?.nivel?.toLowerCase().trim() || 'usuario';
 
   // Definição de Perfis
+  const isAdmin = nivelUsuario === 'admin';
   const isTecnico = nivelUsuario === 'tecnico';
   const isGestao = ['admin', 'coordenador'].includes(nivelUsuario);
 
@@ -32,12 +33,12 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeVerDashboard = isGestao;
   const podeVerPlanejadas = isGestao || isTecnico;
   const podeVerEquipamentos = isGestao;
-  const podeVerDocumentos = isGestao;
+  const podeGerenciarEstrutura = isAdmin; // 👈 Exclusivo para você: Tipos, Setores e Repositório Global
   const podeVerSuprimentos = isGestao;
   const podeVerUtilidades = isGestao;
-  const podeVerFiltrosAgua = nivelUsuario === 'admin';
+  const podeVerFiltrosAgua = isAdmin;
   const podeVerRelatorios = isGestao;
-  const podeGerenciarUsuarios = nivelUsuario === 'admin';
+  const podeGerenciarUsuarios = isAdmin;
 
   // Verificadores de submenus ativos
   const isAtivosActive = location.pathname.includes('equipamentos') || location.pathname.includes('tipos-equipamentos') || location.pathname.includes('preventivas') || location.pathname.includes('setores') || location.pathname.includes('documentos');
@@ -196,7 +197,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             </Link>
           )}
 
-          {/* MÓDULOS GERENCIAIS (EXCLUSIVO ADMIN E COORDENADOR) */}
+          {/* MÓDULOS GERENCIAIS */}
           {isGestao && (
             <>
               {sidebarAberta && <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 pt-3 pb-1">Gestão Técnica</div>}
@@ -228,13 +229,16 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         <span>• Listar Ativos</span>
                       </Link>
 
-                      <Link 
-                        to="/tipos-equipamentos" 
-                        onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
-                        className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/tipos-equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        <span>• Gerenciar Tipos</span>
-                      </Link>
+                      {/* 🔒 EXCLUSIVO ADMIN: Gerenciar Tipos */}
+                      {podeGerenciarEstrutura && (
+                        <Link 
+                          to="/tipos-equipamentos" 
+                          onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
+                          className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/tipos-equipamentos') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          <span>• Gerenciar Tipos</span>
+                        </Link>
+                      )}
 
                       <Link 
                         to="/preventivas" 
@@ -244,15 +248,19 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         <span>• Preventivas PMOC</span>
                       </Link>
 
-                      <Link 
-                        to="/setores" 
-                        onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
-                        className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/setores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        <span>• Setores e Áreas</span>
-                      </Link>
+                      {/* 🔒 EXCLUSIVO ADMIN: Setores e Áreas */}
+                      {podeGerenciarEstrutura && (
+                        <Link 
+                          to="/setores" 
+                          onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
+                          className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/setores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          <span>• Setores e Áreas</span>
+                        </Link>
+                      )}
 
-                      {podeVerDocumentos && (
+                      {/* 🔒 EXCLUSIVO ADMIN: Repositório Global de Docs */}
+                      {podeGerenciarEstrutura && (
                         <Link 
                           to="/documentos" 
                           onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
