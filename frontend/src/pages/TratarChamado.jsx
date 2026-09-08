@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
 export function TratarChamado() {
@@ -59,6 +59,8 @@ export function TratarChamado() {
   // Estados de Anexos
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
+  const [enviandoDocumento, setEnviandoDocumento] = useState(false);
+  const inputDocumentoRef = useRef(null);
 
   // Estados de Peças
   const [pecaSelecionada, setPecaSelecionada] = useState("");
@@ -291,7 +293,9 @@ export function TratarChamado() {
     formData.append('observacao', observacaoRetorno);
     formData.append('tecnico_nome', usuarioLogado?.nome || "Técnico");
     if (arquivoLaudo) {
-      formData.append('laudo_tecnico', arquivoLaudo);
+      // Aplica compressão caso seja foto tirada da câmera
+      const laudoFinal = await comprimirImagemSeNecessario(arquivoLaudo);
+      formData.append('laudo_tecnico', laudoFinal);
     }
 
     try {
@@ -379,35 +383,108 @@ export function TratarChamado() {
     });
   };
 
-  const handleUploadDocumento = (e) => {
+  // 📷 Otimização e compressão client-side de fotos de câmeras de celular (8MB-15MB -> ~350KB)
+  const comprimirImagemSeNecessario = async (arquivo) => {
+    if (!arquivo || !arquivo.type.startsWith('image/')) return arquivo;
+
+    return new Promise((resolve) => {
+      const leitor = new FileReader();
+      leitor.readAsDataURL(arquivo);
+      leitor.onload = (evento) => {
+        const img = new Image();
+        img.src = evento.target.result;
+        img.onload = () => {
+          const MAX_LARGURA = 1600;
+          const MAX_ALTURA = 1600;
+          let largura = img.width;
+          let altura = img.height;
+
+          if (largura > altura) {
+            if (largura > MAX_LARGURA) {
+              altura *= MAX_LARGURA / largura;
+              largura = MAX_LARGURA;
+            }
+          } else {
+            if (altura > MAX_ALTURA) {
+              largura *= MAX_ALTURA / altura;
+              altura = MAX_ALTURA;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = largura;
+          canvas.height = altura;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, largura, altura);
+
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                resolve(arquivo);
+                return;
+              }
+              const arquivoComprimido = new File(
+                [blob], 
+                arquivo.name.replace(/\.[^/.]+$/, ".jpg"), 
+                { type: 'image/jpeg', lastModified: Date.now() }
+              );
+              resolve(arquivoComprimido);
+            },
+            'image/jpeg',
+            0.8
+          );
+        };
+        img.onerror = () => resolve(arquivo);
+      };
+      leitor.onerror = () => resolve(arquivo);
+    });
+  };
+
+  const handleUploadDocumento = async (e) => {
     e.preventDefault();
     if (!documentoSelecionado) return alert("Por favor, selecione um arquivo!");
 
-    const formData = new FormData();
-    formData.append('arquivo', documentoSelecionado);
-    formData.append('chamado_id', id);
-    formData.append('usuario_id', usuarioLogado?.id || 1);
-    formData.append('setor_id', chamado?.setor_id || '');
-    formData.append('equipamento_id', chamado?.equipamento_id || '');
+    setEnviandoDocumento(true);
 
-    fetch(`${API_URL}/documentos`, {
-      method: "POST",
-      headers: {
-        'x-usuario-nivel': nivelUsuario
-      },
-      body: formData
-    })
-    .then(res => res.json())
-    .then(data => {
+    try {
+      const arquivoFinal = await comprimirImagemSeNecessario(documentoSelecionado);
+
+      const formData = new FormData();
+      formData.append('arquivo', arquivoFinal);
+      formData.append('chamado_id', id);
+      formData.append('usuario_id', usuarioLogado?.id || 1);
+      formData.append('setor_id', chamado?.setor_id || '');
+      formData.append('equipamento_id', chamado?.equipamento_id || '');
+
+      const res = await fetch(`${API_URL}/documentos`, {
+        method: "POST",
+        headers: {
+          'x-usuario-nivel': nivelUsuario
+        },
+        body: formData
+      });
+
+      if (!res.ok) {
+        const erroMsg = await res.text();
+        throw new Error(erroMsg.includes('413') ? 'Arquivo grande demais para o servidor.' : `Erro HTTP ${res.status}`);
+      }
+
+      const data = await res.json().catch(() => ({}));
+
       if (data.error) {
         alert(data.error);
       } else {
-        alert("Documento anexado com sucesso para fins de auditoria! 📎✅");
+        alert("Documento anexado com sucesso! 📎✅");
         setDocumentoSelecionado(null);
-        carregarTodosOsDados();
+        if (inputDocumentoRef.current) inputDocumentoRef.current.value = "";
+        await carregarTodosOsDados();
       }
-    })
-    .catch(err => console.error("Erro ao anexar documento:", err));
+    } catch (err) {
+      console.error("Erro ao anexar documento:", err);
+      alert(`Falha ao subir anexo: ${err.message || 'Erro de conexão'}`);
+    } finally {
+      setEnviandoDocumento(false);
+    }
   };
 
   const handleSalvarAtendimento = async (e) => {
@@ -619,7 +696,7 @@ export function TratarChamado() {
           )}
 
           <button 
-            type="button"
+            type="button" 
             onClick={() => window.open(`/chamados/${id}/imprimir`, '_blank')} 
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-950 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
           >
@@ -854,7 +931,7 @@ export function TratarChamado() {
             </div>
           </div>
 
-          {/* CARD DE ANEXOS COM VISUALIZAÇÃO INTERNA */}
+          {/* CARD DE ANEXOS COM VISUALIZAÇÃO INTERNA E COMPRESSÃO MOBILE */}
           <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
               📎 Laudos & Arquivos ({listaDocumentos.length})
@@ -862,18 +939,25 @@ export function TratarChamado() {
             
             <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
               <input 
-                disabled={isConcluido}
+                ref={inputDocumentoRef}
+                disabled={isConcluido || enviandoDocumento}
                 type="file" 
                 accept="image/*,application/pdf"
-                className="text-xs w-full block file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 disabled:opacity-50"
+                className="text-xs w-full block file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 disabled:opacity-50"
                 onChange={e => setDocumentoSelecionado(e.target.files[0])}
               />
               <button 
-                disabled={isConcluido || !documentoSelecionado} 
+                disabled={isConcluido || !documentoSelecionado || enviandoDocumento} 
                 type="submit" 
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm disabled:opacity-50"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
-                + Anexar Laudo
+                {enviandoDocumento ? (
+                  <>
+                    <span className="animate-spin text-xs">⏳</span> Otimizando & Enviando...
+                  </>
+                ) : (
+                  "+ Anexar Laudo / Foto"
+                )}
               </button>
             </form>
 

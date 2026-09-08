@@ -4291,12 +4291,18 @@ app.get('/api/manutencoes-planejadas', permitirApenas(['admin', 'coordenador', '
     const query = `
         SELECT 
             mp.*,
+            -- Se a OS vinculada estiver concluída, exibe como 'Concluído'
+            CASE 
+                WHEN c.status = 'Concluído' THEN 'Concluído'
+                ELSE mp.status 
+            END AS status,
             e.nome AS equipamento_nome,
             e.patrimonio AS equipamento_patrimonio,
             s.nome AS setor_nome,
             u.nome AS tecnico_nome,
             f.nome_fantasia AS fornecedor_nome
         FROM manutencoes_planejadas mp
+        LEFT JOIN chamados c ON c.id = mp.chamado_execucao_id
         LEFT JOIN equipamentos e ON e.id = mp.equipamento_id
         LEFT JOIN setores s ON s.id = mp.setor_id
         LEFT JOIN usuarios u ON u.id = mp.tecnico_id
