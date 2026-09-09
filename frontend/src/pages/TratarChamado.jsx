@@ -228,7 +228,6 @@ export function TratarChamado() {
     setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`);
   };
 
-  // 🛒 HANDLER: ABRIR MODAL DE COMPRA COM DADOS DA OS PRÉ-PREENCHIDOS
   const handleAbrirModalCompra = () => {
     setCompraForm({
       fornecedor_id: "",
@@ -242,7 +241,6 @@ export function TratarChamado() {
     setModalSolicitarCompra(true);
   };
 
-  // 🛒 HANDLER: DISPARAR SOLICITAÇÃO DE COMPRA AMARRADA À OS
   const handleEnviarSolicitacaoCompra = async (e) => {
     e.preventDefault();
     if (!compraForm.descricao || !compraForm.motivo) {
@@ -963,38 +961,45 @@ export function TratarChamado() {
               </div>
             </div>
 
+            {/* FORMULÁRIO DE INSUMOS COM GRADE FIXA EM COLUNAS */}
             {isGestao && !isConcluido && (
-              <form onSubmit={handleAdicionarPeca} className="flex gap-2">
-                <select
-                  disabled={isConcluido}
-                  className="flex-[3] p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700"
-                  value={pecaSelecionada}
-                  onChange={e => setPecaSelecionada(e.target.value)}
-                >
-                  <option value="">Selecione o insumo...</option>
-                  {itensEstoque.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.nome} (Saldo: {item.quantidade})
-                    </option>
-                  ))}
-                </select>
+              <form onSubmit={handleAdicionarPeca} className="grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-8">
+                  <select
+                    disabled={isConcluido}
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700 truncate"
+                    value={pecaSelecionada}
+                    onChange={e => setPecaSelecionada(e.target.value)}
+                  >
+                    <option value="">Selecione o insumo...</option>
+                    {itensEstoque.map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.nome} (Saldo: {item.quantidade})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                <input
-                  disabled={isConcluido}
-                  type="number"
-                  min="1"
-                  className="w-16 p-2.5 border-2 border-slate-100 rounded-xl text-center font-bold text-xs bg-slate-50 outline-none"
-                  value={qtdPeca}
-                  onChange={e => setQtdPeca(Number(e.target.value))}
-                />
+                <div className="col-span-2">
+                  <input
+                    disabled={isConcluido}
+                    type="number"
+                    min="1"
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-center font-bold text-xs bg-slate-50 outline-none"
+                    value={qtdPeca}
+                    onChange={e => setQtdPeca(Number(e.target.value))}
+                  />
+                </div>
 
-                <button 
-                  disabled={isConcluido || !pecaSelecionada} 
-                  type="submit" 
-                  className="px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase shadow-sm transition-all disabled:opacity-50"
-                >
-                  +
-                </button>
+                <div className="col-span-2">
+                  <button 
+                    disabled={isConcluido || !pecaSelecionada} 
+                    type="submit" 
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase shadow-sm transition-all disabled:opacity-50 text-center"
+                  >
+                    +
+                  </button>
+                </div>
               </form>
             )}
 
