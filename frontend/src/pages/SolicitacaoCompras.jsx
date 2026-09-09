@@ -7,6 +7,7 @@ const SolicitacaoCompras = () => {
   const [fornecedores, setFornecedores] = useState([]); 
   const [notasFiscais, setNotasFiscais] = useState([]); 
   const [catalogoInsumos, setCatalogoInsumos] = useState([]);
+  const [orcamentosExternos, setOrcamentosExternos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState(false);
   const [busca, setBusca] = useState('');
@@ -24,9 +25,12 @@ const SolicitacaoCompras = () => {
   const [fornecedorId, setFornecedorId] = useState(''); 
   const [equipamentoId, setEquipamentoId] = useState('');
   const [notaFiscalId, setNotaFiscalId] = useState('');
+  const [orcamentoExternoId, setOrcamentoExternoId] = useState('');
   const [urgencia, setUrgencia] = useState('Média');
   const [motivo, setMotivo] = useState('');
-  
+  const [arquivosCotacao, setArquivosCotacao] = useState([]);
+  const [anexosExistentes, setAnexosExistentes] = useState([]);
+
   // Modal de Baixa / Fechamento de Compra
   const [modalBaixaAberta, setModalBaixaAberta] = useState(false);
   const [dadosBaixa, setDadosBaixa] = useState({
@@ -44,6 +48,7 @@ const SolicitacaoCompras = () => {
   const [solicitacaoImpressao, setSolicitacaoImpressao] = useState(null);
 
   const API_URL = '/api';
+  const BASE_URL = '';
 
   const obterUsuario = () => {
     const savedUser = localStorage.getItem('user');
@@ -53,14 +58,14 @@ const SolicitacaoCompras = () => {
   const carregarDados = async () => {
     try {
       const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
-      const [resSol, resSet, resEq, resForn, resNf, resIns] = await Promise.all([
+      const [resSol, resSet, resEq, resForn, resNf, resIns, resOrc] = await Promise.all([
         fetch(`${API_URL}/solicitacoes-compra`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/setores`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/equipamentos`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/notas-fiscais`, { headers }).then(r => r.json()),
-        // Corrigido para a rota oficial da tabela itens_estoque
-        fetch(`${API_URL}/itens-estoque`, { headers }).then(r => r.json()).catch(() => [])
+        fetch(`${API_URL}/itens-estoque`, { headers }).then(r => r.json()).catch(() => []),
+        fetch(`${API_URL}/orcamentos-externos`, { headers }).then(r => r.json()).catch(() => [])
       ]);
 
       setSolicitacoes(Array.isArray(resSol) ? resSol : []);
@@ -69,6 +74,7 @@ const SolicitacaoCompras = () => {
       setFornecedores(Array.isArray(resForn) ? resForn : []);
       setNotasFiscais(Array.isArray(resNf) ? resNf : []);
       setCatalogoInsumos(Array.isArray(resIns) ? resIns : []);
+      setOrcamentosExternos(Array.isArray(resOrc) ? resOrc : []);
     } catch (err) {
       console.error("Erro ao carregar dados:", err);
     } finally {
@@ -77,6 +83,19 @@ const SolicitacaoCompras = () => {
   };
 
   useEffect(() => { carregarDados(); }, []);
+
+  const carregarAnexosSolicitacao = async (solId) => {
+    try {
+      const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
+      const res = await fetch(`${API_URL}/solicitacoes-compra/${solId}/anexos`, { headers });
+      if (res.ok) {
+        const dados = await res.json();
+        setAnexosExistentes(dados || []);
+      }
+    } catch (e) {
+      console.error("Erro ao buscar anexos:", e);
+    }
+  };
 
   const handleExportarExcel = async () => {
     setExportando(true);
@@ -109,8 +128,11 @@ const SolicitacaoCompras = () => {
     setFornecedorId('');
     setEquipamentoId('');
     setNotaFiscalId('');
+    setOrcamentoExternoId('');
     setUrgencia('Média');
     setMotivo('');
+    setArquivosCotacao([]);
+    setAnexosExistentes([]);
     setItens([{ insumo_id: '', descricao: '', quantidade: 1, valor_estimado: 0 }]);
     setModalNova(true);
   };
@@ -126,9 +148,12 @@ const SolicitacaoCompras = () => {
       setFornecedorId(data.fornecedor_id || '');
       setEquipamentoId(data.equipamento_id || '');
       setNotaFiscalId(data.nota_fiscal_id || '');
+      setOrcamentoExternoId(data.orcamento_externo_id || '');
       setUrgencia(data.urgencia || 'Média');
       setMotivo(data.motivo || '');
       setItens(data.itens && data.itens.length > 0 ? data.itens : [{ insumo_id: '', descricao: '', quantidade: 1, valor_estimado: 0 }]);
+      setArquivosCotacao([]);
+      carregarAnexosSolicitacao(data.id);
       setModalNova(true);
     } catch (err) {
       alert("Erro ao carregar dados para edição.");
@@ -148,7 +173,6 @@ const SolicitacaoCompras = () => {
     const novosItens = [...itens];
     novosItens[index][field] = value;
     
-    // Se o usuário selecionou um insumo do catálogo de estoque, preenche nome e preço unitário
     if (field === 'insumo_id' && value) {
       const insumo = catalogoInsumos.find(i => String(i.id) === String(value));
       if (insumo) {
@@ -170,6 +194,7 @@ const SolicitacaoCompras = () => {
       fornecedor_id: fornecedorId || null, 
       equipamento_id: equipamentoId || null,
       nota_fiscal_id: notaFiscalId || null,
+      orcamento_externo_id: orcamentoExternoId || null,
       urgencia,
       motivo,
       itens
@@ -191,17 +216,49 @@ const SolicitacaoCompras = () => {
         body: JSON.stringify(payload)
       });
 
+      const dataRes = await res.json();
+
       if (res.ok) {
-        alert(editandoId ? "Solicitação atualizada com sucesso! 🛒✏️" : "Solicitação gerada com sucesso! 🛒📋");
+        const idFinal = editandoId || dataRes.id;
+
+        if (arquivosCotacao.length > 0 && idFinal) {
+          const formDataAnexos = new FormData();
+          Array.from(arquivosCotacao).forEach(file => {
+            formDataAnexos.append('arquivos', file);
+          });
+
+          await fetch(`${API_URL}/solicitacoes-compra/${idFinal}/anexos`, {
+            method: 'POST',
+            headers: { 'x-usuario-nivel': user?.nivel || '' },
+            body: formDataAnexos
+          });
+        }
+
+        alert(editandoId ? "Solicitação e cotações atualizadas com sucesso! 🛒✏️" : "Solicitação gerada com comprovantes anexados! 🛒📋");
         setModalNova(false);
         carregarDados();
       } else {
-        const err = await res.json();
-        alert("Erro: " + (err.error || "Falha ao salvar."));
+        alert("Erro: " + (dataRes.error || "Falha ao salvar."));
       }
     } catch (err) {
       console.error(err);
       alert("Erro de conexão ao salvar solicitação.");
+    }
+  };
+
+  const handleExcluirAnexo = async (anexoId) => {
+    if (!window.confirm("Deseja remover este anexo de cotação?")) return;
+    try {
+      const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
+      const res = await fetch(`${API_URL}/solicitacoes-compra/anexos/${anexoId}`, {
+        method: 'DELETE',
+        headers
+      });
+      if (res.ok) {
+        setAnexosExistentes(prev => prev.filter(a => a.id !== anexoId));
+      }
+    } catch (e) {
+      alert("Erro ao excluir anexo.");
     }
   };
 
@@ -431,7 +488,7 @@ const SolicitacaoCompras = () => {
               <tr>
                 <th className="p-5">Nº / Data</th>
                 <th className="p-5">Solicitante / Setor</th>
-                <th className="p-5">Fornecedor / NF</th>
+                <th className="p-5">Fornecedor / NF & Boletos</th>
                 <th className="p-5">Valores (Est. vs Real)</th>
                 <th className="p-5">Urgência</th>
                 <th className="p-5">Status (Dar Baixa)</th>
@@ -442,12 +499,22 @@ const SolicitacaoCompras = () => {
               {solicitacoesPaginadas.map(s => (
                 <Fragment key={s.id}>
                   <tr className={`hover:bg-slate-50/60 transition-colors ${itemExpandidoId === s.id ? 'bg-blue-50/30' : ''}`}>
+                    {/* Coluna 1: Nº e Data */}
                     <td className="p-5">
-                      <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
+                        {s.chamado_id && (
+                          <span className="text-[10px] font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-lg" title="Gerado a partir de Ordem de Serviço">
+                            OS #{s.chamado_id}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-slate-400 font-bold mt-1.5">
                         {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
                       </div>
                     </td>
+
+                    {/* Coluna 2: Solicitante / Setor */}
                     <td className="p-5">
                       <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
                       <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
@@ -457,19 +524,61 @@ const SolicitacaoCompras = () => {
                         </p>
                       )}
                     </td>
+
+                    {/* Coluna 3: Fornecedor / NF & Boletos (FASE 3 ATUALIZADA) */}
                     <td className="p-5 font-bold text-slate-700">
                       {s.fornecedor_nome ? (
                         <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
                       ) : (
                         <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
                       )}
+
                       {s.nota_fiscal_numero && (
-                        <div className="text-[10px] text-emerald-600 font-bold mt-0.5">📄 NF: #{s.nota_fiscal_numero}</div>
+                        <div className="flex flex-col gap-1 mt-1">
+                          <div className="flex items-center gap-1 text-[11px] text-slate-700 font-bold">
+                            <span>📄 NF #{s.nota_fiscal_numero}</span>
+                            {s.nf_url_danfe && (
+                              <a
+                                href={`${BASE_URL}${s.nf_url_danfe}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-600 hover:text-blue-800 text-[10px]"
+                                title="Abrir DANFE da Nota"
+                              >
+                                ↗
+                              </a>
+                            )}
+                          </div>
+
+                          {/* Indicador de Situação Financeira dos Boletos */}
+                          {s.total_boletos > 0 ? (
+                            s.boletos_atrasados > 0 ? (
+                              <span className="inline-flex items-center text-[9px] font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md uppercase w-max border border-rose-200 animate-pulse">
+                                🚨 Boleto Atrasado ({s.boletos_atrasados})
+                              </span>
+                            ) : s.boletos_vencendo_breve > 0 ? (
+                              <span className="inline-flex items-center text-[9px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md uppercase w-max border border-amber-200">
+                                ⏳ Vence em Breve ({s.proximo_vencimento_boleto ? new Date(s.proximo_vencimento_boleto).toLocaleDateString('pt-BR') : ''})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center text-[9px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md uppercase w-max border border-emerald-200">
+                                ✓ Boletos em Dia / Quitado
+                              </span>
+                            )
+                          ) : s.nota_fiscal_id ? (
+                            <span className="text-[9px] text-slate-400 font-semibold italic">
+                              Sem boletos vinculados
+                            </span>
+                          ) : null}
+                        </div>
                       )}
+
                       {s.equipamento_nome && (
-                        <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
+                        <div className="text-[10px] text-blue-600 font-bold mt-1">⚙️ {s.equipamento_nome}</div>
                       )}
                     </td>
+
+                    {/* Coluna 4: Valores */}
                     <td className="p-5 font-black text-slate-800">
                       <div className="text-slate-700">Est: R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       {s.valor_real && Number(s.valor_real) > 0 && (
@@ -478,13 +587,22 @@ const SolicitacaoCompras = () => {
                         </div>
                       )}
                       <button 
-                        onClick={() => setItemExpandidoId(itemExpandidoId === s.id ? null : s.id)}
+                        onClick={() => {
+                          if (itemExpandidoId === s.id) {
+                            setItemExpandidoId(null);
+                          } else {
+                            setItemExpandidoId(s.id);
+                            carregarAnexosSolicitacao(s.id);
+                          }
+                        }}
                         className="text-[10px] text-blue-600 hover:text-blue-800 font-bold mt-1.5 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-lg"
                       >
                         <span>{s.total_itens || (s.itens?.length) || 1} item(ns)</span>
-                        <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ ver itens'}</span>
+                        <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ detalhes & cotações'}</span>
                       </button>
                     </td>
+
+                    {/* Coluna 5: Urgência */}
                     <td className="p-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
                         s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse' :
@@ -494,7 +612,7 @@ const SolicitacaoCompras = () => {
                       </span>
                     </td>
                     
-                    {/* SELECT DINÂMICO PARA BAIXA */}
+                    {/* Coluna 6: Select de Baixa */}
                     <td className="p-5">
                       <select
                         value={s.status}
@@ -513,12 +631,13 @@ const SolicitacaoCompras = () => {
                       </select>
                     </td>
 
+                    {/* Coluna 7: Ações */}
                     <td className="p-5 text-center">
                       <div className="flex justify-center gap-1.5">
                         <button
                           onClick={() => handleAbrirEdicao(s)}
                           className="p-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
-                          title="Editar Solicitação"
+                          title="Editar Solicitação / Ver Cotações"
                         >
                           ✏️
                         </button>
@@ -540,66 +659,131 @@ const SolicitacaoCompras = () => {
                     </td>
                   </tr>
 
-                  {/* 🔽 ACORDEÃO EXPANSÍVEL: LISTA DE ITENS DO PEDIDO */}
+                  {/* 🔽 ACORDEÃO EXPANSÍVEL: ITENS + COTAÇÕES + RESUMO FINANCEIRO (FASE 3) */}
                   {itemExpandidoId === s.id && (
                     <tr className="bg-slate-50/80 border-b border-slate-200">
                       <td colSpan="7" className="p-4 sm:p-6">
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-inner">
-                          <div className="flex justify-between items-center mb-3">
-                            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                              📦 Itens Detalhados da Solicitação #{s.id}
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-500">
-                              Total de Linhas: {s.itens?.length || 0}
-                            </span>
-                          </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                          
+                          {/* TABELA DE ITENS */}
+                          <div className="lg:col-span-2 bg-white p-4 rounded-2xl border border-slate-200 shadow-inner">
+                            <div className="flex justify-between items-center mb-3">
+                              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                                📦 Itens da Solicitação #{s.id}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-500">
+                                Total: {s.itens?.length || 0} linha(s)
+                              </span>
+                            </div>
 
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                              <thead>
-                                <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
-                                  <th className="py-2">Item / Peça</th>
-                                  <th className="py-2 text-center">Tipo Almoxarifado</th>
-                                  <th className="py-2 text-center">Quantidade</th>
-                                  <th className="py-2 text-right">Valor Estimado Un.</th>
-                                  <th className="py-2 text-right">Subtotal</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-50">
-                                {s.itens && s.itens.length > 0 ? (
-                                  s.itens.map((it, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50">
-                                      <td className="py-2.5 font-bold text-slate-800">{it.descricao}</td>
-                                      <td className="py-2.5 text-center">
-                                        {it.insumo_id ? (
-                                          <span className="bg-emerald-100 text-emerald-700 text-[9px] font-black px-2 py-0.5 rounded-md uppercase">
-                                            ✓ Item Vinculado
-                                          </span>
-                                        ) : (
-                                          <span className="bg-slate-100 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase">
-                                            Avulso / Direto
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td className="py-2.5 text-center font-black text-slate-700">{it.quantidade} un.</td>
-                                      <td className="py-2.5 text-right font-mono text-slate-600">
-                                        R$ {Number(it.valor_estimado || 0).toFixed(2)}
-                                      </td>
-                                      <td className="py-2.5 text-right font-mono font-bold text-slate-800">
-                                        R$ {(Number(it.quantidade || 0) * Number(it.valor_estimado || 0)).toFixed(2)}
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                  <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
+                                    <th className="py-2">Item / Peça</th>
+                                    <th className="py-2 text-center">Tipo Almoxarifado</th>
+                                    <th className="py-2 text-center">Qtd</th>
+                                    <th className="py-2 text-right">Valor Est. Un.</th>
+                                    <th className="py-2 text-right">Subtotal</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-50">
+                                  {s.itens && s.itens.length > 0 ? (
+                                    s.itens.map((it, idx) => (
+                                      <tr key={idx} className="hover:bg-slate-50">
+                                        <td className="py-2 font-bold text-slate-800">{it.descricao}</td>
+                                        <td className="py-2 text-center">
+                                          {it.insumo_id ? (
+                                            <span className="bg-emerald-100 text-emerald-700 text-[9px] font-black px-2 py-0.5 rounded-md uppercase">
+                                              ✓ Vinculado
+                                            </span>
+                                          ) : (
+                                            <span className="bg-slate-100 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase">
+                                              Avulso
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="py-2 text-center font-black text-slate-700">{it.quantidade} un.</td>
+                                        <td className="py-2 text-right font-mono text-slate-600">
+                                          R$ {Number(it.valor_estimado || 0).toFixed(2)}
+                                        </td>
+                                        <td className="py-2 text-right font-mono font-bold text-slate-800">
+                                          R$ {(Number(it.quantidade || 0) * Number(it.valor_estimado || 0)).toFixed(2)}
+                                        </td>
+                                      </tr>
+                                    ))
+                                  ) : (
+                                    <tr>
+                                      <td colSpan="5" className="py-4 text-center text-slate-400 italic">
+                                        Nenhum item discriminado.
                                       </td>
                                     </tr>
-                                  ))
-                                ) : (
-                                  <tr>
-                                    <td colSpan="5" className="py-4 text-center text-slate-400 italic">
-                                      Nenhum item discriminado nesta solicitação.
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
+
+                          {/* COLUNA LATERAL: COTAÇÕES + DADOS FINANCEIROS */}
+                          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-inner flex flex-col justify-between space-y-4">
+                            <div>
+                              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-2">
+                                📎 Cotações & Propostas Anexadas
+                              </span>
+
+                              <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                                {anexosExistentes.map(anexo => (
+                                  <div key={anexo.id} className="p-2 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
+                                    <span className="font-bold text-slate-700 truncate max-w-[150px]" title={anexo.nome_original || anexo.arquivo_nome}>
+                                      📄 {anexo.nome_original || 'Cotação'}
+                                    </span>
+                                    <a
+                                      href={`${BASE_URL}${anexo.arquivo_nome}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-[10px] font-black uppercase transition-all"
+                                    >
+                                      Abrir ↗
+                                    </a>
+                                  </div>
+                                ))}
+
+                                {anexosExistentes.length === 0 && (
+                                  <p className="text-[11px] text-slate-400 italic py-2 text-center">
+                                    Nenhum documento anexado.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* RESUMO FINANCEIRO SE HOUVER NF VINCULADA (FASE 3) */}
+                            {s.nota_fiscal_numero && (
+                              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                                <span className="text-[10px] font-black uppercase text-slate-500 block border-b pb-1">
+                                  💰 Posição Financeira da Compra
+                                </span>
+                                <div className="flex justify-between text-slate-700">
+                                  <span>Faturado NF:</span>
+                                  <strong className="font-mono text-emerald-700">
+                                    R$ {Number(s.nf_valor_total || s.valor_real || 0).toFixed(2)}
+                                  </strong>
+                                </div>
+                                <div className="flex justify-between text-slate-700">
+                                  <span>Boletos Gerados:</span>
+                                  <strong>{s.total_boletos || 0} parcela(s)</strong>
+                                </div>
+                                {s.proximo_vencimento_boleto && (
+                                  <div className="flex justify-between text-slate-700">
+                                    <span>Próximo Vencimento:</span>
+                                    <strong className="text-amber-700">
+                                      {new Date(s.proximo_vencimento_boleto).toLocaleDateString('pt-BR')}
+                                    </strong>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
                         </div>
                       </td>
                     </tr>
@@ -648,7 +832,7 @@ const SolicitacaoCompras = () => {
         )}
       </div>
 
-      {/* MODAL DE NOVA / EDITAR SOLICITAÇÃO COM CATÁLOGO DE INSUMOS */}
+      {/* MODAL DE NOVA / EDITAR SOLICITAÇÃO COM UPLOAD DE COTAÇÕES */}
       {modalNova && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -668,7 +852,7 @@ const SolicitacaoCompras = () => {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor (Opcional)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor Sugerido</label>
                   <select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
                     <option value="">Nenhum / A definir</option>
                     {fornecedores.map(f => <option key={f.id} value={f.id}>🚚 {f.nome_fantasia}</option>)}
@@ -696,24 +880,74 @@ const SolicitacaoCompras = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Justificativa / Motivo da Compra *</label>
-                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Aquisição de botões e frentes para ar-condicionado dos leitos..." />
+                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Aquisição de peças para ar-condicionado dos leitos..." />
               </div>
 
-              {/* VÍNCULO COM NOTA FISCAL CADASTRADA */}
-              <div className="p-4 bg-slate-50 border-2 rounded-2xl">
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Nota Fiscal do Módulo Fiscal (Opcional)</label>
-                <select 
-                  value={notaFiscalId} 
-                  onChange={e => setNotaFiscalId(e.target.value)} 
-                  className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
-                >
-                  <option value="">Nenhuma nota fiscal vinculada</option>
-                  {notasFiscais.map(nf => (
-                    <option key={nf.id} value={nf.id}>
-                      📄 NF #{nf.numero_nf} — R$ {Number(nf.valor_total || 0).toFixed(2)} ({nf.fornecedor_nome || 'Fornecedor'})
-                    </option>
-                  ))}
-                </select>
+              {/* VÍNCULOS OPCIONAIS: NOTA FISCAL OU ORÇAMENTO EXTERNO FORMAL */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border-2 rounded-2xl">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Orçamento Externo (Opcional)</label>
+                  <select 
+                    value={orcamentoExternoId} 
+                    onChange={e => setOrcamentoExternoId(e.target.value)} 
+                    className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                  >
+                    <option value="">Nenhum orçamento vinculado</option>
+                    {orcamentosExternos.map(orc => (
+                      <option key={orc.id} value={orc.id}>
+                        📑 {orc.codigo_orcamento} — R$ {Number(orc.valor_total || 0).toFixed(2)} ({orc.fornecedor_nome})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Nota Fiscal Existente (Opcional)</label>
+                  <select 
+                    value={notaFiscalId} 
+                    onChange={e => setNotaFiscalId(e.target.value)} 
+                    className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                  >
+                    <option value="">Nenhuma nota vinculada</option>
+                    {notasFiscais.map(nf => (
+                      <option key={nf.id} value={nf.id}>
+                        📄 NF #{nf.numero_nf} — R$ {Number(nf.valor_total || 0).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* UPLOAD DE COTAÇÕES / ARQUIVOS (FASE 2) */}
+              <div className="p-4 bg-slate-50 border-2 rounded-2xl space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase block">
+                  📎 Anexar Cotações / Orçamentos / Fotos (PDF, Imagens)
+                </label>
+                <input
+                  type="file"
+                  multiple
+                  accept="application/pdf,image/*"
+                  onChange={e => setArquivosCotacao(e.target.files)}
+                  className="text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700"
+                />
+
+                {/* Lista de anexos que já foram salvos anteriormente */}
+                {anexosExistentes.length > 0 && (
+                  <div className="pt-2 border-t mt-2 space-y-1">
+                    <span className="text-[10px] font-black uppercase text-slate-400 block">Arquivos já salvos nesta solicitação:</span>
+                    {anexosExistentes.map(anexo => (
+                      <div key={anexo.id} className="flex justify-between items-center bg-white p-2 rounded-lg border text-xs">
+                        <span className="font-bold text-slate-700 truncate max-w-[280px]">
+                          📄 {anexo.nome_original || anexo.arquivo_nome}
+                        </span>
+                        <div className="flex gap-2">
+                          <a href={`${BASE_URL}${anexo.arquivo_nome}`} target="_blank" rel="noreferrer" className="text-blue-600 font-bold hover:underline">Ver ↗</a>
+                          <button type="button" onClick={() => handleExcluirAnexo(anexo.id)} className="text-rose-500 font-bold hover:underline">Excluir ✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* LISTA DINÂMICA DE ITENS COM BUSCA NO ALMOXARIFADO */}
@@ -728,7 +962,6 @@ const SolicitacaoCompras = () => {
 
                 {itens.map((item, index) => (
                   <div key={index} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-white p-3 rounded-xl border border-slate-200">
-                    {/* Select de catálogo do almoxarifado */}
                     {catalogoInsumos.length > 0 && (
                       <select
                         value={item.insumo_id || ''}

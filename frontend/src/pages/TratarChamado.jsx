@@ -25,7 +25,7 @@ export function TratarChamado() {
   const [loading, setLoading] = useState(true);
 
   // 📱 Estado para Visualizador Interno de Anexos/Imagens (Mobile Friendly)
-  const [visualizadorAnexo, setVisualizadorAnexo] = useState(null); // { url, titulo, tipo }
+  const [visualizadorAnexo, setVisualizadorAnexo] = useState(null);
 
   // Estados de Troca de Ativo
   const [equipamentosReserva, setEquipamentosReserva] = useState([]);
@@ -49,6 +49,19 @@ export function TratarChamado() {
   const [observacaoRetorno, setObservacaoRetorno] = useState("");
   const [arquivoLaudo, setArquivoLaudo] = useState(null);
   const [enviandoRetorno, setEnviandoRetorno] = useState(false);
+
+  // 🛒 NOVO: Modal de Solicitar Compra de Peça Direto da OS
+  const [modalSolicitarCompra, setModalSolicitarCompra] = useState(false);
+  const [enviandoCompra, setEnviandoCompra] = useState(false);
+  const [compraForm, setCompraForm] = useState({
+    fornecedor_id: "",
+    urgencia: "Alta",
+    motivo: "",
+    insumo_id: "",
+    descricao: "",
+    quantidade: 1,
+    valor_estimado: 0
+  });
 
   // Estados do Formulário de Solução
   const [tipoAtendimento, setTipoAtendimento] = useState("Interno");
@@ -77,23 +90,18 @@ export function TratarChamado() {
   const API_URL = "/api";
   const BASE_URL = "";
 
-  // 📱 Trava o botão físico "Voltar" do celular para fechar modais/anexos em vez de fechar o app
   useEffect(() => {
     const handlePopState = () => {
-      if (visualizadorAnexo) {
-        setVisualizadorAnexo(null);
-      } else if (modalSaidaExterna) {
-        setModalSaidaExterna(false);
-      } else if (modalRetornoExterno) {
-        setModalRetornoExterno(false);
-      } else if (exibirPainelTroca) {
-        setExibirPainelTroca(false);
-      }
+      if (visualizadorAnexo) setVisualizadorAnexo(null);
+      else if (modalSaidaExterna) setModalSaidaExterna(false);
+      else if (modalRetornoExterno) setModalRetornoExterno(false);
+      else if (modalSolicitarCompra) setModalSolicitarCompra(false);
+      else if (exibirPainelTroca) setExibirPainelTroca(false);
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [visualizadorAnexo, modalSaidaExterna, modalRetornoExterno, exibirPainelTroca]);
+  }, [visualizadorAnexo, modalSaidaExterna, modalRetornoExterno, modalSolicitarCompra, exibirPainelTroca]);
 
   const abrirVisualizadorInterno = (url, titulo = 'Visualização de Documento', tipo = 'imagem') => {
     window.history.pushState({ visualizando: true }, '');
@@ -110,7 +118,6 @@ export function TratarChamado() {
   );
   const custoTotalOS = (Number(custoServico) || 0) + (Number(chamado?.valor_servico_externo) || 0) + totalPecas;
 
-  // 💾 Auto-save do rascunho no localStorage enquanto o técnico digita
   useEffect(() => {
     if (!loading && chamado && chamado.status !== "Concluído") {
       const dadosRascunho = {
@@ -135,9 +142,7 @@ export function TratarChamado() {
 
       const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos] = await Promise.all([
         fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.ok ? res.json() : null),
-        isGestao 
-          ? fetch(`${API_URL}/estoque`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []) 
-          : Promise.resolve([]),
+        fetch(`${API_URL}/itens-estoque`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
         fetch(`${API_URL}/fornecedores`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
         fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
         fetch(`${API_URL}/tecnicos`, { headers }).then(res => res.ok ? res.json() : []).catch(() => [])
@@ -146,7 +151,6 @@ export function TratarChamado() {
       if (resChamado) {
         setChamado(resChamado);
 
-        // 🔍 Checagem de Rascunho Salvo em caso de reinício por pressão de memória do celular
         const rascunhoJson = localStorage.getItem(CHAVE_RASCUNHO);
         let rascunho = null;
         if (rascunhoJson) {
@@ -224,6 +228,73 @@ export function TratarChamado() {
     setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`);
   };
 
+  // 🛒 HANDLER: ABRIR MODAL DE COMPRA COM DADOS DA OS PRÉ-PREENCHIDOS
+  const handleAbrirModalCompra = () => {
+    setCompraForm({
+      fornecedor_id: "",
+      urgencia: chamado?.prioridade === 'Urgente' ? 'Crítica' : 'Alta',
+      motivo: `Reposição de peça avariada para a OS #${id} (${chamado?.titulo || 'Equipamento'}).`,
+      insumo_id: "",
+      descricao: "",
+      quantidade: 1,
+      valor_estimado: 0
+    });
+    setModalSolicitarCompra(true);
+  };
+
+  // 🛒 HANDLER: DISPARAR SOLICITAÇÃO DE COMPRA AMARRADA À OS
+  const handleEnviarSolicitacaoCompra = async (e) => {
+    e.preventDefault();
+    if (!compraForm.descricao || !compraForm.motivo) {
+      alert("Informe a descrição da peça e a justificativa do pedido.");
+      return;
+    }
+
+    setEnviandoCompra(true);
+
+    const payload = {
+      solicitante_id: usuarioLogado?.id || 1,
+      setor_id: chamado?.setor_id || null,
+      equipamento_id: chamado?.equipamento_id || null,
+      chamado_id: id,
+      fornecedor_id: compraForm.fornecedor_id || null,
+      urgencia: compraForm.urgencia,
+      motivo: compraForm.motivo,
+      itens: [
+        {
+          insumo_id: compraForm.insumo_id || null,
+          descricao: compraForm.descricao,
+          quantidade: Number(compraForm.quantidade || 1),
+          valor_estimado: Number(compraForm.valor_estimado || 0)
+        }
+      ]
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/solicitacoes-compra`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-usuario-nivel": nivelUsuario
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert("Solicitação de compra gerada com sucesso! Ela foi registrada na cronologia da OS. 🛒📋");
+        setModalSolicitarCompra(false);
+        await carregarTodosOsDados();
+      } else {
+        alert(`Erro: ${data.error || 'Falha ao solicitar compra.'}`);
+      }
+    } catch (err) {
+      alert("Erro de conexão ao solicitar compra.");
+    } finally {
+      setEnviandoCompra(false);
+    }
+  };
+
   const handleConfirmarSaidaExterna = async (e) => {
     e.preventDefault();
     if (!fornecedorSaidaId || !motivoSaida) {
@@ -293,7 +364,6 @@ export function TratarChamado() {
     formData.append('observacao', observacaoRetorno);
     formData.append('tecnico_nome', usuarioLogado?.nome || "Técnico");
     if (arquivoLaudo) {
-      // Aplica compressão caso seja foto tirada da câmera
       const laudoFinal = await comprimirImagemSeNecessario(arquivoLaudo);
       formData.append('laudo_tecnico', laudoFinal);
     }
@@ -383,7 +453,6 @@ export function TratarChamado() {
     });
   };
 
-  // 📷 Otimização e compressão client-side de fotos de câmeras de celular (8MB-15MB -> ~350KB)
   const comprimirImagemSeNecessario = async (arquivo) => {
     if (!arquivo || !arquivo.type.startsWith('image/')) return arquivo;
 
@@ -529,7 +598,6 @@ export function TratarChamado() {
       });
 
       if (res.ok) {
-        // 🧹 Limpa o rascunho persistido após salvar com sucesso
         localStorage.removeItem(CHAVE_RASCUNHO);
         setTemRascunhoRecuperado(false);
 
@@ -872,15 +940,27 @@ export function TratarChamado() {
             )}
           </div>
 
-          {/* CARD DE PEÇAS */}
+          {/* CARD DE PEÇAS & SOLICITAÇÃO DIRETA DE COMPRA */}
           <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <div className="flex justify-between items-center border-b pb-2">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
                 📦 Insumos & Peças
               </h3>
-              <span className="text-xs font-black text-blue-600">
-                Total: R$ {totalPecas.toFixed(2)}
-              </span>
+              <div className="flex items-center gap-2">
+                {!isConcluido && (
+                  <button
+                    type="button"
+                    onClick={handleAbrirModalCompra}
+                    className="text-[10px] bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white px-2.5 py-1 rounded-lg font-black uppercase transition-all flex items-center gap-1 border border-blue-200 active:scale-95"
+                    title="Solicitar aquisição de peça sem saldo no estoque para este chamado"
+                  >
+                    <span>🛒</span> Solicitar Compra
+                  </button>
+                )}
+                <span className="text-xs font-black text-blue-600">
+                  Total: R$ {totalPecas.toFixed(2)}
+                </span>
+              </div>
             </div>
 
             {isGestao && !isConcluido && (
@@ -1140,7 +1220,15 @@ export function TratarChamado() {
             <div className="overflow-y-auto max-h-56 pr-1 space-y-3">
               {chamado?.historico?.map((h, i) => (
                 <div key={i} className="flex gap-3 text-xs">
-                  <div className={`w-2 rounded-full shrink-0 mt-1 ${h.tecnico_nome?.includes('Terceirizado') || h.texto_historico?.includes('MANUTENÇÃO EXTERNA') ? 'bg-indigo-600' : 'bg-blue-500'}`}></div>
+                  <div className={`w-2 rounded-full shrink-0 mt-1 ${
+                    h.texto_historico?.includes('PEÇA DISPONÍVEL') 
+                      ? 'bg-emerald-500 animate-pulse' 
+                      : h.texto_historico?.includes('COMPRA SOLICITADA')
+                      ? 'bg-blue-600'
+                      : h.tecnico_nome?.includes('Terceirizado') || h.texto_historico?.includes('MANUTENÇÃO EXTERNA') 
+                      ? 'bg-indigo-600' 
+                      : 'bg-slate-400'
+                  }`}></div>
                   <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div className="flex flex-wrap justify-between items-center gap-1 mb-1.5">
                       <div className="flex items-center gap-2">
@@ -1164,7 +1252,6 @@ export function TratarChamado() {
                       {h.texto_historico}
                     </p>
 
-                    {/* Botão para laudo do fornecedor com visualizador interno */}
                     {h.url_anexo && (() => {
                       const isPdf = h.url_anexo.toLowerCase().endsWith('.pdf');
                       return (
@@ -1203,6 +1290,153 @@ export function TratarChamado() {
         </div>
 
       </div>
+
+      {/* 🛒 MODAL: SOLICITAR COMPRA DE PEÇA VINCULADA À OS */}
+      {modalSolicitarCompra && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
+          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+            <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
+              <span>🛒 Solicitar Aquisição de Peça para OS #{id}</span>
+              <button type="button" onClick={() => setModalSolicitarCompra(false)} className="text-lg">✕</button>
+            </div>
+
+            <form onSubmit={handleEnviarSolicitacaoCompra} className="p-6 space-y-4 text-xs">
+              <div className="p-3 bg-blue-50 border border-blue-100 rounded-2xl">
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 block">Vínculo Automático da OS:</span>
+                <p className="text-xs font-black text-slate-800 uppercase mt-0.5">
+                  Setor: {chamado?.setor_nome || 'Geral'} • Ativo: {chamado?.eq_nome || 'Sem ativo específico'}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Vincular Insumo do Estoque (Opcional - Se já cadastrado)
+                </label>
+                <select
+                  value={compraForm.insumo_id}
+                  onChange={e => {
+                    const selId = e.target.value;
+                    const itemEnc = itensEstoque.find(it => String(it.id) === String(selId));
+                    setCompraForm({
+                      ...compraForm,
+                      insumo_id: selId,
+                      descricao: itemEnc ? itemEnc.nome : compraForm.descricao,
+                      valor_estimado: itemEnc ? Number(itemEnc.valor_unitario || 0) : compraForm.valor_estimado
+                    });
+                  }}
+                  className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none text-slate-800 focus:border-blue-500"
+                >
+                  <option value="">Peça Avulsa / Digitar Manualmente</option>
+                  {itensEstoque.map(it => (
+                    <option key={it.id} value={it.id}>
+                      📦 {it.nome} (Saldo atual: {it.quantidade})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Descrição da Peça / Especificação Técnica *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Atuador linear 24V para Cama Fowler Hospitalar..."
+                  value={compraForm.descricao}
+                  onChange={e => setCompraForm({ ...compraForm, descricao: e.target.value })}
+                  className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Quantidade *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={compraForm.quantidade}
+                    onChange={e => setCompraForm({ ...compraForm, quantidade: e.target.value })}
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold text-center bg-white text-slate-800 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor Unit. Est. (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={compraForm.valor_estimado}
+                    onChange={e => setCompraForm({ ...compraForm, valor_estimado: e.target.value })}
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-mono font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Urgência</label>
+                  <select
+                    value={compraForm.urgencia}
+                    onChange={e => setCompraForm({ ...compraForm, urgencia: e.target.value })}
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                  >
+                    <option value="Baixa">Baixa</option>
+                    <option value="Média">Média</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Crítica">Crítica</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Fornecedor Sugerido / Link / Loja (Opcional)
+                </label>
+                <select
+                  value={compraForm.fornecedor_id}
+                  onChange={e => setCompraForm({ ...compraForm, fornecedor_id: e.target.value })}
+                  className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
+                >
+                  <option value="">A definir / Compras cotar</option>
+                  {fornecedores.map(f => (
+                    <option key={f.id} value={f.id}>🚚 {f.nome_fantasia}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Justificativa da Solicitação *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={compraForm.motivo}
+                  onChange={e => setCompraForm({ ...compraForm, motivo: e.target.value })}
+                  placeholder="Justifique a necessidade da compra para o setor ou ativo..."
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-blue-500 text-slate-800 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalSolicitarCompra(false)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-500 rounded-xl font-black uppercase text-[11px]"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={enviandoCompra}
+                  className="flex-[2] py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black uppercase text-[11px] shadow-lg shadow-blue-100 disabled:opacity-50"
+                >
+                  {enviandoCompra ? "Gerando..." : "Confirmar Solicitação de Compra 🛒"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 📱 VISUALIZADOR INTERNO DE ANEXOS / LAUDOS / FOTOS EM TELA CHEIA */}
       {visualizadorAnexo && (
