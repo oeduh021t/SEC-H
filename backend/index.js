@@ -3644,7 +3644,11 @@ app.delete('/api/solicitacoes-compra/anexos/:anexo_id', permitirApenas(['admin',
     });
 });
 
-// MANUTENÇÃO EXTERNA
+// ==========================================
+// 🚚 MÓDULO INTEGRADO: SAÍDA E RETORNO DE MANUTENÇÃO EXTERNA
+// ==========================================
+
+// 1. REGISTRAR SAÍDA EXTERNA (AMARRADA COM OS E ORÇAMENTOS)
 app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { fornecedor_id, tecnico_nome, descricao_motivo, data_previsao_retorno } = req.body;
@@ -3656,31 +3660,105 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        conn.query("SELECT nome_fantasia FROM fornecedores WHERE id = ?", [fornecedor_id], (errForn, resForn) => {
+        // 1. Busca fornecedor
+        conn.query("SELECT COALESCE(nome_fantasia, razao_social) AS nome FROM fornecedores WHERE id = ?", [fornecedor_id], (errForn, resForn) => {
             if (errForn || resForn.length === 0) {
                 return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Fornecedor não localizado." }); });
             }
 
-            const nomeFornecedor = resForn[0].nome_fantasia;
+            const nomeFornecedor = resForn[0].nome;
             const logTexto = `[SAÍDA EXTERNA] Enviado para ${nomeFornecedor}. Motivo: ${descricao_motivo}${data_previsao_retorno ? ` | Previsão Retorno: ${data_previsao_retorno}` : ''}`;
 
-            conn.query("UPDATE equipamentos SET status = 'Em Manutenção' WHERE id = ?", [id], (errUp) => {
-                if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+            // 2. Busca dados do equipamento
+            conn.query("SELECT id, nome, setor_id, status FROM equipamentos WHERE id = ?", [id], (errEquip, resEquip) => {
+                if (errEquip || resEquip.length === 0) {
+                    return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Equipamento não localizado." }); });
+                }
 
-                const queryHist = `
-                    INSERT INTO equipamentos_historico 
-                    (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
-                    SELECT id, status, 'Em Manutenção', ?, ?, NOW() 
-                    FROM equipamentos WHERE id = ?
-                `;
+                const equip = resEquip[0];
+                const statusAnterior = equip.status;
 
-                conn.query(queryHist, [logTexto, tecnico_nome || 'Técnico', id], (errHist) => {
-                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+                // 3. Atualiza o status do equipamento para 'Em Manutenção'
+                conn.query("UPDATE equipamentos SET status = 'Em Manutenção' WHERE id = ?", [id], (errUp) => {
+                    if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-                    conn.commit((errCommit) => {
-                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                        conn.release();
-                        res.json({ message: "Saída para manutenção externa registrada com sucesso!", fornecedor: nomeFornecedor });
+                    // 4. Insere no histórico patrimonial do equipamento
+                    const queryHist = `
+                        INSERT INTO equipamentos_historico 
+                        (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
+                        VALUES (?, ?, 'Em Manutenção', ?, ?, NOW())
+                    `;
+
+                    conn.query(queryHist, [id, statusAnterior, logTexto, tecnico_nome || 'Técnico'], (errHist) => {
+                        if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                        // 5. Verifica se já existe OS aberta para amarrar
+                        const queryBuscaOS = `
+                            SELECT id FROM chamados 
+                            WHERE equipamento_id = ? 
+                              AND status NOT IN ('Concluído', 'Cancelado')
+                            ORDER BY id DESC LIMIT 1
+                        `;
+
+                        conn.query(queryBuscaOS, [id], (errOS, chamadosAbertos) => {
+                            if (errOS) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errOS.message }); });
+
+                            const finalizarOperacao = (chamadoId) => {
+                                // Atualiza a OS para 'Aguardando Externa' e marca a flag
+                                const queryUpOS = `
+                                    UPDATE chamados 
+                                    SET status = 'Aguardando Externa', 
+                                        em_manutencao_externa = 1, 
+                                        fornecedor_id = ? 
+                                    WHERE id = ?
+                                `;
+
+                                conn.query(queryUpOS, [fornecedor_id, chamadoId], (errUpOS) => {
+                                    if (errUpOS) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpOS.message }); });
+
+                                    // Registra a intervenção técnica na linha do tempo da OS
+                                    const logChamado = `[ENVIADO PARA MANUTENÇÃO EXTERNA] Fornecedor: ${nomeFornecedor}. Motivo: ${descricao_motivo}`;
+                                    const queryHistChamado = `
+                                        INSERT INTO chamados_historico 
+                                        (chamado_id, tecnico_nome, status_momento, texto_historico, data_registro) 
+                                        VALUES (?, ?, 'Aguardando Externa', ?, NOW())
+                                    `;
+
+                                    conn.query(queryHistChamado, [chamadoId, tecnico_nome || 'Técnico', logChamado], (errHistCh) => {
+                                        if (errHistCh) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistCh.message }); });
+
+                                        conn.commit((errCommit) => {
+                                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                            conn.release();
+                                            return res.json({ 
+                                                success: true,
+                                                message: `Saída registrada com sucesso e vinculada à OS #${chamadoId}!`, 
+                                                fornecedor: nomeFornecedor,
+                                                chamado_id: chamadoId
+                                            });
+                                        });
+                                    });
+                                });
+                            };
+
+                            if (chamadosAbertos && chamadosAbertos.length > 0) {
+                                // Vincula à OS existente
+                                finalizarOperacao(chamadosAbertos[0].id);
+                            } else {
+                                // Cria nova OS automática para garantir rastreabilidade completa
+                                const queryNovaOS = `
+                                    INSERT INTO chamados 
+                                    (equipamento_id, setor_id, titulo, descricao, solicitante, status, em_manutencao_externa, fornecedor_id, data_abertura)
+                                    VALUES (?, ?, ?, ?, ?, 'Aguardando Externa', 1, ?, NOW())
+                                `;
+                                const tituloOS = `Manutenção Externa — ${equip.nome}`;
+
+                                conn.query(queryNovaOS, [id, equip.setor_id, tituloOS, descricao_motivo, tecnico_nome || 'Engenharia Clínica', fornecedor_id], (errNova, resNova) => {
+                                    if (errNova) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errNova.message }); });
+                                    finalizarOperacao(resNova.insertId);
+                                });
+                            }
+                        });
                     });
                 });
             });
@@ -3688,6 +3766,7 @@ app.post('/api/equipamentos/:id/saida-externa', permitirApenas(['admin', 'coorde
     });
 });
 
+// 2. REGISTRAR RETORNO EXTERNO (ENCERRAMENTO SINCRONIZADO DE ATIVO E OS)
 app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('laudo_tecnico'), (req, res) => {
     const { id } = req.params;
     const { numero_nf, valor_servico, observacao, tecnico_nome } = req.body;
@@ -3711,9 +3790,11 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
             if (valor_servico && Number(valor_servico) > 0) logTexto += ` Valor do Serviço: R$ ${Number(valor_servico).toFixed(2)}.`;
             if (observacao && observacao.trim() !== '') logTexto += ` Parecer Técnico: ${observacao}`;
 
+            // 1. Atualiza status do equipamento
             conn.query("UPDATE equipamentos SET status = ? WHERE id = ?", [novoStatus, id], (errUp) => {
                 if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
+                // 2. Registra no histórico do equipamento
                 const queryHist = `
                     INSERT INTO equipamentos_historico 
                     (equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
@@ -3723,6 +3804,51 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
                 conn.query(queryHist, [id, statusAnterior, novoStatus, logTexto, tecnico_nome || 'Técnico'], (errHist) => {
                     if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
+                    // Função auxiliar para fechar a OS externa vinculada
+                    const processarFechamentoOS = () => {
+                        const queryBuscaOS = `
+                            SELECT id, custo_servico FROM chamados 
+                            WHERE equipamento_id = ? 
+                              AND (em_manutencao_externa = 1 OR status LIKE '%Externa%' OR status = 'Em Andamento')
+                              AND status != 'Concluído'
+                            ORDER BY id DESC LIMIT 1
+                        `;
+
+                        conn.query(queryBuscaOS, [id], (errOS, chamadosAtivos) => {
+                            if (!errOS && chamadosAtivos && chamadosAtivos.length > 0) {
+                                const osId = chamadosAtivos[0].id;
+                                const custoAtual = Number(chamadosAtivos[0].custo_servico) || 0;
+                                const custoFinal = Number(valor_servico) > 0 ? Number(valor_servico) : custoAtual;
+
+                                // Conclui a OS e zera a flag de manutenção externa
+                                conn.query(
+                                    `UPDATE chamados 
+                                     SET status = 'Concluído', 
+                                         em_manutencao_externa = 0, 
+                                         custo_servico = ?, 
+                                         data_fechamento = NOW() 
+                                     WHERE id = ?`,
+                                    [custoFinal, osId]
+                                );
+
+                                // Registra o encerramento no histórico da OS
+                                const logOS = `[RETORNO EXTERNO / CONCLUÍDO] Equipamento testado e liberado. ${observacao || ''} ${numero_nf ? `(NF: ${numero_nf})` : ''}`;
+                                conn.query(
+                                    `INSERT INTO chamados_historico (chamado_id, tecnico_nome, status_momento, texto_historico, arquivo_url, data_registro) 
+                                     VALUES (?, ?, 'Concluído', ?, ?, NOW())`,
+                                    [osId, tecnico_nome || 'Técnico', logOS, url_laudo]
+                                );
+                            }
+
+                            conn.commit((errCommit) => {
+                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                conn.release();
+                                return res.json({ message: "Retorno registrado com sucesso e Ordem de Serviço concluída!" });
+                            });
+                        });
+                    };
+
+                    // 3. Salva laudo em documentos (se houver)
                     if (url_laudo) {
                         const queryDoc = `
                             INSERT INTO documentos (nome_original, nome_armazenamento, url_arquivo, tipo_mimetype, equipamento_id, usuario_id) 
@@ -3737,20 +3863,11 @@ app.post('/api/equipamentos/:id/retorno-externo', permitirApenas(['admin', 'coor
                         ];
 
                         conn.query(queryDoc, valuesDoc, (errDoc) => {
-                            if (errDoc) console.error("⚠️ Aviso: Falha ao gravar laudo na tabela de documentos:", errDoc.message);
-
-                            conn.commit((errCommit) => {
-                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                                conn.release();
-                                return res.json({ message: "Retorno de manutenção externa registrado com sucesso!" });
-                            });
+                            if (errDoc) console.error("⚠️ Falha ao registrar documento:", errDoc.message);
+                            processarFechamentoOS();
                         });
                     } else {
-                        conn.commit((errCommit) => {
-                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                            conn.release();
-                            return res.json({ message: "Retorno de manutenção externa registrado com sucesso!" });
-                        });
+                        processarFechamentoOS();
                     }
                 });
             });
