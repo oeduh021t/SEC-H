@@ -33,14 +33,14 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeVerDashboard = isGestao;
   const podeVerPlanejadas = isGestao || isTecnico;
   const podeVerEquipamentos = isGestao;
-  const podeGerenciarEstrutura = isAdmin; // 👈 Exclusivo para admin: Tipos, Setores e Repositório Global
+  const podeGerenciarEstrutura = isAdmin;
   const podeVerSuprimentos = isGestao;
   const podeVerUtilidades = isGestao;
   const podeVerFiltrosAgua = isAdmin;
   const podeVerRelatorios = isGestao;
   const podeGerenciarUsuarios = isAdmin;
 
-  // Verificadores de submenus ativos (incluindo 'orcamentos-externos')
+  // Verificadores de submenus ativos
   const isAtivosActive = location.pathname.includes('equipamentos') || 
                         location.pathname.includes('tipos-equipamentos') || 
                         location.pathname.includes('preventivas') || 
@@ -59,7 +59,8 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                             location.pathname.includes('controle-epi');
                             
   const isRelatActive = location.pathname.includes('relatorios') || 
-                        location.pathname.includes('relatorio-filtros');
+                        location.pathname.includes('relatorio-filtros') ||
+                        location.pathname.includes('auditoria-fornecedores');
 
   // Buscar alertas de manutenções programadas para o dia
   useEffect(() => {
@@ -244,7 +245,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         <span>• Listar Ativos</span>
                       </Link>
 
-                      {/* 📑 NOVO: Orçamentos & Lotes Externos */}
                       <Link 
                         to="/orcamentos-externos" 
                         onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
@@ -253,7 +253,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         <span>• Orçamentos Externos</span>
                       </Link>
 
-                      {/* 🔒 EXCLUSIVO ADMIN: Gerenciar Tipos */}
                       {podeGerenciarEstrutura && (
                         <Link 
                           to="/tipos-equipamentos" 
@@ -272,7 +271,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         <span>• Preventivas PMOC</span>
                       </Link>
 
-                      {/* 🔒 EXCLUSIVO ADMIN: Setores e Áreas */}
                       {podeGerenciarEstrutura && (
                         <Link 
                           to="/setores" 
@@ -283,7 +281,6 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         </Link>
                       )}
 
-                      {/* 🔒 EXCLUSIVO ADMIN: Repositório Global de Docs */}
                       {podeGerenciarEstrutura && (
                         <Link 
                           to="/documentos" 
@@ -451,6 +448,13 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/custos-setor') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
                       >
                         <span>• Custos por Setor</span>
+                      </Link>
+                      <Link 
+                        to="/relatorios/fornecedores" 
+                        onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
+                        className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/relatorios/fornecedores') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
+                      >
+                        <span>• Auditoria Fornecedores</span>
                       </Link>
                       <Link 
                         to="/relatorios/estoque-local" 

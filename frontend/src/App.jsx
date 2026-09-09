@@ -37,6 +37,8 @@ import ManutencaoPlanejada from './pages/ManutencaoPlanejada';
 import OrcamentosExternos from './pages/OrcamentosExternos';
 import ImprimirOrcamentoExterno from './pages/ImprimirOrcamentoExterno';
 
+// 🔍 NOVO: AUDITORIA E EXTRATO DE FORNECEDORES
+import AuditoriaFornecedor from './pages/AuditoriaFornecedor'; // ❌ Falta o "es" no arquivo real
 function AppRoutes() {
   const { user, permissions } = useAuth();
   const [sidebarAberta, setSidebarAberta] = useState(true);
@@ -120,7 +122,7 @@ function AppRoutes() {
                   <Route path="/equipamentos/novo" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><NovoEquipamento /></ProtectedRoute>} />
                   <Route path="/preventivas" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Preventivas /></ProtectedRoute>} />
                   
-                  {/* 📑 NOVO MÓDULO DE ORÇAMENTOS EXTERNOS */}
+                  {/* 📑 MÓDULO DE ORÇAMENTOS EXTERNOS */}
                   <Route path="/orcamentos-externos" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><OrcamentosExternos /></ProtectedRoute>} />
                   <Route path="/orcamentos-externos/:id/imprimir" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><ImprimirOrcamentoExterno /></ProtectedRoute>} />
 
@@ -159,7 +161,10 @@ function AppRoutes() {
                   <Route path="/relatorios/custos-setor" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><RelatorioCustosSetor /></ProtectedRoute>} />
                   <Route path="/relatorios/chamados-setor" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><RelatorioChamadosSetor /></ProtectedRoute>} />
                   <Route path="/relatorios/estoque-local" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><RelatorioEstoqueLocal /></ProtectedRoute>} />
-
+                  
+                  {/* 🔍 AUDITORIA E EXTRATOS DE FORNECEDORES */}
+                  <Route path="/relatorios/fornecedores" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><AuditoriaFornecedor /></ProtectedRoute>} />
+<Route path="/relatorios/fornecedores/:id" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><AuditoriaFornecedor /></ProtectedRoute>} />
                   {/* 8. GERENCIAMENTO DE USUÁRIOS */}
                   <Route path="/usuarios" element={<ProtectedRoute allowedRoles={['admin']}><Usuarios /></ProtectedRoute>} />
 
