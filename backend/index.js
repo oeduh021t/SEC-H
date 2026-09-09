@@ -982,122 +982,166 @@ app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecn
 });
 
 app.get('/api/equipamentos/:id/prontuario', (req, res) => {
-    const { id } = req.params;
-    const queryEquip = `SELECT e.*, s.nome as setor_nome FROM equipamentos e LEFT JOIN setores s ON e.setor_id = s.id WHERE e.id = ?`;
-    
-    const queryTimeline = `
-        (
-            SELECT 
-                c.data_abertura as data, 
-                c.titulo as evento, 
-                'Abertura OS' as tipo, 
-                'Usuário' as responsavel, 
-                c.status, 
-                c.id as ref_id, 
-                NULL as url_anexo 
-            FROM chamados c 
-            WHERE c.equipamento_id = ?
-        )
-        UNION
-        (
-            SELECT 
-                h.data_registro as data, 
-                h.texto_historico as evento, 
-                'Intervenção Técnica' as tipo, 
-                h.tecnico_nome as responsavel, 
-                h.status_momento as status, 
-                c.id as ref_id, 
-                COALESCE(d.url_arquivo, h.arquivo_url) as url_anexo
-            FROM chamados_historico h 
-            JOIN chamados c ON h.chamado_id = c.id 
-            LEFT JOIN documentos d ON d.chamado_id = c.id AND h.texto_historico LIKE CONCAT('%', d.nome_original, '%')
-            WHERE c.equipamento_id = ?
-        )
-        UNION
-        (
-            SELECT 
-                data_registro as data, 
-                texto_historico as evento, 
-                'Preventiva' as tipo, 
-                tecnico_nome as responsavel, 
-                status_momento as status, 
-                0 as ref_id, 
-                arquivo_url as url_anexo
-            FROM chamados_historico 
-            WHERE texto_historico LIKE CONCAT('%[ID EQUIP: ', ?, ']%')
-        )
-        UNION
-        (
-            SELECT 
-                data_movimentacao as data, 
-                descricao_log as evento, 
-                'Movimentação' as tipo, 
-                tecnico_nome as responsavel, 
-                status_novo as status, 
-                0 as ref_id, 
-                NULL as url_anexo
-            FROM equipamentos_historico 
-            WHERE equipamento_id = ?
-        )
-        UNION
-        (
-            SELECT 
-                data_programada as data, 
-                CONCAT('[PLANEJADA] ', titulo, ' (Motivo: ', IFNULL(motivo_janela, 'Não informado'), ')') as evento, 
-                'Manutenção Planejada' as tipo, 
-                criado_por_nome as responsavel, 
-                status, 
-                IFNULL(chamado_execucao_id, 0) as ref_id, 
-                NULL as url_anexo
-            FROM manutencoes_planejadas 
-            WHERE equipamento_id = ?
-        )
-        ORDER BY data DESC
+    const param = req.params.id;
+
+    // Busca híbrida: aceita tanto o ID primário quanto o Patrimônio
+    const queryEquip = `
+        SELECT 
+            e.*, 
+            s.nome as setor_nome,
+            (
+                COALESCE(e.valor, 0.00) +
+                COALESCE((
+                    SELECT SUM(c.custo_servico) 
+                    FROM chamados c 
+                    WHERE c.equipamento_id = e.id 
+                      AND c.status NOT IN ('Cancelado')
+                ), 0.00) +
+                COALESCE((
+                    SELECT SUM(oi.valor_unitario)
+                    FROM orcamentos_externos_itens oi
+                    INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+                    WHERE oi.equipamento_id = e.id 
+                      AND oi.chamado_id IS NULL
+                      AND o.status = 'Aprovado Financeiro'
+                ), 0.00)
+            ) AS custo_total_acumulado,
+            (
+                SELECT COUNT(*) 
+                FROM chamados c 
+                WHERE c.equipamento_id = e.id
+            ) AS total_chamados,
+            (
+                SELECT COUNT(*) 
+                FROM manutencoes_planejadas mp 
+                WHERE mp.equipamento_id = e.id AND mp.status = 'Concluído'
+            ) AS total_preventivas
+        FROM equipamentos e 
+        LEFT JOIN setores s ON e.setor_id = s.id 
+        WHERE e.id = ? OR e.patrimonio = ?
+        LIMIT 1
     `;
 
-    db.query(queryEquip, [id], (err, equip) => {
-        if (err) return res.status(500).json(err);
-        if (equip.length === 0) return res.status(404).json({ message: "Não encontrado" });
-        
-        db.query(queryTimeline, [id, id, id, id, id], (errTimeline, timeline) => {
-            if (errTimeline) return res.status(500).json(errTimeline);
-            
-            const queryCusto = `
-                SELECT (SELECT IFNULL(SUM(custo_servico), 0) FROM chamados WHERE equipamento_id = ? AND status = 'Concluído') +
-                       (SELECT IFNULL(SUM(quantidade * valor_unitario_na_epoca), 0) FROM chamados_itens ci JOIN chamados c ON ci.chamado_id = c.id WHERE c.equipamento_id = ?) +
-                       (SELECT IFNULL(valor, 0) FROM equipamentos WHERE id = ?)
-                as total`;
-                
-            db.query(queryCusto, [id, id, id], (errCusto, custo) => {
-                if (errCusto) return res.status(500).json(errCusto);
+    db.query(queryEquip, [param, param], (errEquip, rowsEquip) => {
+        if (errEquip) {
+            console.error("❌ Erro ao buscar equipamento no prontuário:", errEquip.message);
+            return res.status(500).json({ error: errEquip.message });
+        }
 
-                const queryOrcamentos = `
-                    SELECT 
-                        oi.id AS item_id,
-                        oi.descricao_proposta,
-                        oi.valor_unitario,
-                        o.id AS orcamento_id,
-                        o.codigo_orcamento,
-                        o.data_emissao,
-                        o.status AS orcamento_status,
-                        f.nome_fantasia AS fornecedor_nome,
-                        c.id AS chamado_id,
-                        c.titulo AS chamado_titulo
-                    FROM orcamentos_externos_itens oi
-                    JOIN orcamentos_externos o ON oi.orcamento_id = o.id
-                    LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
-                    LEFT JOIN chamados c ON oi.chamado_id = c.id
-                    WHERE oi.equipamento_id = ?
-                    ORDER BY o.data_emissao DESC, oi.id DESC
-                `;
+        if (rowsEquip.length === 0) {
+            return res.status(404).json({ error: 'Equipamento não encontrado' });
+        }
 
-                db.query(queryOrcamentos, [id], (errOrc, orcamentos) => {
-                    res.json({ 
-                        dados: equip[0], 
-                        timeline, 
-                        custoAcumulado: custo[0].total || 0,
-                        orcamentos: orcamentos || []
-                    });
+        const equipamento = rowsEquip[0];
+        const realId = equipamento.id;
+
+        const queryTimeline = `
+            (
+                SELECT 
+                    c.data_abertura as data, 
+                    c.titulo as evento, 
+                    'Abertura OS' as tipo, 
+                    'Usuário' as responsavel, 
+                    c.status, 
+                    c.id as ref_id, 
+                    NULL as url_anexo 
+                FROM chamados c 
+                WHERE c.equipamento_id = ?
+            )
+            UNION
+            (
+                SELECT 
+                    h.data_registro as data, 
+                    h.texto_historico as evento, 
+                    'Intervenção Técnica' as tipo, 
+                    h.tecnico_nome as responsavel, 
+                    h.status_momento as status, 
+                    c.id as ref_id, 
+                    COALESCE(d.url_arquivo, h.arquivo_url) as url_anexo
+                FROM chamados_historico h 
+                JOIN chamados c ON h.chamado_id = c.id 
+                LEFT JOIN documentos d ON d.chamado_id = c.id AND h.texto_historico LIKE CONCAT('%', d.nome_original, '%')
+                WHERE c.equipamento_id = ?
+            )
+            UNION
+            (
+                SELECT 
+                    data_registro as data, 
+                    texto_historico as evento, 
+                    'Preventiva' as tipo, 
+                    tecnico_nome as responsavel, 
+                    status_momento as status, 
+                    0 as ref_id, 
+                    arquivo_url as url_anexo
+                FROM chamados_historico 
+                WHERE texto_historico LIKE CONCAT('%[ID EQUIP: ', ?, ']%')
+            )
+            UNION
+            (
+                SELECT 
+                    data_movimentacao as data, 
+                    descricao_log as evento, 
+                    'Movimentação' as tipo, 
+                    tecnico_nome as responsavel, 
+                    status_novo as status, 
+                    0 as ref_id, 
+                    NULL as url_anexo
+                FROM equipamentos_historico 
+                WHERE equipamento_id = ?
+            )
+            UNION
+            (
+                SELECT 
+                    data_programada as data, 
+                    CONCAT('[PLANEJADA] ', titulo, ' (Motivo: ', IFNULL(motivo_janela, 'Não informado'), ')') as evento, 
+                    'Manutenção Planejada' as tipo, 
+                    criado_por_nome as responsavel, 
+                    status, 
+                    IFNULL(chamado_execucao_id, 0) as ref_id, 
+                    NULL as url_anexo
+                FROM manutencoes_planejadas 
+                WHERE equipamento_id = ?
+            )
+            ORDER BY data DESC
+        `;
+
+        const queryOrcamentos = `
+            SELECT 
+                oi.id,
+                oi.orcamento_id,
+                oi.chamado_id,
+                oi.item_titulo,
+                oi.descricao_proposta,
+                oi.valor_unitario,
+                o.codigo_orcamento,
+                o.data_emissao,
+                o.status as orcamento_status,
+                COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Autorizado') as fornecedor_nome
+            FROM orcamentos_externos_itens oi
+            INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+            LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+            LEFT JOIN chamados c ON oi.chamado_id = c.id
+            WHERE oi.equipamento_id = ? OR c.equipamento_id = ?
+            ORDER BY o.id DESC
+        `;
+
+        db.query(queryTimeline, [realId, realId, realId, realId, realId], (errTime, timeline) => {
+            if (errTime) {
+                console.error("❌ Erro na timeline:", errTime.message);
+                return res.status(500).json({ error: errTime.message });
+            }
+
+            db.query(queryOrcamentos, [realId, realId], (errOrc, orcamentos) => {
+                if (errOrc) console.error("⚠️ Alerta nos orçamentos do prontuário:", errOrc.message);
+
+                const custoFinal = Number(equipamento.custo_total_acumulado) || 0;
+
+                return res.json({
+                    dados: equipamento,                      // Compatibilidade com seu JSX original
+                    equipamento: equipamento,                // Fallback
+                    custoAcumulado: custoFinal,              // Alimenta o card topo e card lateral
+                    timeline: timeline || [],
+                    orcamentos: orcamentos || []
                 });
             });
         });
@@ -5069,7 +5113,7 @@ app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
 // 3. Criar novo orçamento (Misto: OS ou Avulso + Anexo)
 app.post('/api/orcamentos-externos', uploadOrcamento.single('anexo'), (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
-    if (nivel && !['admin', 'coordenador'].includes(nivel)) {
+    if (!['admin', 'coordenador'].includes(nivel)) {
         return res.status(403).json({ error: 'Acesso não autorizado.' });
     }
 
@@ -5183,6 +5227,97 @@ app.get('/api/orcamentos-externos/:id', (req, res) => {
         db.query(queryItens, [req.params.id], (errItens, itens) => {
             if (errItens) return res.status(500).json({ error: errItens.message });
             res.json({ orcamento, itens });
+        });
+    });
+});
+
+// 5. Aprovar Orçamento e Contabilizar Gasto Predial / Infraestrutura
+app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
+    const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
+    if (!['admin', 'coordenador'].includes(nivel)) {
+        return res.status(403).json({ error: 'Apenas Administradores ou Coordenadores podem aprovar orçamentos.' });
+    }
+
+    const orcamentoId = req.params.id;
+    const usuarioId = req.headers['x-usuario-id'] || 1;
+    const { forma_pagamento, justificativa } = req.body;
+
+    const queryBusca = `
+        SELECT o.*, 
+               COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Avulso') AS fornecedor_nome,
+               COALESCE(s.nome, 'Manutenção Predial') AS setor_nome
+        FROM orcamentos_externos o
+        LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+        LEFT JOIN setores s ON o.setor_id = s.id
+        WHERE o.id = ?
+    `;
+
+    db.query(queryBusca, [orcamentoId], (err, rows) => {
+        if (err || rows.length === 0) {
+            return res.status(404).json({ error: 'Orçamento não encontrado.' });
+        }
+
+        const orc = rows[0];
+
+        if (orc.status === 'Aprovado Financeiro') {
+            return res.status(400).json({ error: 'Este orçamento já foi aprovado anteriormente.' });
+        }
+
+        const queryUpdate = `
+            UPDATE orcamentos_externos 
+            SET status = 'Aprovado Financeiro',
+                aprovado_por_id = ?,
+                data_aprovacao = NOW(),
+                justificativa_aprovacao = ?
+            WHERE id = ?
+        `;
+
+        db.query(queryUpdate, [usuarioId, justificativa || 'Aprovado para execução imediata', orcamentoId], (errUp) => {
+            if (errUp) {
+                console.error("❌ Erro ao atualizar status do orçamento:", errUp.message);
+                return res.status(500).json({ error: `Erro no banco: ${errUp.message}` });
+            }
+
+            // Lança automaticamente no centro de custos / despesas prediais
+            const queryDespesa = `
+                INSERT INTO despesas_prediais 
+                (orcamento_id, setor_id, fornecedor_id, codigo_referencia, categoria, descricao, valor_total, forma_pagamento, data_competencia, status_pagamento, aprovado_por_id)
+                VALUES (?, ?, ?, ?, 'Manutenção Predial / Obras', ?, ?, ?, CURDATE(), 'Pendente', ?)
+            `;
+
+            const descricaoDespesa = `Obra/Serviço: ${orc.fornecedor_nome} (Lote ${orc.codigo_orcamento})`;
+
+            db.query(queryDespesa, [
+                orcamentoId,
+                orc.setor_id || null,
+                orc.fornecedor_id,
+                orc.codigo_orcamento,
+                descricaoDespesa,
+                orc.valor_total,
+                forma_pagamento || orc.observacoes || 'Conforme Proposta Comercial',
+                usuarioId
+            ], (errDesp) => {
+                if (errDesp) console.error("⚠️ Alerta ao gerar despesa predial:", errDesp.message);
+            });
+
+            // Se o orçamento contiver Ordens de Serviço vinculadas, avança o status
+            const queryItens = `SELECT chamado_id FROM orcamentos_externos_itens WHERE orcamento_id = ? AND chamado_id IS NOT NULL`;
+            db.query(queryItens, [orcamentoId], (errItens, itens) => {
+                if (!errItens && itens && itens.length > 0) {
+                    itens.forEach(it => {
+                        db.query(`UPDATE chamados SET status = 'Em Andamento' WHERE id = ?`, [it.chamado_id]);
+                        db.query(
+                            `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
+                            [it.chamado_id, `[ORÇAMENTO APROVADO] Lote ${orc.codigo_orcamento} aprovado. Serviço autorizado.`]
+                        );
+                    });
+                }
+            });
+
+            return res.json({ 
+                success: true, 
+                message: `Orçamento ${orc.codigo_orcamento} aprovado e registrado no centro de custos prediais com sucesso! 💰🏢` 
+            });
         });
     });
 });

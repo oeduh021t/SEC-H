@@ -60,7 +60,7 @@ const Prontuario = () => {
     const user = obterUsuario();
     const isAdminOuCoord = ['admin', 'coordenador'].includes(user?.nivel?.toLowerCase().trim());
 
-    // 🛡️ FORMATAÇÃO SEGURA DE DATA (EVITA O BUG DO FUSO HORÁRIO)
+    // 🛡️ FORMATAÇÃO SEGURA DE DATA
     const formatarDataSegura = (dataStr) => {
         if (!dataStr) return 'Pendente';
         const dataPura = String(dataStr).split('T')[0];
@@ -128,22 +128,23 @@ const Prontuario = () => {
             .catch(err => console.error("Erro ao carregar tipos de equipamentos:", err));
     }, [id]);
 
+    const equip = dados?.dados || dados?.equipamento;
+
     const handleAbrirModalEdicao = () => {
-        if (!dados || !dados.dados) return;
-        const eq = dados.dados;
+        if (!equip) return;
 
         setFormEquip({
-            nome: eq.nome || '',
-            modelo: eq.modelo || '',
-            patrimonio: eq.patrimonio || '',
-            num_serie: eq.num_serie || '',
-            fabricante: eq.fabricante || '',
-            setor_id: eq.setor_id || '',
-            status: eq.status || 'Ativo',
-            tipo_id: eq.tipo_id || '',
-            periodicidade_preventiva: eq.periodicidade_preventiva || 0,
-            data_ultima_preventiva: eq.data_ultima_preventiva ? eq.data_ultima_preventiva.split('T')[0] : '',
-            valor: eq.valor || 0
+            nome: equip.nome || '',
+            modelo: equip.modelo || '',
+            patrimonio: equip.patrimonio || '',
+            num_serie: equip.num_serie || '',
+            fabricante: equip.fabricante || '',
+            setor_id: equip.setor_id || '',
+            status: equip.status || 'Ativo',
+            tipo_id: equip.tipo_id || '',
+            periodicidade_preventiva: equip.periodicidade_preventiva || 0,
+            data_ultima_preventiva: equip.data_ultima_preventiva ? equip.data_ultima_preventiva.split('T')[0] : '',
+            valor: equip.valor || equip.valor_compra || equip.valor_aquisicao || 0
         });
         setNovaFotoEquip(null);
         setModalEditarEquip(true);
@@ -196,12 +197,12 @@ const Prontuario = () => {
     };
 
     const handleCriarChamadoContextualizado = () => {
-        if (!dados || !dados.dados) return;
+        if (!equip) return;
         
         navigate('/chamados', {
             state: {
-                equipamento_id: dados.dados.id,
-                setor_id: dados.dados.setor_id,
+                equipamento_id: equip.id,
+                setor_id: equip.setor_id,
                 pre_configurado: true
             }
         });
@@ -251,7 +252,7 @@ const Prontuario = () => {
                 const fornSelecionado = fornecedores.find(f => String(f.id) === String(fornecedorId));
                 
                 const objetoGuia = {
-                    equipamento: dados.dados,
+                    equipamento: equip,
                     fornecedor: fornSelecionado,
                     motivo: descricaoMotivo,
                     previsao: previsaoRetorno,
@@ -266,7 +267,6 @@ const Prontuario = () => {
 
                 setModoImpressao('guia');
                 setTimeout(() => window.print(), 300);
-
             } else {
                 alert("❌ " + (result.error || "Erro ao processar saída externa."));
             }
@@ -333,12 +333,19 @@ const Prontuario = () => {
         );
     }
 
-    if (!dados || !dados.dados) {
+    if (!dados || !equip) {
         return <div className="p-10 text-slate-400 font-bold uppercase text-xs tracking-widest animate-pulse text-center">Carregando prontuário técnico...</div>;
     }
 
-    const equip = dados.dados;
     const orcamentosAtivo = dados.orcamentos || [];
+
+    // 💰 Consolidação precisa do custo acumulado
+    const custoOrcamentosAprovados = orcamentosAtivo.reduce((acc, it) => acc + (Number(it.valor_unitario) || 0), 0);
+    const custoAcumuladoTotal = Number(
+        equip.custo_total_acumulado !== undefined 
+            ? equip.custo_total_acumulado 
+            : (dados.custoAcumulado !== undefined ? dados.custoAcumulado : custoOrcamentosAprovados)
+    );
 
     const timelineFiltrada = (dados.timeline || []).filter(item => {
         if (filtroTimeline === 'todos') return true;
@@ -348,8 +355,8 @@ const Prontuario = () => {
         return true;
     });
 
-    const totalChamados = (dados.timeline || []).filter(t => t.tipo?.toLowerCase().includes('abertura')).length;
-    const totalPreventivas = (dados.timeline || []).filter(t => t.tipo?.toLowerCase().includes('preventiva')).length;
+    const totalChamados = equip.total_chamados ?? (dados.timeline || []).filter(t => t.tipo?.toLowerCase().includes('abertura')).length;
+    const totalPreventivas = equip.total_preventivas ?? (dados.timeline || []).filter(t => t.tipo?.toLowerCase().includes('preventiva')).length;
 
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
@@ -531,7 +538,7 @@ const Prontuario = () => {
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Custo Total Acumulado</span>
                         <p className="text-lg font-black text-emerald-600 mt-0.5">
-                            R$ {Number(dados.custoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            R$ {custoAcumuladoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                     </div>
                 </div>
@@ -542,7 +549,6 @@ const Prontuario = () => {
                     <div className="lg:col-span-4 space-y-6">
                         <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:border print:border-slate-200">
                             <div className="p-6 text-center">
-                                
                                 <div className="bg-slate-50 w-full h-48 rounded-2xl mb-4 flex items-center justify-center text-slate-300 overflow-hidden border border-slate-200">
                                     {equip.foto_equipamento ? (
                                         <img 
@@ -579,7 +585,7 @@ const Prontuario = () => {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Valor Inicial de Compra:</span>
-                                    <span className="font-mono font-bold text-slate-700">R$ {Number(equip.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    <span className="font-mono font-bold text-slate-700">R$ {Number(equip.valor || equip.valor_compra || equip.valor_aquisicao || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-slate-400 font-bold uppercase text-[10px]">Ciclo PMOC:</span>
@@ -597,7 +603,7 @@ const Prontuario = () => {
                                             <span className="text-[8px] text-red-400 font-bold block print:text-slate-400">(Aquisição + Peças + Serviços)</span>
                                         </div>
                                         <span className="text-red-600 font-black text-base font-mono print:text-slate-900">
-                                            R$ {Number(dados.custoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            R$ {custoAcumuladoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </span>
                                     </div>
                                 </div>
@@ -633,9 +639,9 @@ const Prontuario = () => {
                             </div>
 
                             <div className="space-y-3">
-                                {orcamentosAtivo.map((orc) => (
+                                {orcamentosAtivo.map((orc, idx) => (
                                     <div 
-                                        key={orc.item_id} 
+                                        key={orc.id || orc.item_id || idx} 
                                         className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
                                     >
                                         <div className="space-y-1">
@@ -643,16 +649,18 @@ const Prontuario = () => {
                                                 <span className="font-black text-blue-600 font-mono text-xs">
                                                     {orc.codigo_orcamento}
                                                 </span>
-                                                <span className="text-[10px] text-slate-400 font-bold">
-                                                    • OS #{orc.chamado_id}
-                                                </span>
+                                                {orc.chamado_id && (
+                                                    <span className="text-[10px] text-slate-400 font-bold">
+                                                        • OS #{orc.chamado_id}
+                                                    </span>
+                                                )}
                                                 <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
                                                     {orc.fornecedor_nome}
                                                 </span>
                                             </div>
 
                                             <p className="text-xs text-slate-700 font-medium whitespace-pre-wrap">
-                                                {orc.descricao_proposta}
+                                                {orc.descricao_proposta || orc.item_titulo}
                                             </p>
 
                                             <p className="text-[10px] text-slate-400">
@@ -662,11 +670,11 @@ const Prontuario = () => {
 
                                         <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-2 shrink-0">
                                             <span className="text-xs font-black font-mono text-slate-800">
-                                                R$ {Number(orc.valor_unitario).toFixed(2)}
+                                                R$ {Number(orc.valor_unitario || 0).toFixed(2)}
                                             </span>
 
                                             <Link
-                                                to={`/orcamentos-externos/${orc.orcamento_id}/imprimir`}
+                                                to={`/orcamentos-externos/${orc.orcamento_id || orc.id}/imprimir`}
                                                 target="_blank"
                                                 className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-lg text-[10px] font-black uppercase transition-all shadow-xs hide-print"
                                             >

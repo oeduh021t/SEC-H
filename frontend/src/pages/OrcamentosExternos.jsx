@@ -8,6 +8,7 @@ export default function OrcamentosExternos() {
   const [chamadosDisponiveis, setChamadosDisponiveis] = useState([]);
   const [modalNovo, setModalNovo] = useState(false);
   const [carregandoChamados, setCarregandoChamados] = useState(false);
+  const [processandoAprovacao, setProcessandoAprovacao] = useState(null);
 
   // Form State
   const [fornecedorId, setFornecedorId] = useState('');
@@ -129,7 +130,7 @@ export default function OrcamentosExternos() {
   // Adicionar item manual/predial sem OS
   const adicionarItemAvulso = () => {
     if (!novoAvulsoTitulo.trim() || !novoAvulsoValor) {
-      return alert('Informe pelo menos o título/serviço e o valor unitário.');
+      return alert('Informe o título do serviço e o valor unitário.');
     }
 
     const novoItem = {
@@ -162,10 +163,10 @@ export default function OrcamentosExternos() {
   const handleSalvarLote = async (e) => {
     e.preventDefault();
     if (!fornecedorId) {
-      return alert('Selecione a empresa prestadora / fornecedor.');
+      return alert('Selecione o prestador / fornecedor.');
     }
     if (itensLote.length === 0) {
-      return alert('Adicione pelo menos um item avulso ou selecione uma OS para o orçamento.');
+      return alert('Adicione pelo menos um item avulso ou selecione uma OS para compor o orçamento.');
     }
 
     try {
@@ -178,7 +179,6 @@ export default function OrcamentosExternos() {
         formData.append('anexo', arquivoAnexo);
       }
 
-      // Headers sem Content-Type manual para deixar o boundary a cargo do FormData
       const headers = obterHeadersAuth();
 
       const res = await fetch('/api/orcamentos-externos', {
@@ -204,6 +204,45 @@ export default function OrcamentosExternos() {
     } catch (err) {
       console.error(err);
       alert('Erro de conexão ao salvar orçamento.');
+    }
+  };
+
+  // 💰 Ação de Aprovação e Lançamento nas Despesas Prediais
+  const handleAprovarOrcamento = async (orc) => {
+    const confirmar = window.confirm(
+      `Deseja realmente APROVAR o orçamento ${orc.codigo_orcamento} no valor de R$ ${Number(orc.valor_total).toFixed(2)}?\n\nIsso irá lançar o gasto no centro de custos do setor predial e autorizar a execução.`
+    );
+    if (!confirmar) return;
+
+    setProcessandoAprovacao(orc.id);
+    try {
+      const headers = {
+        ...obterHeadersAuth(),
+        'Content-Type': 'application/json'
+      };
+
+      const res = await fetch(`/api/orcamentos-externos/${orc.id}/aprovar`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          forma_pagamento: orc.observacoes || 'Conforme Proposta Comercial',
+          justificativa: 'Aprovado pela coordenação / diretoria para execução imediata'
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        alert(data.message || 'Orçamento aprovado e lançado no centro de custos! 💰');
+        carregarDadosIniciais();
+      } else {
+        alert(`Erro: ${data.error || 'Falha ao aprovar orçamento.'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erro de conexão ao processar aprovação.');
+    } finally {
+      setProcessandoAprovacao(null);
     }
   };
 
@@ -237,57 +276,76 @@ export default function OrcamentosExternos() {
             <tr>
               <th className="p-4">Código</th>
               <th className="p-4">Fornecedor</th>
+              <th className="p-4">Setor / Obra</th>
               <th className="p-4">Data</th>
-              <th className="p-4 text-center">Tipo</th>
+              <th className="p-4 text-center">Status</th>
               <th className="p-4 text-center">Itens</th>
               <th className="p-4 text-right">Valor Total</th>
               <th className="p-4 text-center">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {orcamentos.map((orc) => (
-              <tr key={orc.id} className="hover:bg-slate-50/50">
-                <td className="p-4 font-black text-blue-600 font-mono">{orc.codigo_orcamento}</td>
-                <td className="p-4 font-bold text-slate-700">{orc.fornecedor_nome || 'Prestador Avulso'}</td>
-                <td className="p-4 text-slate-500 font-bold">{new Date(orc.data_emissao).toLocaleDateString('pt-BR')}</td>
-                <td className="p-4 text-center">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                    orc.tipo_orcamento === 'avulso' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {orc.tipo_orcamento || 'Padrão'}
-                  </span>
-                </td>
-                <td className="p-4 text-center font-bold">{orc.total_itens}</td>
-                <td className="p-4 text-right font-black font-mono text-emerald-600">
-                  R$ {Number(orc.valor_total).toFixed(2)}
-                </td>
-                <td className="p-4 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    {orc.anexo_url && (
-                      <a
-                        href={orc.anexo_url}
+            {orcamentos.map((orc) => {
+              const estaAprovado = orc.status === 'Aprovado Financeiro';
+              return (
+                <tr key={orc.id} className="hover:bg-slate-50/50">
+                  <td className="p-4 font-black text-blue-600 font-mono">{orc.codigo_orcamento}</td>
+                  <td className="p-4 font-bold text-slate-700">{orc.fornecedor_nome || 'Prestador Avulso'}</td>
+                  <td className="p-4 font-bold text-slate-500">{orc.setor_nome || 'Geral / Predial'}</td>
+                  <td className="p-4 text-slate-500 font-bold">{new Date(orc.data_emissao).toLocaleDateString('pt-BR')}</td>
+                  <td className="p-4 text-center">
+                    <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase inline-block ${
+                      estaAprovado
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}>
+                      {estaAprovado ? '✅ Aprovado' : '⏳ Pendente'}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center font-bold">{orc.total_itens}</td>
+                  <td className="p-4 text-right font-black font-mono text-emerald-600">
+                    R$ {Number(orc.valor_total).toFixed(2)}
+                  </td>
+                  <td className="p-4 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      {!estaAprovado && (
+                        <button
+                          onClick={() => handleAprovarOrcamento(orc)}
+                          disabled={processandoAprovacao === orc.id}
+                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-xs active:scale-95"
+                          title="Aprovar e lançar nas despesas prediais"
+                        >
+                          {processandoAprovacao === orc.id ? 'Aprovando...' : 'Aprovar'}
+                        </button>
+                      )}
+
+                      {orc.anexo_url && (
+                        <a
+                          href={orc.anexo_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase transition-colors shadow-xs"
+                          title="Abrir Anexo Original"
+                        >
+                          📎 Anexo
+                        </a>
+                      )}
+
+                      <Link
+                        to={`/orcamentos-externos/${orc.id}/imprimir`}
                         target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase hover:bg-amber-600 transition-colors shadow-xs"
-                        title="Abrir Anexo Original"
+                        className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase transition-colors shadow-xs"
                       >
-                        📎 Anexo
-                      </a>
-                    )}
-                    <Link
-                      to={`/orcamentos-externos/${orc.id}/imprimir`}
-                      target="_blank"
-                      className="px-3 py-1.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase hover:bg-slate-800 transition-colors shadow-xs"
-                    >
-                      🖨️ Espelho
-                    </Link>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                        🖨️ Espelho
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {orcamentos.length === 0 && (
               <tr>
-                <td colSpan="7" className="text-center p-8 text-slate-400 font-bold italic">
+                <td colSpan="8" className="text-center p-8 text-slate-400 font-bold italic">
                   Nenhum orçamento consolidado até o momento.
                 </td>
               </tr>
@@ -365,7 +423,7 @@ export default function OrcamentosExternos() {
                 </div>
                 <textarea
                   rows={2}
-                  placeholder="Detalhamento técnico (Ex: Medindo 15mts lineares, feita em chapa galvanizada e cantoneiras de alumínio...)"
+                  placeholder="Detalhamento técnico (Ex: Medindo 15mts lineares, chapa galvanizada e cantoneiras...)"
                   value={novoAvulsoDesc}
                   onChange={e => setNovoAvulsoDesc(e.target.value)}
                   className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg outline-none resize-none focus:border-amber-500"
