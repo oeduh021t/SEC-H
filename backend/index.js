@@ -2915,7 +2915,7 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
 // GASES MEDICINAIS & MANIFOLD
 // -------------------------------------------------------------------------
 
-// Obter status do Manifold
+// 1. Obter status do Manifold
 app.get('/api/gases/manifold', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     db.query("SELECT * FROM gases_manifold WHERE id = 1", (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -2926,7 +2926,7 @@ app.get('/api/gases/manifold', permitirApenas(['admin', 'coordenador', 'tecnico'
     });
 });
 
-// Registrar a Virada do Manifold (Troca dos 12 cilindros)
+// 2. Registrar a Virada do Manifold (Troca dos 12 cilindros e fechamento de ciclo)
 app.post('/api/gases/manifold/virada', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { ramal_que_esvaziou, tecnico_nome, observacao } = req.body;
 
@@ -2935,32 +2935,47 @@ app.post('/api/gases/manifold/virada', permitirApenas(['admin', 'coordenador', '
 
         conn.query("SELECT * FROM gases_manifold WHERE id = 1 FOR UPDATE", (errMan, resMan) => {
             if (errMan || resMan.length === 0) {
-                return conn.rollback(() => { conn.release(); res.status(500).json({ error: "Manifold não localizado." }); });
+                return conn.rollback(() => { 
+                    conn.release(); 
+                    res.status(500).json({ error: "Manifold não localizado." }); 
+                });
             }
 
             const manifold = resMan[0];
             const ramalAntigo = ramal_que_esvaziou || manifold.ramal_ativo;
             const novoRamalAtivo = ramalAntigo === 'A' ? 'B' : 'A';
-            const qtdTroca = manifold.capacidade_por_ramal || 12;
+            const qtdTroca = Number(manifold.capacidade_por_ramal || 12);
+
+            // ⏱️ Cálculo exato de duração em horas do ramal que acabou de esvaziar
+            let duracaoHoras = null;
+            if (manifold.data_ultima_virada) {
+                const ms = new Date().getTime() - new Date(manifold.data_ultima_virada).getTime();
+                duracaoHoras = Number((ms / (1000 * 60 * 60)).toFixed(1));
+            }
 
             conn.query("SELECT id, quantidade_atual, valor_ultimo_cilindro FROM gases_estoque WHERE tipo_gas LIKE '%Oxigênio%' LIMIT 1", (errO2, resO2) => {
                 if (errO2 || resO2.length === 0) {
-                    return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Estoque de Oxigênio não configurado." }); });
+                    return conn.rollback(() => { 
+                        conn.release(); 
+                        res.status(404).json({ error: "Estoque de Oxigênio não configurado." }); 
+                    });
                 }
 
                 const estoqueO2 = resO2[0];
                 if (estoqueO2.quantidade_atual < qtdTroca) {
                     return conn.rollback(() => {
                         conn.release();
-                        res.status(400).json({ error: `Estoque insuficiente! Saldo na central: ${estoqueO2.quantidade_atual} un. Necessário: ${qtdTroca} un.` });
+                        res.status(400).json({ 
+                            error: `Estoque insuficiente! Saldo na central: ${estoqueO2.quantidade_atual} un. Necessário: ${qtdTroca} un.` 
+                        });
                     });
                 }
 
-                // Deduz 12 cilindros do estoque de oxigênio
+                // Deduz os 12 cilindros do estoque físico
                 conn.query("UPDATE gases_estoque SET quantidade_atual = quantidade_atual - ? WHERE id = ?", [qtdTroca, estoqueO2.id], (errUpEst) => {
                     if (errUpEst) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpEst.message }); });
 
-                    // Atualiza o estado do Manifold
+                    // Atualiza estado do Manifold e armazena o ciclo
                     const updateManifoldSql = `
                         UPDATE gases_manifold 
                         SET ramal_ativo = ?, 
@@ -2971,23 +2986,37 @@ app.post('/api/gases/manifold/virada', permitirApenas(['admin', 'coordenador', '
                             observacao = ?
                         WHERE id = 1
                     `;
-                    conn.query(updateManifoldSql, [novoRamalAtivo, novoRamalAtivo, novoRamalAtivo, tecnico_nome || 'Técnico', observacao || `Virada de manifold para Ramal ${novoRamalAtivo}`], (errUpMan) => {
+                    const obsManifold = observacao ? String(observacao).trim() : `Virada de manifold para Ramal ${novoRamalAtivo}`;
+
+                    conn.query(updateManifoldSql, [novoRamalAtivo, novoRamalAtivo, novoRamalAtivo, tecnico_nome || 'Técnico', obsManifold], (errUpMan) => {
                         if (errUpMan) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpMan.message }); });
 
-                        // Grava no histórico de movimentações
-                        const logVirada = `[VIRADA MANIFOLD] Ramal ${ramalAntigo} esvaziou. Ramal ${novoRamalAtivo} assumiu a rede. 12 cilindros novos instalados no Ramal ${ramalAntigo}. ${observacao ? `Obs: ${observacao}` : ''}`;
+                        const duracaoTexto = duracaoHoras !== null ? ` (Duração: ${duracaoHoras}h)` : '';
+                        const logVirada = `[VIRADA MANIFOLD] Ramal ${ramalAntigo} esvaziou${duracaoTexto}. Ramal ${novoRamalAtivo} assumiu a rede. 12 cilindros novos instalados no Ramal ${ramalAntigo}. ${observacao ? `Obs: ${observacao}` : ''}`.trim();
+
                         const queryHist = `
                             INSERT INTO gases_movimentacoes 
-                            (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao, data_movimentacao)
-                            VALUES (?, 'Saida', ?, ?, ?, ?, NOW())
+                            (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao, tempo_duracao_horas, data_movimentacao)
+                            VALUES (?, 'Saida', ?, ?, ?, ?, ?, NOW())
                         `;
-                        conn.query(queryHist, [estoqueO2.id, qtdTroca, estoqueO2.valor_ultimo_cilindro || 0, tecnico_nome || 'Técnico', logVirada], (errHist) => {
+
+                        conn.query(queryHist, [
+                            estoqueO2.id, 
+                            qtdTroca, 
+                            estoqueO2.valor_ultimo_cilindro || 0, 
+                            tecnico_nome || 'Técnico', 
+                            logVirada,
+                            duracaoHoras
+                        ], (errHist) => {
                             if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
                             conn.commit((errCommit) => {
                                 if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                                 conn.release();
-                                res.json({ message: `Manifold virado para Ramal ${novoRamalAtivo} e 12 cilindros substituídos! 🔄🚰` });
+                                res.json({ 
+                                    message: `Manifold virado para Ramal ${novoRamalAtivo}! Carga anterior durou ${duracaoHoras || '---'} horas. 🔄🚰`,
+                                    duracao_horas: duracaoHoras
+                                });
                             });
                         });
                     });
@@ -2997,7 +3026,7 @@ app.post('/api/gases/manifold/virada', permitirApenas(['admin', 'coordenador', '
     });
 });
 
-// Listar Gases e Saldo
+// 3. Listar Gases e Saldo
 app.get('/api/gases', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT *, 
@@ -3012,7 +3041,7 @@ app.get('/api/gases', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuari
     });
 });
 
-// Cadastrar Novo Tipo de Gás
+// 4. Cadastrar Novo Tipo de Gás
 app.post('/api/gases', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { tipo_gas, capacidade_cilindro, estoque_minimo } = req.body;
     if (!tipo_gas || !capacidade_cilindro) {
@@ -3022,19 +3051,22 @@ app.post('/api/gases', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const query = `INSERT INTO gases_estoque (tipo_gas, capacidade_cilindro, estoque_minimo, quantidade_atual) VALUES (?, ?, ?, 0)`;
     db.query(query, [tipo_gas.trim(), Number(capacidade_cilindro), Number(estoque_minimo || 5)], (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.status(201).json({ message: "Tipo de gás cadastrado!", id: result.insertId });
+        res.status(201).json({ message: "Tipo de gás cadastrado com sucesso!", id: result.insertId });
     });
 });
 
-// Registrar Compra / Entrada com Comprovante (Canhoto / NF)
+// 5. Registrar Compra / Entrada com Comprovante (Canhoto / NF) - CORRIGIDO
 app.post('/api/gases/entrada', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('comprovante_pdf'), (req, res) => {
     const { tipo_gas_id, quantidade_cilindros, valor_unitario_cilindro, tecnico_nome, observacao } = req.body;
+    
+    // Converte vírgula para ponto e assegura número válido
     const qtd_entrada = Number(quantidade_cilindros || 0);
-    const v_unitario = Number(valor_unitario_cilindro || 0);
+    const v_unitario = Number(String(valor_unitario_cilindro || '0').replace(',', '.')) || 0;
     const url_comprovante = req.file ? `/uploads/${req.file.filename}` : null;
+    const obsSanitizada = observacao ? String(observacao).trim().slice(0, 500) : "Entrada de lote recebido do fornecedor.";
 
     if (!tipo_gas_id || qtd_entrada <= 0) {
-        return res.status(400).json({ error: "Selecione o gás e informe a quantidade recebida." });
+        return res.status(400).json({ error: "Selecione o gás e informe uma quantidade recebida válida." });
     }
 
     db.beginTransaction((err, conn) => {
@@ -3054,25 +3086,36 @@ app.post('/api/gases/entrada', permitirApenas(['admin', 'coordenador', 'tecnico'
                 (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao, url_comprovante, data_movimentacao) 
                 VALUES (?, 'Entrada', ?, ?, ?, ?, ?, NOW())
             `;
-            conn.query(queryHist, [Number(tipo_gas_id), qtd_entrada, v_unitario, tecnico_nome || 'Sistema', observacao || "Entrada de lote recebido do fornecedor.", url_comprovante], (errHist) => {
+            conn.query(queryHist, [
+                Number(tipo_gas_id), 
+                qtd_entrada, 
+                v_unitario, 
+                tecnico_nome || 'Sistema', 
+                obsSanitizada, 
+                url_comprovante
+            ], (errHist) => {
                 if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
                 conn.commit((errCommit) => {
                     if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                     conn.release();
-                    res.json({ message: "Compra de cilindros registrada com comprovante anexado! 🚚✅" });
+                    res.json({ message: "Compra e canhoto registrados com sucesso! 🛒📄" });
                 });
             });
         });
     });
 });
 
-// Registrar Consumo Avulso
+// 6. Registrar Consumo Avulso / Envio para Setor Hospitalar
 app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
-    const { tipo_gas_id, quantidade_cilindros, tecnico_nome, observacao } = req.body;
+    const { tipo_gas_id, quantidade_cilindros, setor_destino_id, tecnico_nome, observacao } = req.body;
     const qtd_baixa = Number(quantidade_cilindros || 1);
+    const v_setor_id = setor_destino_id && setor_destino_id !== "" ? Number(setor_destino_id) : null;
+    const obsSanitizada = observacao ? String(observacao).trim().slice(0, 500) : "Troca/Envio individual de cilindro.";
 
-    if (!tipo_gas_id) return res.status(400).json({ error: "Selecione o gás." });
+    if (!tipo_gas_id || qtd_baixa <= 0) {
+        return res.status(400).json({ error: "Selecione o gás e informe uma quantidade válida." });
+    }
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -3086,7 +3129,7 @@ app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico'
             if (estoque.quantidade_atual < qtd_baixa) {
                 return conn.rollback(() => { 
                     conn.release(); 
-                    res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${estoque.quantidade_atual} cilindros.` }); 
+                    res.status(400).json({ error: `Estoque insuficiente! Saldo atual na central: ${estoque.quantidade_atual} cilindros.` }); 
                 });
             }
 
@@ -3095,16 +3138,23 @@ app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico'
 
                 const queryHist = `
                     INSERT INTO gases_movimentacoes 
-                    (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, tecnico_responsavel, observacao, data_movimentacao) 
-                    VALUES (?, 'Saida', ?, ?, ?, ?, NOW())
+                    (tipo_gas_id, tipo_movimentacao, quantidade_cilindros, valor_unitario_cilindro, setor_destino_id, tecnico_responsavel, observacao, data_movimentacao) 
+                    VALUES (?, 'Saida', ?, ?, ?, ?, ?, NOW())
                 `;
-                conn.query(queryHist, [Number(tipo_gas_id), qtd_baixa, estoque.valor_ultimo_cilindro || 0, tecnico_nome || 'Técnico', observacao || "Troca individual de cilindro."], (errHist) => {
+                conn.query(queryHist, [
+                    Number(tipo_gas_id), 
+                    qtd_baixa, 
+                    estoque.valor_ultimo_cilindro || 0, 
+                    v_setor_id, 
+                    tecnico_nome || 'Técnico', 
+                    obsSanitizada
+                ], (errHist) => {
                     if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
 
                     conn.commit((errCommit) => {
                         if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                         conn.release();
-                        res.json({ message: "Baixa de cilindro registrada com sucesso!" });
+                        res.json({ message: "Envio/baixa de cilindro registrada com sucesso! 🏥✅" });
                     });
                 });
             });
@@ -3112,13 +3162,17 @@ app.post('/api/gases/consumo', permitirApenas(['admin', 'coordenador', 'tecnico'
     });
 });
 
-// Histórico de Movimentações
+// 7. Histórico de Movimentações (com suporte a setor e duração de carga)
 app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const query = `
-        SELECT m.*, g.tipo_gas, g.capacidade_cilindro,
+        SELECT m.*, 
+               g.tipo_gas, 
+               g.capacidade_cilindro,
+               s.nome AS setor_nome,
                (m.quantidade_cilindros * m.valor_unitario_cilindro) as custo_total_movimentacao
         FROM gases_movimentacoes m
         JOIN gases_estoque g ON m.tipo_gas_id = g.id
+        LEFT JOIN setores s ON m.setor_destino_id = s.id
         ORDER BY m.data_movimentacao DESC
         LIMIT 100
     `;
