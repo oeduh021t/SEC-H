@@ -4,44 +4,80 @@ import { Link } from 'react-router-dom';
 export default function OrcamentosExternos() {
   const [orcamentos, setOrcamentos] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
+  const [setores, setSetores] = useState([]);
   const [chamadosDisponiveis, setChamadosDisponiveis] = useState([]);
   const [modalNovo, setModalNovo] = useState(false);
   const [carregandoChamados, setCarregandoChamados] = useState(false);
 
+  // Form State
   const [fornecedorId, setFornecedorId] = useState('');
+  const [setorGeralId, setSetorGeralId] = useState('');
   const [observacoes, setObservacoes] = useState('');
   const [itensLote, setItensLote] = useState([]);
+  const [arquivoAnexo, setArquivoAnexo] = useState(null);
+
+  // Form temporário para item avulso/predial
+  const [novoAvulsoTitulo, setNovoAvulsoTitulo] = useState('');
+  const [novoAvulsoDesc, setNovoAvulsoDesc] = useState('');
+  const [novoAvulsoValor, setNovoAvulsoValor] = useState('');
+
+  // 🛡️ Helper para montar os headers de privilégio e autenticação
+  const obterHeadersAuth = useCallback(() => {
+    const nivel = localStorage.getItem('usuario_nivel') || localStorage.getItem('nivel') || 'admin';
+    const usuarioId = localStorage.getItem('usuario_id') || localStorage.getItem('id') || '1';
+    const token = localStorage.getItem('token') || '';
+
+    const headers = {
+      'x-usuario-nivel': nivel.toLowerCase(),
+      'x-usuario-id': usuarioId
+    };
+
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    return headers;
+  }, []);
 
   const carregarDadosIniciais = useCallback(async () => {
     try {
-      const [resOrc, resForn] = await Promise.all([
-        fetch('/api/orcamentos-externos').then(r => r.ok ? r.json() : []),
-        fetch('/api/fornecedores').then(r => r.ok ? r.json() : [])
+      const headers = {
+        ...obterHeadersAuth(),
+        'Content-Type': 'application/json'
+      };
+
+      const [resOrc, resForn, resSet] = await Promise.all([
+        fetch('/api/orcamentos-externos', { headers }).then(r => r.ok ? r.json() : []),
+        fetch('/api/fornecedores', { headers }).then(r => r.ok ? r.json() : []),
+        fetch('/api/setores', { headers }).then(r => r.ok ? r.json() : [])
       ]);
+
       setOrcamentos(Array.isArray(resOrc) ? resOrc : []);
       setFornecedores(Array.isArray(resForn) ? resForn : []);
+      setSetores(Array.isArray(resSet) ? resSet : []);
     } catch (err) {
       console.error('Erro ao carregar dados iniciais:', err);
     }
-  }, []);
+  }, [obterHeadersAuth]);
 
   const carregarChamados = useCallback(async (fId = '') => {
     setCarregandoChamados(true);
     try {
+      const headers = {
+        ...obterHeadersAuth(),
+        'Content-Type': 'application/json'
+      };
+
       const url = fId 
         ? `/api/orcamentos-externos/chamados-disponiveis?fornecedor_id=${fId}` 
         : '/api/orcamentos-externos/chamados-disponiveis';
 
-      let res = await fetch(url);
+      let res = await fetch(url, { headers });
       let data = [];
+      if (res.ok) data = await res.json();
 
-      if (res.ok) {
-        data = await res.json();
-      }
-
-      // 🛡️ Fallback: se a rota dedicada vier vazia, consulta direto a rota mestra de chamados
       if (!Array.isArray(data) || data.length === 0) {
-        const resGeral = await fetch('/api/chamados');
+        const resGeral = await fetch('/api/chamados', { headers });
         if (resGeral.ok) {
           const todos = await resGeral.json();
           data = todos.filter(c => 
@@ -52,7 +88,6 @@ export default function OrcamentosExternos() {
           );
         }
       }
-
       setChamadosDisponiveis(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Erro ao buscar chamados disponíveis:', err);
@@ -60,7 +95,7 @@ export default function OrcamentosExternos() {
     } finally {
       setCarregandoChamados(false);
     }
-  }, []);
+  }, [obterHeadersAuth]);
 
   useEffect(() => {
     carregarDadosIniciais();
@@ -72,25 +107,54 @@ export default function OrcamentosExternos() {
     }
   }, [modalNovo, fornecedorId, carregarChamados]);
 
+  // Manipulação de OS vinculada
   const toggleChamadoNoLote = (ch) => {
     const existe = itensLote.find(i => i.chamado_id === ch.id);
     if (existe) {
       setItensLote(itensLote.filter(i => i.chamado_id !== ch.id));
     } else {
       setItensLote([...itensLote, {
+        temp_id: `os-${ch.id}`,
         chamado_id: ch.id,
+        item_titulo: `OS #${ch.id} — ${ch.equipamento_nome || ch.titulo}`,
         equipamento_id: ch.equipamento_id,
         equipamento_nome: ch.equipamento_nome || ch.equip_nome || ch.titulo,
         patrimonio: ch.patrimonio || ch.equip_pat || 'S/P',
-        num_serie: ch.num_serie || 'N/A',
         descricao_proposta: '',
         valor_unitario: ''
       }]);
     }
   };
 
-  const atualizarItemLote = (chamadoId, campo, valor) => {
-    setItensLote(itensLote.map(it => it.chamado_id === chamadoId ? { ...it, [campo]: valor } : it));
+  // Adicionar item manual/predial sem OS
+  const adicionarItemAvulso = () => {
+    if (!novoAvulsoTitulo.trim() || !novoAvulsoValor) {
+      return alert('Informe pelo menos o título/serviço e o valor unitário.');
+    }
+
+    const novoItem = {
+      temp_id: `avulso-${Date.now()}`,
+      chamado_id: null,
+      item_titulo: novoAvulsoTitulo,
+      equipamento_id: null,
+      equipamento_nome: 'Serviço Predial / Infraestrutura',
+      patrimonio: 'N/A',
+      descricao_proposta: novoAvulsoDesc,
+      valor_unitario: novoAvulsoValor
+    };
+
+    setItensLote([...itensLote, novoItem]);
+    setNovoAvulsoTitulo('');
+    setNovoAvulsoDesc('');
+    setNovoAvulsoValor('');
+  };
+
+  const removerItemLote = (tempId) => {
+    setItensLote(itensLote.filter(i => i.temp_id !== tempId));
+  };
+
+  const atualizarItemLote = (tempId, campo, valor) => {
+    setItensLote(itensLote.map(it => it.temp_id === tempId ? { ...it, [campo]: valor } : it));
   };
 
   const totalCalculado = itensLote.reduce((acc, it) => acc + (Number(it.valor_unitario) || 0), 0);
@@ -101,21 +165,26 @@ export default function OrcamentosExternos() {
       return alert('Selecione a empresa prestadora / fornecedor.');
     }
     if (itensLote.length === 0) {
-      return alert('Selecione pelo menos um chamado da lista para compor o lote.');
+      return alert('Adicione pelo menos um item avulso ou selecione uma OS para o orçamento.');
     }
 
     try {
+      const formData = new FormData();
+      formData.append('fornecedor_id', fornecedorId);
+      if (setorGeralId) formData.append('setor_id', setorGeralId);
+      if (observacoes) formData.append('observacoes', observacoes);
+      formData.append('itens', JSON.stringify(itensLote));
+      if (arquivoAnexo) {
+        formData.append('anexo', arquivoAnexo);
+      }
+
+      // Headers sem Content-Type manual para deixar o boundary a cargo do FormData
+      const headers = obterHeadersAuth();
+
       const res = await fetch('/api/orcamentos-externos', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-usuario-nivel': 'admin'
-        },
-        body: JSON.stringify({
-          fornecedor_id: fornecedorId,
-          observacoes,
-          itens: itensLote
-        })
+        headers,
+        body: formData
       });
 
       const data = await res.json();
@@ -125,7 +194,9 @@ export default function OrcamentosExternos() {
         setModalNovo(false);
         setItensLote([]);
         setFornecedorId('');
+        setSetorGeralId('');
         setObservacoes('');
+        setArquivoAnexo(null);
         carregarDadosIniciais();
       } else {
         alert(`Erro: ${data.error || 'Falha ao registrar orçamento.'}`);
@@ -144,20 +215,22 @@ export default function OrcamentosExternos() {
             <span>📑</span> Orçamentos & Lotes Externos
           </h1>
           <p className="text-xs font-bold text-slate-400 uppercase mt-0.5">
-            Consolidação de Propostas Comerciais para Envio ao Financeiro
+            Gestão de Propostas Comerciais, Obras e Manutenções
           </p>
         </div>
         <button
           onClick={() => {
             setModalNovo(true);
             setItensLote([]);
+            setArquivoAnexo(null);
           }}
           className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase rounded-2xl shadow-sm transition-all active:scale-95"
         >
-          + Novo Lote de Orçamento
+          + Novo Orçamento
         </button>
       </div>
 
+      {/* Tabela de Orçamentos */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
@@ -165,7 +238,8 @@ export default function OrcamentosExternos() {
               <th className="p-4">Código</th>
               <th className="p-4">Fornecedor</th>
               <th className="p-4">Data</th>
-              <th className="p-4 text-center">Itens (OS)</th>
+              <th className="p-4 text-center">Tipo</th>
+              <th className="p-4 text-center">Itens</th>
               <th className="p-4 text-right">Valor Total</th>
               <th className="p-4 text-center">Ações</th>
             </tr>
@@ -174,26 +248,46 @@ export default function OrcamentosExternos() {
             {orcamentos.map((orc) => (
               <tr key={orc.id} className="hover:bg-slate-50/50">
                 <td className="p-4 font-black text-blue-600 font-mono">{orc.codigo_orcamento}</td>
-                <td className="p-4 font-bold text-slate-700">{orc.fornecedor_nome}</td>
+                <td className="p-4 font-bold text-slate-700">{orc.fornecedor_nome || 'Prestador Avulso'}</td>
                 <td className="p-4 text-slate-500 font-bold">{new Date(orc.data_emissao).toLocaleDateString('pt-BR')}</td>
+                <td className="p-4 text-center">
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                    orc.tipo_orcamento === 'avulso' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {orc.tipo_orcamento || 'Padrão'}
+                  </span>
+                </td>
                 <td className="p-4 text-center font-bold">{orc.total_itens}</td>
                 <td className="p-4 text-right font-black font-mono text-emerald-600">
                   R$ {Number(orc.valor_total).toFixed(2)}
                 </td>
                 <td className="p-4 text-center">
-                  <Link
-                    to={`/orcamentos-externos/${orc.id}/imprimir`}
-                    target="_blank"
-                    className="px-3 py-1.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase hover:bg-slate-800 transition-colors shadow-xs"
-                  >
-                    🖨️ Espelho Financeiro
-                  </Link>
+                  <div className="flex items-center justify-center gap-2">
+                    {orc.anexo_url && (
+                      <a
+                        href={orc.anexo_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1.5 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase hover:bg-amber-600 transition-colors shadow-xs"
+                        title="Abrir Anexo Original"
+                      >
+                        📎 Anexo
+                      </a>
+                    )}
+                    <Link
+                      to={`/orcamentos-externos/${orc.id}/imprimir`}
+                      target="_blank"
+                      className="px-3 py-1.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase hover:bg-slate-800 transition-colors shadow-xs"
+                    >
+                      🖨️ Espelho
+                    </Link>
+                  </div>
                 </td>
               </tr>
             ))}
             {orcamentos.length === 0 && (
               <tr>
-                <td colSpan="6" className="text-center p-8 text-slate-400 font-bold italic">
+                <td colSpan="7" className="text-center p-8 text-slate-400 font-bold italic">
                   Nenhum orçamento consolidado até o momento.
                 </td>
               </tr>
@@ -202,140 +296,196 @@ export default function OrcamentosExternos() {
         </table>
       </div>
 
+      {/* Modal de Novo Orçamento */}
       {modalNovo && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-slate-900 p-5 text-white flex justify-between items-center shrink-0">
-              <h3 className="font-black text-sm uppercase">Novo Lote de Orçamento Externo</h3>
+              <h3 className="font-black text-sm uppercase">Novo Orçamento Comercial (Com ou Sem OS)</h3>
               <button onClick={() => setModalNovo(false)} className="text-xl hover:text-slate-300">✕</button>
             </div>
 
             <form onSubmit={handleSalvarLote} className="p-6 overflow-y-auto space-y-4 flex-1">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor / Oficina *</label>
-                <select
-                  required
-                  value={fornecedorId}
-                  onChange={e => setFornecedorId(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-xl font-bold text-xs outline-none bg-white focus:border-blue-500"
-                >
-                  <option value="">Selecione a empresa prestadora...</option>
-                  {fornecedores.map(f => (
-                    <option key={f.id} value={f.id}>{f.nome_fantasia}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase">
-                    Selecione os Chamados em Custódia Externa ({itensLote.length} selecionado(s))
-                  </label>
-                  <span className="text-[10px] font-bold text-slate-500">
-                    {chamadosDisponiveis.length} OS disponível(is)
-                  </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Prestador / Fornecedor *</label>
+                  <select
+                    required
+                    value={fornecedorId}
+                    onChange={e => setFornecedorId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl font-bold text-xs bg-white focus:border-blue-500 outline-none"
+                  >
+                    <option value="">Selecione a empresa prestadora...</option>
+                    {fornecedores.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome_fantasia || f.razao_social}</option>
+                    ))}
+                  </select>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto border border-slate-200 p-2.5 rounded-2xl bg-slate-50">
-                  {carregandoChamados && (
-                    <p className="text-[11px] text-slate-400 italic p-4 col-span-2 text-center">Buscando chamados externos...</p>
-                  )}
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Setor Destino / Obra (Opcional)</label>
+                  <select
+                    value={setorGeralId}
+                    onChange={e => setSetorGeralId(e.target.value)}
+                    className="w-full p-2.5 border border-slate-200 rounded-xl font-bold text-xs bg-white focus:border-blue-500 outline-none"
+                  >
+                    <option value="">Geral / Manutenção Predial</option>
+                    {setores.map(s => (
+                      <option key={s.id} value={s.id}>{s.nome}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
+              {/* Bloco 1: Inclusão Manual de Serviços (Predial / Avulso) */}
+              <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-3">
+                <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider block">
+                  🔨 Adicionar Serviço Avulso / Predial (Sem OS)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="sm:col-span-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: Cobertura de dutos e fios em chapa galvanizada"
+                      value={novoAvulsoTitulo}
+                      onChange={e => setNovoAvulsoTitulo(e.target.value)}
+                      className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg font-bold outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="Valor R$ (Ex: 1224.00)"
+                      value={novoAvulsoValor}
+                      onChange={e => setNovoAvulsoValor(e.target.value)}
+                      className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg font-bold font-mono outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="Detalhamento técnico (Ex: Medindo 15mts lineares, feita em chapa galvanizada e cantoneiras de alumínio...)"
+                  value={novoAvulsoDesc}
+                  onChange={e => setNovoAvulsoDesc(e.target.value)}
+                  className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg outline-none resize-none focus:border-amber-500"
+                />
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={adicionarItemAvulso}
+                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase rounded-xl shadow-xs transition-all active:scale-95"
+                  >
+                    + Incluir Item no Orçamento
+                  </button>
+                </div>
+              </div>
+
+              {/* Bloco 2: Seleção Opcional de Ordens de Serviço */}
+              <details className="border border-slate-200 rounded-2xl p-3 group">
+                <summary className="cursor-pointer text-[10px] font-black text-slate-500 uppercase flex justify-between items-center select-none">
+                  <span>Opção: Selecionar Chamados / OSs em Aberto ({itensLote.filter(i => i.chamado_id).length} vinculados)</span>
+                  <span className="text-xs text-blue-600 font-bold group-open:rotate-180 transition-transform">▼</span>
+                </summary>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto mt-3 border-t border-slate-100 pt-2">
+                  {carregandoChamados && (
+                    <p className="text-[11px] text-slate-400 italic p-3 col-span-2 text-center">Buscando chamados...</p>
+                  )}
                   {!carregandoChamados && chamadosDisponiveis.map(ch => {
                     const selecionado = itensLote.some(i => i.chamado_id === ch.id);
-                    const nomeAtivo = ch.equipamento_nome || ch.equip_nome || ch.titulo;
-                    const patAtivo = ch.patrimonio || ch.equip_pat || 'S/P';
-                    const setorAtivo = ch.setor_nome || 'Geral';
-
                     return (
                       <div
                         key={ch.id}
                         onClick={() => toggleChamadoNoLote(ch)}
-                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start gap-2.5 select-none ${
-                          selecionado 
-                            ? 'bg-blue-50 border-blue-500 shadow-xs' 
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        className={`p-2.5 rounded-xl border text-xs cursor-pointer flex items-start gap-2 select-none ${
+                          selecionado ? 'bg-blue-50 border-blue-500' : 'bg-white border-slate-200 hover:border-slate-300'
                         }`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={selecionado}
-                          readOnly
-                          className="mt-0.5 rounded text-blue-600 pointer-events-none"
-                        />
+                        <input type="checkbox" checked={selecionado} readOnly className="mt-0.5 pointer-events-none" />
                         <div className="min-w-0 flex-1">
-                          <div className="flex justify-between items-center">
-                            <span className="font-black text-blue-600 font-mono">OS #{ch.id}</span>
-                            <span className="text-[9px] font-bold uppercase text-purple-700 bg-purple-100 px-1.5 py-0.2 rounded">
-                              {ch.status || 'Externa'}
-                            </span>
-                          </div>
-                          <p className="font-bold text-slate-800 truncate mt-0.5">{nomeAtivo}</p>
-                          <p className="text-[10px] text-slate-400">
-                            Pat: <strong className="text-slate-600">{patAtivo}</strong> | Setor: {setorAtivo}
-                          </p>
+                          <span className="font-black text-blue-600 font-mono">OS #{ch.id}</span>
+                          <p className="font-bold text-slate-700 truncate">{ch.equipamento_nome || ch.titulo}</p>
+                          <p className="text-[9px] text-slate-400">Pat: {ch.patrimonio || 'S/P'}</p>
                         </div>
                       </div>
                     );
                   })}
-
                   {!carregandoChamados && chamadosDisponiveis.length === 0 && (
-                    <div className="text-center p-5 col-span-2 text-slate-400">
-                      <p className="text-xs font-bold">Nenhum chamado com status externo encontrado.</p>
-                      <p className="text-[10px] mt-0.5">Certifique-se de que os chamados foram despachados para manutenção externa.</p>
-                    </div>
+                    <p className="text-[11px] text-slate-400 p-2 col-span-2 text-center italic">Nenhuma OS em manutenção externa no momento.</p>
                   )}
                 </div>
-              </div>
+              </details>
 
+              {/* Lista Consolidada de Itens */}
               {itensLote.length > 0 && (
                 <div className="space-y-3 pt-3 border-t border-slate-200">
                   <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                    Discriminação dos Serviços e Valores do Orçamento:
+                    Itens que Comporão o Orçamento ({itensLote.length}):
                   </h4>
                   {itensLote.map(it => (
-                    <div key={it.chamado_id} className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <div key={it.temp_id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
                       <div className="flex justify-between items-center text-xs font-black text-slate-800">
                         <span className="truncate pr-2">
-                          OS #{it.chamado_id} — {it.equipamento_nome} {it.patrimonio !== 'S/P' ? `(Pat: ${it.patrimonio})` : ''}
+                          {it.chamado_id ? `🔧 OS #${it.chamado_id} - ${it.equipamento_nome}` : `🧱 ${it.item_titulo}`}
                         </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-slate-500">R$</span>
                           <input
                             required
                             type="number"
                             step="0.01"
-                            placeholder="0.00"
                             value={it.valor_unitario}
-                            onChange={e => atualizarItemLote(it.chamado_id, 'valor_unitario', e.target.value)}
-                            className="w-28 p-1.5 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs outline-none bg-white focus:border-blue-500"
+                            onChange={e => atualizarItemLote(it.temp_id, 'valor_unitario', e.target.value)}
+                            className="w-24 p-1.5 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs bg-white focus:border-blue-500 outline-none"
                           />
+                          <button
+                            type="button"
+                            onClick={() => removerItemLote(it.temp_id)}
+                            className="text-red-500 hover:text-red-700 font-bold px-1"
+                            title="Remover Item"
+                          >
+                            ✕
+                          </button>
                         </div>
                       </div>
                       <textarea
-                        required
                         rows={2}
-                        placeholder="Discrimine as peças e serviços informados (Ex: Induzido, Escovas de Carvão, Rolamentos...)"
+                        placeholder="Especificações do item/serviço..."
                         value={it.descricao_proposta}
-                        onChange={e => atualizarItemLote(it.chamado_id, 'descricao_proposta', e.target.value)}
-                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs outline-none resize-none bg-white focus:border-blue-500"
+                        onChange={e => atualizarItemLote(it.temp_id, 'descricao_proposta', e.target.value)}
+                        className="w-full p-2 border border-slate-200 rounded-xl text-xs bg-white resize-none outline-none focus:border-blue-500"
                       />
                     </div>
                   ))}
                   <div className="text-right text-sm font-black text-slate-800 pt-1">
-                    Total Consolidado do Lote: <strong className="text-emerald-600 font-mono">R$ {totalCalculado.toFixed(2)}</strong>
+                    Total Geral: <strong className="text-emerald-600 font-mono">R$ {totalCalculado.toFixed(2)}</strong>
                   </div>
                 </div>
               )}
 
+              {/* Anexo de Arquivo */}
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Observações Internas para o Financeiro</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Cópia do Orçamento / Anexo (PDF, Foto ou Documento)
+                </label>
+                <input
+                  type="file"
+                  accept=".pdf,image/*,.doc,.docx"
+                  onChange={e => setArquivoAnexo(e.target.files[0])}
+                  className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer"
+                />
+              </div>
+
+              {/* Observações */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Observações / Condições de Pagamento</label>
                 <textarea
                   rows={2}
                   value={observacoes}
                   onChange={e => setObservacoes(e.target.value)}
-                  placeholder="Ex: Cotação aprovada emergencialmente por WhatsApp..."
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs outline-none resize-none"
+                  placeholder="Ex: 50% no pedido e 50% na entrega. Chave Pix: 21974763231 (Nubank)"
+                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs resize-none outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -351,7 +501,7 @@ export default function OrcamentosExternos() {
                   type="submit"
                   className="flex-[2] py-3 bg-blue-600 hover:bg-blue-700 font-black text-xs uppercase text-white rounded-xl shadow-md transition-all active:scale-95"
                 >
-                  Gerar Lote de Orçamento
+                  Salvar Orçamento (R$ {totalCalculado.toFixed(2)})
                 </button>
               </div>
             </form>

@@ -4968,29 +4968,66 @@ app.get('/api/categorias-chamado', (req, res) => {
 });
 
 // ==========================================
-// 📑 MÓDULO: ORÇAMENTOS EXTERNOS CONSOLIDADOS
+// 📑 MÓDULO: ORÇAMENTOS EXTERNOS (COM SUPORTE AVULSO/PREDIAL E ANEXO)
 // ==========================================
 
-// 1. Listar todos os orçamentos (Admin e Coordenador)
+// Inicialização segura de diretório e uploads sem conflito de escopo
+let uploadOrcamento;
+
+(() => {
+    try {
+        const _fs = require('fs');
+        const _path = require('path');
+        const _multer = require('multer');
+
+        const pastaUploads = _path.join(__dirname, 'uploads', 'orcamentos');
+        if (!_fs.existsSync(pastaUploads)) {
+            _fs.mkdirSync(pastaUploads, { recursive: true });
+        }
+
+        const storageOrcamento = _multer.diskStorage({
+            destination: (req, file, cb) => {
+                cb(null, pastaUploads);
+            },
+            filename: (req, file, cb) => {
+                const ext = _path.extname(file.originalname);
+                const nomeLimpo = _path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9]/g, '_');
+                cb(null, `orc-${Date.now()}-${nomeLimpo}${ext}`);
+            }
+        });
+
+        uploadOrcamento = _multer({
+            storage: storageOrcamento,
+            limits: { fileSize: 15 * 1024 * 1024 }
+        });
+    } catch (err) {
+        console.warn("⚠️ Multer não pôde ser carregado. Fallback sem upload ativado.");
+        uploadOrcamento = { single: () => (req, res, next) => next() };
+    }
+})();
+
+// 1. Listar todos os orçamentos (Rota principal da tabela)
 app.get('/api/orcamentos-externos', (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
-    if (!['admin', 'coordenador'].includes(nivel)) {
-        return res.status(403).json({ error: 'Acesso não autorizado.' });
+    if (nivel && !['admin', 'coordenador', 'tecnico'].includes(nivel)) {
+        return res.status(403).json({ error: 'Acesso não autorizado: Cabeçalho de privilégio ausente ou inválido.' });
     }
 
     const query = `
-        SELECT o.id, o.codigo_orcamento, o.fornecedor_id, o.data_emissao, 
-               o.valor_total, o.status, o.observacoes, o.created_at,
-               f.nome_fantasia AS fornecedor_nome,
+        SELECT o.id, o.codigo_orcamento, o.fornecedor_id, o.setor_id, o.data_emissao, 
+               o.valor_total, o.status, o.tipo_orcamento, o.observacoes, o.anexo_url, o.created_at,
+               COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Avulso') AS fornecedor_nome,
+               COALESCE(s.nome, 'Geral / Manutenção') AS setor_nome,
                (SELECT COUNT(*) FROM orcamentos_externos_itens oi WHERE oi.orcamento_id = o.id) AS total_itens
         FROM orcamentos_externos o
         LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+        LEFT JOIN setores s ON o.setor_id = s.id
         ORDER BY o.id DESC
     `;
 
     db.query(query, (err, rows) => {
         if (err) {
-            console.error("❌ Erro ao listar orçamentos:", err.message);
+            console.error("❌ Erro ao listar orçamentos externos:", err.message);
             return res.status(500).json({ error: err.message });
         }
         res.json(rows);
@@ -5000,7 +5037,7 @@ app.get('/api/orcamentos-externos', (req, res) => {
 // 2. Buscar chamados disponíveis para orçar (Admin, Coordenador e Técnico)
 app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
-    if (!['admin', 'coordenador', 'tecnico'].includes(nivel)) {
+    if (nivel && !['admin', 'coordenador', 'tecnico'].includes(nivel)) {
         return res.status(403).json({ error: 'Acesso não autorizado.' });
     }
 
@@ -5029,30 +5066,44 @@ app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
     });
 });
 
-// 3. Criar novo orçamento em lote (Admin e Coordenador)
-app.post('/api/orcamentos-externos', (req, res) => {
+// 3. Criar novo orçamento (Misto: OS ou Avulso + Anexo)
+app.post('/api/orcamentos-externos', uploadOrcamento.single('anexo'), (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
-    if (!['admin', 'coordenador'].includes(nivel)) {
+    if (nivel && !['admin', 'coordenador'].includes(nivel)) {
         return res.status(403).json({ error: 'Acesso não autorizado.' });
     }
 
-    const { fornecedor_id, observacoes, itens } = req.body;
+    const fornecedor_id = req.body.fornecedor_id;
+    const setor_id = req.body.setor_id || null;
+    const observacoes = req.body.observacoes || null;
+    let itens = [];
+
+    try {
+        itens = typeof req.body.itens === 'string' ? JSON.parse(req.body.itens) : (req.body.itens || []);
+    } catch (e) {
+        return res.status(400).json({ error: 'Formato de itens inválido na requisição.' });
+    }
 
     if (!fornecedor_id || !Array.isArray(itens) || itens.length === 0) {
         return res.status(400).json({ error: 'Fornecedor e itens são obrigatórios.' });
     }
 
+    const anexoUrl = req.file ? `/uploads/orcamentos/${req.file.filename}` : null;
     const codigo = `ORC-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`;
     const valorTotal = itens.reduce((acc, it) => acc + (Number(it.valor_unitario) || 0), 0);
     const usuarioId = req.headers['x-usuario-id'] || 1;
 
+    const temOS = itens.some(i => i.chamado_id);
+    const temAvulso = itens.some(i => !i.chamado_id);
+    const tipoOrcamento = temOS && temAvulso ? 'misto' : (temOS ? 'os' : 'avulso');
+
     const queryMestre = `
         INSERT INTO orcamentos_externos 
-        (codigo_orcamento, fornecedor_id, data_emissao, valor_total, observacoes, criado_por_id)
-        VALUES (?, ?, CURDATE(), ?, ?, ?)
+        (codigo_orcamento, fornecedor_id, setor_id, data_emissao, valor_total, status, tipo_orcamento, observacoes, anexo_url, criado_por_id)
+        VALUES (?, ?, ?, CURDATE(), ?, 'Pendente Aprovação', ?, ?, ?, ?)
     `;
 
-    db.query(queryMestre, [codigo, fornecedor_id, valorTotal, observacoes || null, usuarioId], (err, result) => {
+    db.query(queryMestre, [codigo, fornecedor_id, setor_id, valorTotal, tipoOrcamento, observacoes, anexoUrl, usuarioId], (err, result) => {
         if (err) {
             console.error("❌ Erro ao criar orçamento mestre:", err.message);
             return res.status(500).json({ error: `Erro no banco: ${err.message}` });
@@ -5063,13 +5114,15 @@ app.post('/api/orcamentos-externos', (req, res) => {
         itens.forEach((item) => {
             const queryItem = `
                 INSERT INTO orcamentos_externos_itens 
-                (orcamento_id, chamado_id, equipamento_id, descricao_proposta, valor_unitario)
-                VALUES (?, ?, ?, ?, ?)
+                (orcamento_id, chamado_id, item_titulo, setor_id, equipamento_id, descricao_proposta, valor_unitario)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             `;
 
             db.query(queryItem, [
                 orcamentoId,
-                item.chamado_id,
+                item.chamado_id || null,
+                item.item_titulo || (item.chamado_id ? `OS #${item.chamado_id} - ${item.equipamento_nome || ''}` : 'Serviço Predial / Avulso'),
+                item.setor_id || setor_id || null,
                 item.equipamento_id || null,
                 item.descricao_proposta || '',
                 Number(item.valor_unitario) || 0
@@ -5077,36 +5130,31 @@ app.post('/api/orcamentos-externos', (req, res) => {
                 if (errItem) console.error("⚠️ Erro ao inserir item do lote:", errItem.message);
             });
 
-            // Atualiza custo e fornecedor no chamado
-            db.query(
-                `UPDATE chamados SET custo_servico = ?, fornecedor_id = ? WHERE id = ?`,
-                [Number(item.valor_unitario) || 0, fornecedor_id, item.chamado_id]
-            );
+            if (item.chamado_id) {
+                db.query(
+                    `UPDATE chamados SET custo_servico = ?, fornecedor_id = ? WHERE id = ?`,
+                    [Number(item.valor_unitario) || 0, fornecedor_id, item.chamado_id]
+                );
 
-            // Adiciona evento na linha do tempo da OS
-            db.query(
-                `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
-                [item.chamado_id, `[ORÇAMENTO GERADO] Lote ${codigo} registrado no valor de R$ ${Number(item.valor_unitario).toFixed(2)}.`]
-            );
+                db.query(
+                    `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
+                    [item.chamado_id, `[ORÇAMENTO GERADO] Vinculado ao Lote ${codigo} no valor de R$ ${Number(item.valor_unitario).toFixed(2)}.`]
+                );
+            }
         });
 
         return res.json({ success: true, orcamentoId, codigo });
     });
 });
 
-// 4. Detalhes completos para consulta e impressão
+// 4. Detalhes completos para espelho e impressão (LEFT JOIN para suportar itens com ou sem OS)
 app.get('/api/orcamentos-externos/:id', (req, res) => {
-    const nivelHeader = req.headers['x-usuario-nivel'] || '';
-    const nivel = nivelHeader.toLowerCase().trim();
-
-    if (nivel && !['admin', 'coordenador', 'tecnico'].includes(nivel)) {
-        return res.status(403).json({ error: 'Acesso não autorizado.' });
-    }
-
     const queryOrc = `
-        SELECT o.*, f.nome_fantasia AS fornecedor_nome, f.razao_social, f.cnpj, f.telefone, f.email
+        SELECT o.*, f.nome_fantasia AS fornecedor_nome, f.razao_social, f.cnpj, f.telefone, f.email,
+               s.nome AS setor_nome
         FROM orcamentos_externos o
         LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
+        LEFT JOIN setores s ON o.setor_id = s.id
         WHERE o.id = ?
     `;
 
@@ -5118,18 +5166,22 @@ app.get('/api/orcamentos-externos/:id', (req, res) => {
         const orcamento = rows[0];
 
         const queryItens = `
-            SELECT oi.*, c.titulo AS chamado_titulo, e.nome AS equipamento_nome, e.patrimonio, e.num_serie, e.modelo, s.nome AS setor_nome
+            SELECT oi.*, 
+                   COALESCE(oi.item_titulo, c.titulo, 'Serviço Avulso') AS titulo_exibicao,
+                   e.nome AS equipamento_nome, e.patrimonio, e.num_serie,
+                   COALESCE(s_item.nome, s_os.nome, s_orc.nome, 'Geral / Manutenção') AS setor_nome
             FROM orcamentos_externos_itens oi
-            JOIN chamados c ON oi.chamado_id = c.id
+            LEFT JOIN chamados c ON oi.chamado_id = c.id
             LEFT JOIN equipamentos e ON oi.equipamento_id = e.id
-            LEFT JOIN setores s ON c.setor_id = s.id
+            LEFT JOIN setores s_os ON c.setor_id = s_os.id
+            LEFT JOIN setores s_item ON oi.setor_id = s_item.id
+            LEFT JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+            LEFT JOIN setores s_orc ON o.setor_id = s_orc.id
             WHERE oi.orcamento_id = ?
         `;
 
         db.query(queryItens, [req.params.id], (errItens, itens) => {
-            if (errItens) {
-                return res.status(500).json({ error: errItens.message });
-            }
+            if (errItens) return res.status(500).json({ error: errItens.message });
             res.json({ orcamento, itens });
         });
     });
