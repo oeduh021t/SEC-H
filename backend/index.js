@@ -3182,9 +3182,24 @@ app.get('/api/gases/historico', permitirApenas(['admin', 'coordenador', 'tecnico
     });
 });
 
-// -------------------------------------------------------------------------
-// SOLICITAÇÃO DE COMPRAS
-// -------------------------------------------------------------------------
+// =========================================================================
+// MÓDULO: SOLICITAÇÕES & REQUISIÇÕES DE COMPRAS (INTEGRADO AO ESTOQUE)
+// =========================================================================
+
+// 0. Listar itens do catálogo de estoque para o select do modal
+app.get('/api/itens-estoque', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const query = `
+        SELECT id, nome, descricao, quantidade, valor_unitario, referencia, tipo 
+        FROM itens_estoque 
+        ORDER BY nome ASC
+    `;
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results || []);
+    });
+});
+
+// 1. Listar todas as solicitações (com JSON_ARRAY dos itens para o acordeão funcionar instantâneo)
 app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT 
@@ -3193,9 +3208,23 @@ app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tec
             f.nome_fantasia AS fornecedor_nome, 
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio,
             u.nome AS solicitante_nome,
-            nf.numero_nf AS nota_fiscal_numero,
+            IFNULL(sc.nota_fiscal_numero, nf.numero_nf) AS nota_fiscal_numero,
             (SELECT COUNT(*) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS total_itens,
-            (SELECT IFNULL(SUM(sci.quantidade * sci.valor_estimado), 0) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS valor_total_calculado
+            (SELECT IFNULL(SUM(sci.quantidade * sci.valor_estimado), 0) FROM solicitacoes_compra_itens sci WHERE sci.solicitacao_id = sc.id) AS valor_total_calculado,
+            (
+                SELECT JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'id', sci.id,
+                        'insumo_id', sci.insumo_id,
+                        'descricao', sci.descricao,
+                        'quantidade', sci.quantidade,
+                        'valor_estimado', sci.valor_estimado,
+                        'subtotal', (sci.quantidade * sci.valor_estimado)
+                    )
+                )
+                FROM solicitacoes_compra_itens sci
+                WHERE sci.solicitacao_id = sc.id
+            ) AS itens_json
         FROM solicitacoes_compra sc
         LEFT JOIN setores s ON sc.setor_id = s.id
         LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
@@ -3206,10 +3235,21 @@ app.get('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tec
     `;
     db.query(query, (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(results || []);
+        
+        // Trata parsing do JSON de itens caso venha como string do driver
+        const formatados = (results || []).map(r => {
+            let itens = [];
+            try {
+                itens = typeof r.itens_json === 'string' ? JSON.parse(r.itens_json) : (r.itens_json || []);
+            } catch (e) { itens = []; }
+            return { ...r, itens };
+        });
+
+        res.json(formatados);
     });
 });
 
+// 2. Detalhes de 1 solicitação (para edição e impressão A4)
 app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const { id } = req.params;
 
@@ -3220,7 +3260,7 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
             f.nome_fantasia AS fornecedor_nome, f.cnpj AS fornecedor_cnpj, f.telefone AS fornecedor_telefone,
             e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio, e.modelo AS equipamento_modelo,
             u.nome AS solicitante_nome,
-            nf.numero_nf AS nota_fiscal_numero, nf.chave_acesso AS nota_fiscal_chave
+            IFNULL(sc.nota_fiscal_numero, nf.numero_nf) AS nota_fiscal_numero, nf.chave_acesso AS nota_fiscal_chave
         FROM solicitacoes_compra sc
         LEFT JOIN setores s ON sc.setor_id = s.id
         LEFT JOIN fornecedores f ON sc.fornecedor_id = f.id
@@ -3244,8 +3284,9 @@ app.get('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
     });
 });
 
+// 3. Criar Nova Solicitação
 app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    const { setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, itens, nota_fiscal_id } = req.body;
+    const { setor_id, fornecedor_id, equipamento_id, chamado_id, solicitante_id, urgencia, motivo, itens, nota_fiscal_id } = req.body;
 
     if (!solicitante_id || !motivo || !itens || itens.length === 0) {
         return res.status(400).json({ error: "Preencha a justificativa e adicione ao menos 1 item na solicitação." });
@@ -3256,26 +3297,28 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
 
         const queryHeader = `
             INSERT INTO solicitacoes_compra 
-            (setor_id, fornecedor_id, equipamento_id, solicitante_id, urgencia, motivo, nota_fiscal_id, status, data_solicitacao) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'Pendente', NOW())
+            (setor_id, fornecedor_id, equipamento_id, chamado_id, solicitante_id, urgencia, motivo, nota_fiscal_id, status, data_solicitacao) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pendente', NOW())
         `;
 
         const v_setor = setor_id && setor_id !== "" ? Number(setor_id) : null;
         const v_fornecedor = fornecedor_id && fornecedor_id !== "" ? Number(fornecedor_id) : null;
         const v_equip = equipamento_id && equipamento_id !== "" ? Number(equipamento_id) : null;
+        const v_chamado = chamado_id && chamado_id !== "" ? Number(chamado_id) : null;
         const v_nf = nota_fiscal_id && nota_fiscal_id !== "" ? Number(nota_fiscal_id) : null;
 
-        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, Number(solicitante_id), urgencia || 'Média', motivo, v_nf], (errIns, resultIns) => {
+        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, v_chamado, Number(solicitante_id), urgencia || 'Média', motivo.trim(), v_nf], (errIns, resultIns) => {
             if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
 
             const solicitacaoId = resultIns.insertId;
 
-            const queryItem = `INSERT INTO solicitacoes_compra_itens (solicitacao_id, descricao, quantidade, valor_estimado) VALUES ?`;
+            const queryItem = `INSERT INTO solicitacoes_compra_itens (solicitacao_id, insumo_id, descricao, quantidade, valor_estimado) VALUES ?`;
             const valuesItens = itens.map(item => [
                 solicitacaoId,
-                item.descricao,
+                item.insumo_id ? Number(item.insumo_id) : null,
+                item.descricao.trim(),
                 Number(item.quantidade || 1),
-                Number(item.valor_estimado || 0)
+                Number(String(item.valor_estimado || 0).replace(',', '.'))
             ]);
 
             conn.query(queryItem, [valuesItens], (errItens) => {
@@ -3284,16 +3327,17 @@ app.post('/api/solicitacoes-compra', permitirApenas(['admin', 'coordenador', 'te
                 conn.commit((errCommit) => {
                     if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                     conn.release();
-                    res.status(201).json({ message: "Solicitação de compra gerada com sucesso!", id: solicitacaoId });
+                    res.status(201).json({ message: "Solicitação de compra gerada com sucesso! 🛒📋", id: solicitacaoId });
                 });
             });
         });
     });
 });
 
+// 4. Editar Solicitação
 app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
-    const { setor_id, fornecedor_id, equipamento_id, urgencia, motivo, itens, nota_fiscal_id } = req.body;
+    const { setor_id, fornecedor_id, equipamento_id, chamado_id, urgencia, motivo, itens, nota_fiscal_id } = req.body;
 
     if (!motivo || !itens || itens.length === 0) {
         return res.status(400).json({ error: "Informe o motivo e ao menos 1 item." });
@@ -3304,27 +3348,29 @@ app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
 
         const queryHeader = `
             UPDATE solicitacoes_compra 
-            SET setor_id = ?, fornecedor_id = ?, equipamento_id = ?, urgencia = ?, motivo = ?, nota_fiscal_id = ?
+            SET setor_id = ?, fornecedor_id = ?, equipamento_id = ?, chamado_id = ?, urgencia = ?, motivo = ?, nota_fiscal_id = ?
             WHERE id = ?
         `;
 
         const v_setor = setor_id && setor_id !== "" ? Number(setor_id) : null;
         const v_fornecedor = fornecedor_id && fornecedor_id !== "" ? Number(fornecedor_id) : null;
         const v_equip = equipamento_id && equipamento_id !== "" ? Number(equipamento_id) : null;
+        const v_chamado = chamado_id && chamado_id !== "" ? Number(chamado_id) : null;
         const v_nf = nota_fiscal_id && nota_fiscal_id !== "" ? Number(nota_fiscal_id) : null;
 
-        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, urgencia || 'Média', motivo, v_nf, id], (errUp) => {
+        conn.query(queryHeader, [v_setor, v_fornecedor, v_equip, v_chamado, urgencia || 'Média', motivo.trim(), v_nf, id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
             conn.query("DELETE FROM solicitacoes_compra_itens WHERE solicitacao_id = ?", [id], (errDel) => {
                 if (errDel) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDel.message }); });
 
-                const queryItem = `INSERT INTO solicitacoes_compra_itens (solicitacao_id, descricao, quantidade, valor_estimado) VALUES ?`;
+                const queryItem = `INSERT INTO solicitacoes_compra_itens (solicitacao_id, insumo_id, descricao, quantidade, valor_estimado) VALUES ?`;
                 const valuesItens = itens.map(item => [
                     Number(id),
-                    item.descricao,
+                    item.insumo_id ? Number(item.insumo_id) : null,
+                    item.descricao.trim(),
                     Number(item.quantidade || 1),
-                    Number(item.valor_estimado || 0)
+                    Number(String(item.valor_estimado || 0).replace(',', '.'))
                 ]);
 
                 conn.query(queryItem, [valuesItens], (errItens) => {
@@ -3341,30 +3387,108 @@ app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
     });
 });
 
+// 5. Alterar Status com Baixa Automática e Rastreabilidade em itens_estoque_entradas
 app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
-    const { status, usuario_id } = req.body;
+    const { status, usuario_id, valor_real, nota_fiscal_numero, alimentar_estoque } = req.body;
 
-    let query = `UPDATE solicitacoes_compra SET status = ?`;
-    let params = [status];
-
-    if (status === 'Financeiro') {
-        query += `, user_financeiro_id = ?, data_financeiro = NOW()`;
-        params.push(usuario_id);
-    } else if (status === 'Diretoria' || status === 'Aprovado') {
-        query += `, user_diretoria_id = ?, data_diretoria = NOW()`;
-        params.push(usuario_id);
-    }
-
-    query += ` WHERE id = ?`;
-    params.push(id);
-
-    db.query(query, params, (err) => {
+    db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: `Status alterado para ${status} com sucesso!` });
+
+        let campos = ['status = ?'];
+        let params = [status];
+
+        if (valor_real !== undefined && valor_real !== null && valor_real !== '') {
+            campos.push('valor_real = ?');
+            params.push(Number(String(valor_real).replace(',', '.')));
+        }
+
+        if (nota_fiscal_numero !== undefined && nota_fiscal_numero !== null) {
+            campos.push('nota_fiscal_numero = ?');
+            params.push(String(nota_fiscal_numero).trim());
+        }
+
+        if (status === 'Financeiro') {
+            campos.push('user_financeiro_id = ?', 'data_financeiro = NOW()');
+            params.push(usuario_id);
+        } else if (status === 'Diretoria' || status === 'Aprovado') {
+            campos.push('user_diretoria_id = ?', 'data_diretoria = NOW()');
+            params.push(usuario_id);
+        }
+
+        params.push(id);
+        const queryUpdate = `UPDATE solicitacoes_compra SET ${campos.join(', ')} WHERE id = ?`;
+
+        conn.query(queryUpdate, params, (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+            // Se for marcada como ENTREGUE ou COMPRADO e tiver a opção de alimentar estoque ativa
+            if ((status === 'Entregue' || status === 'Comprado') && alimentar_estoque !== false) {
+                // Busca também a nota_fiscal_id vinculada na solicitação, se houver
+                conn.query("SELECT nota_fiscal_id FROM solicitacoes_compra WHERE id = ?", [id], (errSol, resSol) => {
+                    if (errSol) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errSol.message }); });
+
+                    const nfIdVinculada = resSol[0]?.nota_fiscal_id || null;
+
+                    conn.query("SELECT * FROM solicitacoes_compra_itens WHERE solicitacao_id = ? AND insumo_id IS NOT NULL", [id], (errItens, itensVinculados) => {
+                        if (errItens) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errItens.message }); });
+
+                        // Se não houver itens atrelados ao catálogo (apenas compras avulsas manuais), encerra aqui
+                        if (!itensVinculados || itensVinculados.length === 0) {
+                            return conn.commit((errCommit) => {
+                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                conn.release();
+                                res.json({ message: `Status alterado para ${status} com sucesso!` });
+                            });
+                        }
+
+                        let concluidos = 0;
+                        itensVinculados.forEach((item) => {
+                            // 1. Atualiza o saldo físico da prateleira
+                            const sqlEstoque = `UPDATE itens_estoque SET quantidade = quantidade + ? WHERE id = ?`;
+                            conn.query(sqlEstoque, [Number(item.quantidade), Number(item.insumo_id)], (errEst) => {
+                                if (errEst) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEst.message }); });
+
+                                // 2. Grava a rastreabilidade na tabela itens_estoque_entradas
+                                const sqlEntrada = `
+                                    INSERT INTO itens_estoque_entradas 
+                                    (item_id, quantidade, valor_unitario, num_nota, nota_fiscal_id, data_entrada)
+                                    VALUES (?, ?, ?, ?, ?, NOW())
+                                `;
+                                conn.query(sqlEntrada, [
+                                    Number(item.insumo_id),
+                                    Number(item.quantidade),
+                                    Number(item.valor_estimado || 0),
+                                    nota_fiscal_numero ? String(nota_fiscal_numero).trim() : null,
+                                    nfIdVinculada
+                                ], (errEnt) => {
+                                    if (errEnt) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEnt.message }); });
+
+                                    concluidos++;
+                                    if (concluidos === itensVinculados.length) {
+                                        conn.commit((errCommit) => {
+                                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                            conn.release();
+                                            res.json({ message: `Status alterado para ${status}! Saldo creditado e rastreabilidade registrada em itens_estoque_entradas! 📦📋✅` });
+                                        });
+                                    }
+                                });
+                            });
+                        });
+                    });
+                });
+            } else {
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.json({ message: `Status alterado para ${status} com sucesso!` });
+                });
+            }
+        });
     });
 });
 
+// 6. Excluir Solicitação
 app.delete('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
 

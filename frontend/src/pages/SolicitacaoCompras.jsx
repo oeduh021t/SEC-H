@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 
 const SolicitacaoCompras = () => {
   const [solicitacoes, setSolicitacoes] = useState([]);
@@ -6,6 +6,7 @@ const SolicitacaoCompras = () => {
   const [equipamentos, setEquipamentos] = useState([]);
   const [fornecedores, setFornecedores] = useState([]); 
   const [notasFiscais, setNotasFiscais] = useState([]); 
+  const [catalogoInsumos, setCatalogoInsumos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState(false);
   const [busca, setBusca] = useState('');
@@ -26,17 +27,18 @@ const SolicitacaoCompras = () => {
   const [urgencia, setUrgencia] = useState('Média');
   const [motivo, setMotivo] = useState('');
   
-  // Modal Opcional de Baixa / Fechamento de Compra
+  // Modal de Baixa / Fechamento de Compra
   const [modalBaixaAberta, setModalBaixaAberta] = useState(false);
   const [dadosBaixa, setDadosBaixa] = useState({
     id: null,
     status: '',
     valor_real: '',
-    nota_fiscal_numero: ''
+    nota_fiscal_numero: '',
+    alimentar_estoque: true
   });
   
   // Lista dinâmica de itens
-  const [itens, setItens] = useState([{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
+  const [itens, setItens] = useState([{ insumo_id: '', descricao: '', quantidade: 1, valor_estimado: 0 }]);
 
   // Objeto para Impressão
   const [solicitacaoImpressao, setSolicitacaoImpressao] = useState(null);
@@ -51,19 +53,22 @@ const SolicitacaoCompras = () => {
   const carregarDados = async () => {
     try {
       const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
-      const [resSol, resSet, resEq, resForn, resNf] = await Promise.all([
+      const [resSol, resSet, resEq, resForn, resNf, resIns] = await Promise.all([
         fetch(`${API_URL}/solicitacoes-compra`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/setores`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/equipamentos`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json()),
-        fetch(`${API_URL}/notas-fiscais`, { headers }).then(r => r.json()) 
+        fetch(`${API_URL}/notas-fiscais`, { headers }).then(r => r.json()),
+        // Corrigido para a rota oficial da tabela itens_estoque
+        fetch(`${API_URL}/itens-estoque`, { headers }).then(r => r.json()).catch(() => [])
       ]);
 
-      setSolicitacoes(resSol || []);
-      setSetores(resSet || []);
-      setEquipamentos(resEq || []);
-      setFornecedores(resForn || []);
-      setNotasFiscais(resNf || []);
+      setSolicitacoes(Array.isArray(resSol) ? resSol : []);
+      setSetores(Array.isArray(resSet) ? resSet : []);
+      setEquipamentos(Array.isArray(resEq) ? resEq : []);
+      setFornecedores(Array.isArray(resForn) ? resForn : []);
+      setNotasFiscais(Array.isArray(resNf) ? resNf : []);
+      setCatalogoInsumos(Array.isArray(resIns) ? resIns : []);
     } catch (err) {
       console.error("Erro ao carregar dados:", err);
     } finally {
@@ -106,7 +111,7 @@ const SolicitacaoCompras = () => {
     setNotaFiscalId('');
     setUrgencia('Média');
     setMotivo('');
-    setItens([{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
+    setItens([{ insumo_id: '', descricao: '', quantidade: 1, valor_estimado: 0 }]);
     setModalNova(true);
   };
 
@@ -123,7 +128,7 @@ const SolicitacaoCompras = () => {
       setNotaFiscalId(data.nota_fiscal_id || '');
       setUrgencia(data.urgencia || 'Média');
       setMotivo(data.motivo || '');
-      setItens(data.itens && data.itens.length > 0 ? data.itens : [{ descricao: '', quantidade: 1, valor_estimado: 0 }]);
+      setItens(data.itens && data.itens.length > 0 ? data.itens : [{ insumo_id: '', descricao: '', quantidade: 1, valor_estimado: 0 }]);
       setModalNova(true);
     } catch (err) {
       alert("Erro ao carregar dados para edição.");
@@ -131,7 +136,7 @@ const SolicitacaoCompras = () => {
   };
 
   const handleAdicionarItem = () => {
-    setItens([...itens, { descricao: '', quantidade: 1, valor_estimado: 0 }]);
+    setItens([...itens, { insumo_id: '', descricao: '', quantidade: 1, valor_estimado: 0 }]);
   };
 
   const handleRemoverItem = (index) => {
@@ -142,6 +147,16 @@ const SolicitacaoCompras = () => {
   const handleItemChange = (index, field, value) => {
     const novosItens = [...itens];
     novosItens[index][field] = value;
+    
+    // Se o usuário selecionou um insumo do catálogo de estoque, preenche nome e preço unitário
+    if (field === 'insumo_id' && value) {
+      const insumo = catalogoInsumos.find(i => String(i.id) === String(value));
+      if (insumo) {
+        novosItens[index].descricao = insumo.nome;
+        novosItens[index].valor_estimado = Number(insumo.valor_unitario || 0);
+      }
+    }
+
     setItens(novosItens);
   };
 
@@ -196,8 +211,9 @@ const SolicitacaoCompras = () => {
       setDadosBaixa({
         id,
         status: novoStatus,
-        valor_real: solicitacaoAtual?.valor_total_calculado || '',
-        nota_fiscal_numero: solicitacaoAtual?.nota_fiscal_numero || ''
+        valor_real: solicitacaoAtual?.valor_real || solicitacaoAtual?.valor_total_calculado || '',
+        nota_fiscal_numero: solicitacaoAtual?.nota_fiscal_numero || '',
+        alimentar_estoque: true
       });
       setModalBaixaAberta(true);
       return;
@@ -219,6 +235,8 @@ const SolicitacaoCompras = () => {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        if (data.message) alert(data.message);
         setModalBaixaAberta(false);
         carregarDados();
       } else {
@@ -300,7 +318,7 @@ const SolicitacaoCompras = () => {
   const totalPendentes = solicitacoes.filter(s => s.status === 'Pendente').length;
   const totalComprados = solicitacoes.filter(s => s.status === 'Comprado' || s.status === 'Entregue').length;
 
-  const subtotalModal = itens.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(it.valor_estimado || 0)), 0);
+  const subtotalModal = itens.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(String(it.valor_estimado || 0).replace(',', '.'))), 0);
 
   const totalPaginas = Math.ceil(solicitacoesFiltradas.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
@@ -414,108 +432,181 @@ const SolicitacaoCompras = () => {
                 <th className="p-5">Nº / Data</th>
                 <th className="p-5">Solicitante / Setor</th>
                 <th className="p-5">Fornecedor / NF</th>
-                <th className="p-5">Valor Estimado</th>
+                <th className="p-5">Valores (Est. vs Real)</th>
                 <th className="p-5">Urgência</th>
                 <th className="p-5">Status (Dar Baixa)</th>
                 <th className="p-5 text-center">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50 text-xs">
+            <tbody className="divide-y divide-slate-100 text-xs">
               {solicitacoesPaginadas.map(s => (
-                <tr key={s.id} className="hover:bg-slate-50/60 transition-colors">
-                  <td className="p-5">
-                    <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
-                    <div className="text-[10px] text-slate-400 font-bold mt-1.5">
-                      {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
-                    </div>
-                  </td>
-                  <td className="p-5">
-                    <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
-                    <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
-                    {s.motivo && (
-                      <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 font-medium" title={s.motivo}>
-                        📝 {renderizarMotivoComLinks(s.motivo)}
-                      </p>
-                    )}
-                  </td>
-                  <td className="p-5 font-bold text-slate-700">
-                    {s.fornecedor_nome ? (
-                      <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
-                    ) : (
-                      <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
-                    )}
-                    {s.nota_fiscal_numero && (
-                      <div className="text-[10px] text-emerald-600 font-bold mt-0.5">📄 NF: #{s.nota_fiscal_numero}</div>
-                    )}
-                    {s.equipamento_nome && (
-                      <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
-                    )}
-                  </td>
-                  <td className="p-5 font-black text-slate-800">
-                    <div>R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                    <button 
-                      onClick={() => setItemExpandidoId(itemExpandidoId === s.id ? null : s.id)}
-                      className="text-[10px] text-blue-500 hover:text-blue-700 font-bold mt-1 flex items-center gap-1"
-                    >
-                      <span>{s.total_itens || 1} item(ns)</span>
-                      <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ ver itens'}</span>
-                    </button>
-                  </td>
-                  <td className="p-5">
-                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                      s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse' :
-                      s.urgencia === 'Alta' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {s.urgencia}
-                    </span>
-                  </td>
-                  
-                  {/* SELECT DINÂMICO PARA BAIXA */}
-                  <td className="p-5">
-                    <select
-                      value={s.status}
-                      onChange={e => handleAlterarStatus(s.id, e.target.value)}
-                      className={`p-2 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer transition-all shadow-sm ${
-                        s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' :
-                        s.status === 'Aprovado' ? 'bg-blue-50 text-blue-800 border-blue-300' :
-                        s.status === 'Negado' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-amber-50 text-amber-800 border-amber-300'
-                      }`}
-                    >
-                      <option value="Pendente">🟡 Pendente</option>
-                      <option value="Aprovado">🔵 Aprovado</option>
-                      <option value="Comprado">📦 Comprado</option>
-                      <option value="Entregue">🟢 Entregue / Baixado</option>
-                      <option value="Negado">🔴 Negado / Cancelado</option>
-                    </select>
-                  </td>
+                <Fragment key={s.id}>
+                  <tr className={`hover:bg-slate-50/60 transition-colors ${itemExpandidoId === s.id ? 'bg-blue-50/30' : ''}`}>
+                    <td className="p-5">
+                      <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
+                      <div className="text-[10px] text-slate-400 font-bold mt-1.5">
+                        {new Date(s.data_solicitacao).toLocaleDateString('pt-BR')}
+                      </div>
+                    </td>
+                    <td className="p-5">
+                      <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
+                      <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
+                      {s.motivo && (
+                        <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 font-medium" title={s.motivo}>
+                          📝 {renderizarMotivoComLinks(s.motivo)}
+                        </p>
+                      )}
+                    </td>
+                    <td className="p-5 font-bold text-slate-700">
+                      {s.fornecedor_nome ? (
+                        <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
+                      ) : (
+                        <span className="text-slate-400 font-normal italic">A definir / Cotação</span>
+                      )}
+                      {s.nota_fiscal_numero && (
+                        <div className="text-[10px] text-emerald-600 font-bold mt-0.5">📄 NF: #{s.nota_fiscal_numero}</div>
+                      )}
+                      {s.equipamento_nome && (
+                        <div className="text-[10px] text-blue-600 font-bold mt-0.5">⚙️ {s.equipamento_nome}</div>
+                      )}
+                    </td>
+                    <td className="p-5 font-black text-slate-800">
+                      <div className="text-slate-700">Est: R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      {s.valor_real && Number(s.valor_real) > 0 && (
+                        <div className="text-[11px] text-emerald-600 font-bold mt-0.5">
+                          Real: R$ {Number(s.valor_real).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      )}
+                      <button 
+                        onClick={() => setItemExpandidoId(itemExpandidoId === s.id ? null : s.id)}
+                        className="text-[10px] text-blue-600 hover:text-blue-800 font-bold mt-1.5 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded-lg"
+                      >
+                        <span>{s.total_itens || (s.itens?.length) || 1} item(ns)</span>
+                        <span>{itemExpandidoId === s.id ? '▲ fechar' : '▼ ver itens'}</span>
+                      </button>
+                    </td>
+                    <td className="p-5">
+                      <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                        s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse' :
+                        s.urgencia === 'Alta' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {s.urgencia}
+                      </span>
+                    </td>
+                    
+                    {/* SELECT DINÂMICO PARA BAIXA */}
+                    <td className="p-5">
+                      <select
+                        value={s.status}
+                        onChange={e => handleAlterarStatus(s.id, e.target.value)}
+                        className={`p-2 rounded-xl text-[10px] font-black uppercase outline-none border cursor-pointer transition-all shadow-sm ${
+                          s.status === 'Entregue' || s.status === 'Comprado' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' :
+                          s.status === 'Aprovado' ? 'bg-blue-50 text-blue-800 border-blue-300' :
+                          s.status === 'Negado' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-amber-50 text-amber-800 border-amber-300'
+                        }`}
+                      >
+                        <option value="Pendente">🟡 Pendente</option>
+                        <option value="Aprovado">🔵 Aprovado</option>
+                        <option value="Comprado">📦 Comprado</option>
+                        <option value="Entregue">🟢 Entregue / Baixado</option>
+                        <option value="Negado">🔴 Negado / Cancelado</option>
+                      </select>
+                    </td>
 
-                  <td className="p-5 text-center">
-                    <div className="flex justify-center gap-1.5">
-                      <button
-                        onClick={() => handleAbrirEdicao(s)}
-                        className="p-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
-                        title="Editar Solicitação"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => handleImprimir(s.id)}
-                        className="p-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
-                        title="Imprimir Requisição"
-                      >
-                        🖨️
-                      </button>
-                      <button
-                        onClick={() => handleExcluir(s.id)}
-                        className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all"
-                        title="Excluir Solicitação"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    <td className="p-5 text-center">
+                      <div className="flex justify-center gap-1.5">
+                        <button
+                          onClick={() => handleAbrirEdicao(s)}
+                          className="p-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
+                          title="Editar Solicitação"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => handleImprimir(s.id)}
+                          className="p-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 rounded-xl font-bold text-xs transition-all"
+                          title="Imprimir Requisição"
+                        >
+                          🖨️
+                        </button>
+                        <button
+                          onClick={() => handleExcluir(s.id)}
+                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs transition-all"
+                          title="Excluir Solicitação"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* 🔽 ACORDEÃO EXPANSÍVEL: LISTA DE ITENS DO PEDIDO */}
+                  {itemExpandidoId === s.id && (
+                    <tr className="bg-slate-50/80 border-b border-slate-200">
+                      <td colSpan="7" className="p-4 sm:p-6">
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-inner">
+                          <div className="flex justify-between items-center mb-3">
+                            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                              📦 Itens Detalhados da Solicitação #{s.id}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-500">
+                              Total de Linhas: {s.itens?.length || 0}
+                            </span>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
+                                  <th className="py-2">Item / Peça</th>
+                                  <th className="py-2 text-center">Tipo Almoxarifado</th>
+                                  <th className="py-2 text-center">Quantidade</th>
+                                  <th className="py-2 text-right">Valor Estimado Un.</th>
+                                  <th className="py-2 text-right">Subtotal</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {s.itens && s.itens.length > 0 ? (
+                                  s.itens.map((it, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50">
+                                      <td className="py-2.5 font-bold text-slate-800">{it.descricao}</td>
+                                      <td className="py-2.5 text-center">
+                                        {it.insumo_id ? (
+                                          <span className="bg-emerald-100 text-emerald-700 text-[9px] font-black px-2 py-0.5 rounded-md uppercase">
+                                            ✓ Item Vinculado
+                                          </span>
+                                        ) : (
+                                          <span className="bg-slate-100 text-slate-500 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase">
+                                            Avulso / Direto
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 text-center font-black text-slate-700">{it.quantidade} un.</td>
+                                      <td className="py-2.5 text-right font-mono text-slate-600">
+                                        R$ {Number(it.valor_estimado || 0).toFixed(2)}
+                                      </td>
+                                      <td className="py-2.5 text-right font-mono font-bold text-slate-800">
+                                        R$ {(Number(it.quantidade || 0) * Number(it.valor_estimado || 0)).toFixed(2)}
+                                      </td>
+                                    </tr>
+                                  ))
+                                ) : (
+                                  <tr>
+                                    <td colSpan="5" className="py-4 text-center text-slate-400 italic">
+                                      Nenhum item discriminado nesta solicitação.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
+
               {solicitacoesFiltradas.length === 0 && (
                 <tr>
                   <td colSpan="7" className="p-10 text-center text-slate-400 font-bold italic">
@@ -557,7 +648,7 @@ const SolicitacaoCompras = () => {
         )}
       </div>
 
-      {/* MODAL DE NOVA / EDITAR SOLICITAÇÃO */}
+      {/* MODAL DE NOVA / EDITAR SOLICITAÇÃO COM CATÁLOGO DE INSUMOS */}
       {modalNova && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -605,10 +696,10 @@ const SolicitacaoCompras = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Justificativa / Motivo da Compra *</label>
-                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Detergente Zenit para higienização de ar-condicionado..." />
+                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Aquisição de botões e frentes para ar-condicionado dos leitos..." />
               </div>
 
-              {/* SELEÇÃO DE NOTA FISCAL JÁ CADASTRADA */}
+              {/* VÍNCULO COM NOTA FISCAL CADASTRADA */}
               <div className="p-4 bg-slate-50 border-2 rounded-2xl">
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Nota Fiscal do Módulo Fiscal (Opcional)</label>
                 <select 
@@ -625,43 +716,65 @@ const SolicitacaoCompras = () => {
                 </select>
               </div>
 
-              {/* LISTA DINÂMICA DE ITENS COM TOTAL AUTOMÁTICO */}
+              {/* LISTA DINÂMICA DE ITENS COM BUSCA NO ALMOXARIFADO */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
                 <div className="flex justify-between items-center border-b pb-2">
-                  <span className="text-[10px] font-black text-slate-500 uppercase">Itens da Solicitação</span>
+                  <div>
+                    <span className="text-[10px] font-black text-slate-500 uppercase block">Itens da Solicitação</span>
+                    <span className="text-[9px] text-slate-400">Selecione do Almoxarifado para auto-preencher ou digite manualmente</span>
+                  </div>
                   <button type="button" onClick={handleAdicionarItem} className="text-xs font-black text-blue-600 hover:underline">+ Adicionar Item</button>
                 </div>
 
                 {itens.map((item, index) => (
-                  <div key={index} className="flex gap-2 items-center">
+                  <div key={index} className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-white p-3 rounded-xl border border-slate-200">
+                    {/* Select de catálogo do almoxarifado */}
+                    {catalogoInsumos.length > 0 && (
+                      <select
+                        value={item.insumo_id || ''}
+                        onChange={e => handleItemChange(index, 'insumo_id', e.target.value)}
+                        className="w-full sm:w-48 p-2 border rounded-lg text-[11px] font-bold bg-slate-50 text-slate-700 outline-none focus:border-blue-500"
+                      >
+                        <option value="">Item Avulso / Manual</option>
+                        {catalogoInsumos.map(ins => (
+                          <option key={ins.id} value={ins.id}>
+                            📦 {ins.nome} (Saldo: {ins.quantidade || 0})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
                     <input
                       type="text"
                       required
-                      placeholder="Descrição do item ou peça..."
-                      className="flex-[3] p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                      placeholder="Descrição da peça ou insumo..."
+                      className="flex-1 p-2 border rounded-lg text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500 w-full"
                       value={item.descricao}
                       onChange={e => handleItemChange(index, 'descricao', e.target.value)}
                     />
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      placeholder="Qtd"
-                      className="w-20 p-2.5 border-2 rounded-xl text-xs font-bold text-center bg-white text-slate-800 outline-none focus:border-blue-500"
-                      value={item.quantidade}
-                      onChange={e => handleItemChange(index, 'quantidade', e.target.value)}
-                    />
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Val. Est. R$"
-                      className="w-32 p-2.5 border-2 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
-                      value={item.valor_estimado}
-                      onChange={e => handleItemChange(index, 'valor_estimado', e.target.value)}
-                    />
-                    {itens.length > 1 && (
-                      <button type="button" onClick={() => handleRemoverItem(index)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg font-black transition-all">✕</button>
-                    )}
+
+                    <div className="flex gap-2 w-full sm:w-auto items-center">
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        placeholder="Qtd"
+                        className="w-16 p-2 border rounded-lg text-xs font-bold text-center bg-white text-slate-800 outline-none focus:border-blue-500"
+                        value={item.quantidade}
+                        onChange={e => handleItemChange(index, 'quantidade', e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="R$ Est."
+                        className="w-24 p-2 border rounded-lg text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500 font-mono"
+                        value={item.valor_estimado}
+                        onChange={e => handleItemChange(index, 'valor_estimado', e.target.value)}
+                      />
+                      {itens.length > 1 && (
+                        <button type="button" onClick={() => handleRemoverItem(index)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg font-black transition-all">✕</button>
+                      )}
+                    </div>
                   </div>
                 ))}
 
@@ -684,25 +797,25 @@ const SolicitacaoCompras = () => {
         </div>
       )}
 
-      {/* MODAL OPCIONAL DE VÍNCULO DE NF E VALOR REAL NA BAIXA */}
+      {/* MODAL DE BAIXA: VÍNCULO DE NF, VALOR REAL E ALIMENTAÇÃO DO ESTOQUE */}
       {modalBaixaAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-emerald-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
-              <span>📦 Fechamento de Pedido (#{dadosBaixa.id})</span>
+              <span>📦 Fechamento & Baixa de Pedido (#{dadosBaixa.id})</span>
               <button onClick={() => setModalBaixaAberta(false)} className="text-lg">✕</button>
             </div>
 
             <div className="p-6 space-y-4">
               <p className="text-xs text-slate-500 font-medium">
-                Você está alterando o status para <strong className="text-slate-800 uppercase">{dadosBaixa.status}</strong>. Se já possuir a Nota Fiscal, informe os dados abaixo para amarrar contábil e financeiramente (opcional):
+                Você está alterando o status para <strong className="text-slate-800 uppercase">{dadosBaixa.status}</strong>. Informe os dados fiscais e reais de compra:
               </p>
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Número da Nota Fiscal (Opcional)</label>
                 <input
                   type="text"
-                  placeholder="Ex: 14590"
+                  placeholder="Ex: 0582136"
                   className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-emerald-500"
                   value={dadosBaixa.nota_fiscal_numero}
                   onChange={e => setDadosBaixa({ ...dadosBaixa, nota_fiscal_numero: e.target.value })}
@@ -721,19 +834,33 @@ const SolicitacaoCompras = () => {
                 />
               </div>
 
+              <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="checkEstoque"
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                  checked={dadosBaixa.alimentar_estoque}
+                  onChange={e => setDadosBaixa({ ...dadosBaixa, alimentar_estoque: e.target.checked })}
+                />
+                <label htmlFor="checkEstoque" className="text-xs font-bold text-emerald-900 cursor-pointer">
+                  Creditar peças vinculadas no Almoxarifado automaticamente
+                </label>
+              </div>
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setModalBaixaAberta(false)}
                   className="flex-1 bg-slate-100 py-3 rounded-2xl font-black text-xs uppercase text-slate-600 hover:bg-slate-200 transition-all"
                 >
-                  Pular / Apenas Mudar Status
+                  Cancelar
                 </button>
                 <button
                   type="button"
                   onClick={() => executarAlteracaoStatus(dadosBaixa.id, dadosBaixa.status, {
                     nota_fiscal_numero: dadosBaixa.nota_fiscal_numero || null,
-                    valor_real: dadosBaixa.valor_real || null
+                    valor_real: dadosBaixa.valor_real || null,
+                    alimentar_estoque: dadosBaixa.alimentar_estoque
                   })}
                   className="flex-[2] bg-emerald-600 text-white py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-100 hover:bg-emerald-700 active:scale-95 transition-all"
                 >
