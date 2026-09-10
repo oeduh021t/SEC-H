@@ -531,6 +531,30 @@ app.delete('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), (r
 });
 
 // -------------------------------------------------------------------------
+// ROTAS DE TIPOS DE EQUIPAMENTOS
+// -------------------------------------------------------------------------
+app.get('/api/tipos_equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    db.query(`SELECT id, nome FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    db.query(`SELECT id, nome FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+app.get('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    db.query(`SELECT id, nome FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(result || []);
+    });
+});
+
+// -------------------------------------------------------------------------
 // ROTAS DE CHAMADOS / OS
 // -------------------------------------------------------------------------
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
@@ -2178,49 +2202,64 @@ app.post('/api/setores', permitirApenas(['admin', 'coordenador']), (req, res) =>
     });
 });
 
-app.get('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    db.query(`SELECT id, nome FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
+// 🔍 NOVO: Obter dados de um setor específico para edição
+app.get('/api/setores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    db.query("SELECT id, nome, setor_pai_id FROM setores WHERE id = ?", [id], (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(result || []);
+        if (results.length === 0) return res.status(404).json({ error: "Setor não encontrado." });
+        res.json(results[0]);
     });
 });
 
-app.get('/api/types_equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    db.query(`SELECT * FROM tipos_equipamentos ORDER BY nome ASC`, (err, result) => {
-        if (err) return res.status(500).json(err);
-        res.json(result);
-    });
-});
+// ✏️ NOVO: Atualizar Setor (Nome e/ou Setor Pai)
+app.put('/api/setores/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { nome, setor_pai_id } = req.body;
 
-app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { nome } = req.body;
     if (!nome || nome.trim() === "") {
-        return res.status(400).json({ error: "O nome da categoria/tipo é obrigatório." });
+        return res.status(400).json({ error: "O nome do setor é obrigatório." });
     }
 
-    db.query(`INSERT INTO tipos_equipamentos (nome) VALUES (?)`, [nome.trim()], (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.status(201).json({ message: "Tipo cadastrado com sucesso!", insertId: result.insertId });
+    const v_setor_pai = setor_pai_id && setor_pai_id !== "" ? Number(setor_pai_id) : null;
+
+    if (Number(id) === v_setor_pai) {
+        return res.status(400).json({ error: "Um setor não pode ser pai de si mesmo." });
+    }
+
+    const query = "UPDATE setores SET nome = ?, setor_pai_id = ? WHERE id = ?";
+    db.query(query, [nome.trim(), v_setor_pai, id], (err) => {
+        if (err) {
+            console.error("❌ Erro ao atualizar setor:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: "Setor atualizado com sucesso! 🏢✏️" });
     });
 });
 
-app.delete('/api/tipos-equipamentos/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+// 🗑️ NOVO: Excluir Setor (Com validação de vínculos)
+app.delete('/api/setores/:id', permitirApenas(['admin']), (req, res) => {
     const { id } = req.params;
 
-    const queryCheck = `SELECT COUNT(*) as em_uso FROM equipamentos WHERE tipo_id = ? OR tipo_equipamento_id = ?`;
-    
-    db.query(queryCheck, [id, id], (errCheck, resultsCheck) => {
-        if (errCheck) return res.status(500).json({ error: errCheck.message });
-        
-        if (resultsCheck[0].em_uso > 0) {
-            return res.status(400).json({ 
-                error: `Não é possível excluir! Existem ${resultsCheck[0].em_uso} equipamentos ativos utilizando este tipo no inventário.` 
-            });
+    // 1. Verifica se há equipamentos vinculados
+    db.query("SELECT COUNT(*) as total FROM equipamentos WHERE setor_id = ?", [id], (errEq, resEq) => {
+        if (errEq) return res.status(500).json({ error: errEq.message });
+        if (resEq[0].total > 0) {
+            return res.status(400).json({ error: `Não é possível excluir! Existem ${resEq[0].total} equipamentos cadastrados neste setor.` });
         }
 
-        db.query(`DELETE FROM tipos_equipamentos WHERE id = ?`, [id], (errDel) => {
-            if (errDel) return res.status(500).json({ error: errDel.message });
-            res.json({ message: "Tipo de equipamento removido com sucesso!" });
+        // 2. Verifica se há subsetores filhos vinculados
+        db.query("SELECT COUNT(*) as total FROM setores WHERE setor_pai_id = ?", [id], (errFilhos, resFilhos) => {
+            if (errFilhos) return res.status(500).json({ error: errFilhos.message });
+            if (resFilhos[0].total > 0) {
+                return res.status(400).json({ error: `Não é possível excluir! Este setor possui ${resFilhos[0].total} subsetores/salas vinculados a ele.` });
+            }
+
+            // 3. Executa a exclusão
+            db.query("DELETE FROM setores WHERE id = ?", [id], (errDel) => {
+                if (errDel) return res.status(500).json({ error: errDel.message });
+                res.json({ message: "Setor removido com sucesso! 🗑️" });
+            });
         });
     });
 });

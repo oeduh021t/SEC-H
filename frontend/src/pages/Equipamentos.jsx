@@ -64,7 +64,10 @@ const Equipamentos = () => {
     const headersComNivel = { "x-usuario-nivel": obterNivelUsuario() };
     
     fetch(`${API_URL}/setores`, { headers: headersComNivel }).then(res => res.json()).then(data => setSetores(data || []))
-    fetch(`${API_URL}/types_equipamentos`, { headers: headersComNivel }).then(res => res.json()).then(data => setTipos(data || []))
+    fetch(`${API_URL}/tipos_equipamentos`, { headers: headersComNivel })
+      .then(res => res.json())
+      .then(data => setTipos(Array.isArray(data) ? data : []))
+      .catch(err => console.error("Erro ao buscar tipos:", err))
     fetch(`${API_URL}/locais-estoque`, { headers: headersComNivel }).then(res => res.json()).then(data => setLocaisEstoque(data || []))
   }, [])
 

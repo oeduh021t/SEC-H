@@ -7,7 +7,8 @@ export function GestaoSetores() {
   const [busca, setBusca] = useState("");
   const [exportando, setExportando] = useState(false);
 
-  // Estados do Formulário
+  // Estados do Formulário (Cadastro / Edição)
+  const [editandoId, setEditandoId] = useState(null);
   const [nome, setNome] = useState("");
   const [setorPaiId, setSetorPaiId] = useState("");
 
@@ -43,35 +44,87 @@ export function GestaoSetores() {
     carregarSetores();
   }, []);
 
-  const handleCadastrarSetor = async (e) => {
+  const handleSubmitSetor = async (e) => {
     e.preventDefault();
     if (!nome) return;
 
-    const novoSetor = {
+    const dadosSetor = {
       nome: nome.trim(),
       setor_pai_id: setorPaiId && setorPaiId !== "" ? Number(setorPaiId) : null,
     };
 
     try {
-      const res = await fetch(`${API_URL}/setores`, {
-        method: "POST",
+      const url = editandoId ? `${API_URL}/setores/${editandoId}` : `${API_URL}/setores`;
+      const metodo = editandoId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method: metodo,
         headers: { 
           "Content-Type": "application/json",
           "x-usuario-nivel": obterNivelUsuario()
         },
-        body: JSON.stringify(novoSetor),
+        body: JSON.stringify(dadosSetor),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
-        alert("Setor e localização integrados com sucesso! 🏢✨");
-        setNome("");
-        setSetorPaiId("");
+        alert(editandoId ? "Setor atualizado com sucesso! ✏️✨" : "Setor cadastrado com sucesso! 🏢✨");
+        handleCancelarEdicao();
         carregarSetores();
       } else {
-        alert("Erro ao cadastrar o setor. Verifique suas permissões.");
+        alert(data.error || "Erro ao salvar o setor. Verifique suas permissões.");
       }
     } catch (err) {
       console.error(err);
+      alert("Erro de conexão ao salvar setor.");
+    }
+  };
+
+  const handleIniciarEdicao = async (setor) => {
+    setEditandoId(setor.id);
+    setNome(setor.nome_original || setor.nome.split(" > ").pop()); // Pega o nome direto
+    
+    // Busca dados puros do backend para garantir o ID correto do setor pai
+    try {
+      const res = await fetch(`${API_URL}/setores/${setor.id}`, {
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
+      });
+      if (res.ok) {
+        const dados = await res.json();
+        setSetorPaiId(dados.setor_pai_id || "");
+      }
+    } catch (e) {
+      setSetorPaiId("");
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelarEdicao = () => {
+    setEditandoId(null);
+    setNome("");
+    setSetorPaiId("");
+  };
+
+  const handleExcluirSetor = async (id, nomeSetor) => {
+    if (!window.confirm(`Deseja realmente excluir o setor "${nomeSetor}"?`)) return;
+
+    try {
+      const res = await fetch(`${API_URL}/setores/${id}`, {
+        method: "DELETE",
+        headers: { "x-usuario-nivel": obterNivelUsuario() }
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        alert("Setor excluído com sucesso! 🗑️");
+        carregarSetores();
+      } else {
+        alert(data.error || "Erro ao excluir setor.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao excluir setor.");
     }
   };
 
@@ -101,17 +154,14 @@ export function GestaoSetores() {
     }
   };
 
-  // Filtro de busca na árvore de nomes agregada
   const setoresFiltrados = setores.filter((s) =>
     s.nome.toLowerCase().includes(busca.toLowerCase())
   );
 
-  // Cálculos de KPIs
   const totalSetores = setores.length;
   const setoresPrincipais = setores.filter(s => !s.nome.includes(" > ")).length;
   const subSetores = totalSetores - setoresPrincipais;
 
-  // Cálculos de Paginação
   const totalPaginas = Math.ceil(setoresFiltrados.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
   const setoresPaginados = setoresFiltrados.slice(indexInicio, indexInicio + itensPorPagina);
@@ -174,12 +224,23 @@ export function GestaoSetores() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* FORMULÁRIO DE CADASTRO */}
+        {/* FORMULÁRIO DE CADASTRO / EDIÇÃO */}
         <div className="lg:col-span-4">
-          <form onSubmit={handleCadastrarSetor} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-1.5">
-              <span>➕</span> Novo Local / Subsetor
-            </h3>
+          <form onSubmit={handleSubmitSetor} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                <span>{editandoId ? "✏️" : "➕"}</span> {editandoId ? `Editando Setor #${editandoId}` : "Novo Local / Subsetor"}
+              </h3>
+              {editandoId && (
+                <button
+                  type="button"
+                  onClick={handleCancelarEdicao}
+                  className="text-[10px] font-bold text-red-500 hover:underline uppercase"
+                >
+                  Cancelar
+                </button>
+              )}
+            </div>
             
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nome do Setor / Sala *</label>
@@ -202,9 +263,12 @@ export function GestaoSetores() {
               >
                 <option value="">⭐ Nenhum (Setor Principal / Prédio Raiz)</option>
                 {setores.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nome}
-                  </option>
+                  // Evita que o setor selecione a si mesmo como pai na edição
+                  Number(s.id) !== Number(editandoId) && (
+                    <option key={s.id} value={s.id}>
+                      {s.nome}
+                    </option>
+                  )
                 ))}
               </select>
               <p className="text-[9px] font-bold text-slate-400 mt-1 leading-tight px-1">
@@ -214,9 +278,11 @@ export function GestaoSetores() {
 
             <button 
               type="submit" 
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-md shadow-blue-100 transition-all active:scale-[0.98]"
+              className={`w-full py-3.5 font-black text-xs uppercase tracking-widest rounded-xl shadow-md transition-all active:scale-[0.98] ${
+                editandoId ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-100' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-100'
+              }`}
             >
-              💾 Cadastrar Localização
+              {editandoId ? "💾 Salvar Alterações" : "💾 Cadastrar Localização"}
             </button>
           </form>
         </div>
@@ -239,7 +305,7 @@ export function GestaoSetores() {
                   <th className="p-3">ID</th>
                   <th className="p-3">Hierarquia & Localização</th>
                   <th className="p-3 text-center">Tipo</th>
-                  <th className="p-3 text-right">Ação</th>
+                  <th className="p-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
@@ -272,14 +338,28 @@ export function GestaoSetores() {
                         </span>
                       </td>
 
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
                         <Link
                           to={`/setores/${setor.id}/prontuario`}
-                          className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all border border-blue-100 active:scale-95 shadow-sm"
-                          title="Abrir Prontuário do Setor"
+                          className="inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 px-2.5 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all border border-blue-100 active:scale-95 shadow-xs"
+                          title="Prontuário"
                         >
-                          📋 Prontuário
+                          📋
                         </Link>
+                        <button
+                          onClick={() => handleIniciarEdicao(setor)}
+                          className="inline-flex items-center gap-1 bg-amber-50 hover:bg-amber-600 hover:text-white text-amber-600 px-2.5 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all border border-amber-100 active:scale-95 shadow-xs"
+                          title="Editar Nome / Pai"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => handleExcluirSetor(setor.id, setor.nome)}
+                          className="inline-flex items-center gap-1 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-2.5 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all border border-red-100 active:scale-95 shadow-xs"
+                          title="Excluir Setor"
+                        >
+                          🗑️
+                        </button>
                       </td>
                     </tr>
                   );
@@ -321,9 +401,7 @@ export function GestaoSetores() {
               </div>
             </div>
           )}
-
         </div>
-
       </div>
     </div>
   );
