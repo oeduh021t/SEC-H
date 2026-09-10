@@ -357,7 +357,8 @@ export default function AuditoriaFornecedor() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
                     <tr>
-                      <th className="p-4">Data/Hora</th>
+                      <th className="p-4">Data/Hora Saída</th>
+                      <th className="p-4">Data Retorno</th>
                       <th className="p-4">Equipamento / Ativo</th>
                       <th className="p-4">Setor</th>
                       <th className="p-4 text-center">Custódia / Status</th>
@@ -372,6 +373,9 @@ export default function AuditoriaFornecedor() {
                         <tr key={s.id} className="hover:bg-slate-50/50">
                           <td className="p-4 text-slate-500 font-mono whitespace-nowrap">
                             {new Date(s.data_movimentacao).toLocaleString('pt-BR')}
+                          </td>
+                          <td className="p-4 text-slate-500 font-mono whitespace-nowrap">
+                            {s.data_retorno ? new Date(s.data_retorno).toLocaleString('pt-BR') : <span className="text-amber-500 italic">Pendente</span>}
                           </td>
                           <td className="p-4 font-bold text-slate-800">
                             {s.equipamento_nome} <span className="text-slate-400 font-mono font-normal">(Pat: {s.patrimonio || 'S/P'})</span>
@@ -397,7 +401,7 @@ export default function AuditoriaFornecedor() {
                     })}
                     {saidasFiltradas.length === 0 && (
                       <tr>
-                        <td colSpan="6" className="p-8 text-center text-slate-400 font-bold italic">
+                        <td colSpan="7" className="p-8 text-center text-slate-400 font-bold italic">
                           Nenhum registro encontrado para o filtro selecionado.
                         </td>
                       </tr>

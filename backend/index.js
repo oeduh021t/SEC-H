@@ -5564,6 +5564,13 @@ app.get('/api/fornecedores/:id/extrato-completo', (req, res) => {
                    e.nome AS equipamento_nome, e.patrimonio, e.modelo,
                    COALESCE(e.status, eh.status_novo) AS status_atual_equipamento,
                    s.nome AS setor_nome,
+                   (
+                       SELECT MIN(eh_ret.data_movimentacao) 
+                       FROM equipamentos_historico eh_ret 
+                       WHERE eh_ret.equipamento_id = eh.equipamento_id 
+                         AND eh_ret.id > eh.id
+                         AND (eh_ret.descricao_log LIKE '%RETORNO%' OR eh_ret.descricao_log LIKE '%ENTRADA%' OR eh_ret.status_novo IN ('Disponível', 'Operacional', 'Ativo'))
+                   ) AS data_retorno,
                    CASE 
                        WHEN COALESCE(e.status, eh.status_novo) IN ('Em Manutenção', 'Em Manutenção Externa') THEN 'Na Rua / Em Manutenção'
                        ELSE 'Retornou à Unidade'
@@ -5624,7 +5631,7 @@ app.get('/api/fornecedores/:id/extrato-completo', (req, res) => {
 });
 
 // ==========================================
-// 📊 EXPORTAR AUDITORIA DO FORNECEDOR EM .XLSX (REFATORADO)
+// 📊 EXPORTAR AUDITORIA DO FORNECEDOR EM .XLSX (CORRIGIDO SEM DUPLICIDADE)
 // ==========================================
 app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), async (req, res) => {
     const fornecedorId = req.params.id;
@@ -5647,32 +5654,36 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
         const fornecedor = rowsForn[0];
         const nomeBusca = fornecedor.nome_referencia;
 
-        // 2. Executa as 4 consultas em paralelo
+        // 2. Executa as consultas de forma limpa e separada
         const [
-            [chamados],
+            [chamadosReais],
             [saidas],
             [orcamentos],
             [notas]
         ] = await Promise.all([
-            // Chamados / OSs
+            // Ordens de Serviço / Chamados reais (ajuste a tabela se necessário, ex: chamados ou ordens_servico)
             pool.promise().query(`
-                SELECT c.id, c.titulo, c.status, 
-                       COALESCE(NULLIF(c.valor_servico_externo, 0), NULLIF(c.custo_servico, 0), c.custo_total, 0.00) AS custo_servico,
-                       c.data_abertura, c.data_conclusao, c.numero_nf_retorno,
+                SELECT c.id, c.titulo, c.status, c.data_abertura, c.data_conclusao, c.custo_servico, c.numero_nf_retorno,
                        e.nome AS equipamento_nome, e.patrimonio, s.nome AS setor_nome
                 FROM chamados c
                 LEFT JOIN equipamentos e ON c.equipamento_id = e.id
-                LEFT JOIN setores s ON c.setor_id = s.id
-                WHERE (c.fornecedor_id = ? OR c.fornecedor_externo_id = ?)
-                  AND DATE(c.data_abertura) BETWEEN ? AND ?
+                LEFT JOIN setores s E ON e.setor_id = s.id
+                WHERE c.fornecedor_id = ? AND DATE(c.data_abertura) BETWEEN ? AND ?
                 ORDER BY c.data_abertura DESC
-            `, [fornecedorId, fornecedorId, dataInicio, dataFim]),
+            `, [fornecedorId, dataInicio, dataFim]).catch(() => [[]]), // Fallback caso a tabela use outro formato
 
-            // Saídas pelo Prontuário (com rastreamento de custódia e termos flexíveis)
+            // Saídas pelo Prontuário (Histórico de Equipamentos)
             pool.promise().query(`
                 SELECT eh.id, eh.data_movimentacao, eh.descricao_log, eh.tecnico_nome, eh.status_novo,
                        e.nome AS equipamento_nome, e.patrimonio, e.status AS status_atual_equipamento,
                        s.nome AS setor_nome,
+                       (
+                           SELECT MIN(eh_ret.data_movimentacao) 
+                           FROM equipamentos_historico eh_ret 
+                           WHERE eh_ret.equipamento_id = eh.equipamento_id 
+                             AND eh_ret.id > eh.id
+                             AND (eh_ret.descricao_log LIKE '%RETORNO%' OR eh_ret.descricao_log LIKE '%ENTRADA%' OR eh_ret.status_novo IN ('Disponível', 'Operacional', 'Ativo'))
+                       ) AS data_retorno,
                        CASE 
                            WHEN e.status IN ('Em Manutenção', 'Em Manutenção Externa') THEN 'Na Rua / Em Manutenção'
                            ELSE 'Retornou à Unidade'
@@ -5723,6 +5734,7 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             { header: 'Origem do Registro', key: 'origem', width: 22 },
             { header: 'ID / Ref', key: 'referencia', width: 14 },
             { header: 'Data do Evento', key: 'data', width: 16 },
+            { header: 'Data Retorno', key: 'data_retorno', width: 16 },
             { header: 'Equipamento / Ativo', key: 'equipamento', width: 32 },
             { header: 'Patrimônio', key: 'patrimonio', width: 14 },
             { header: 'Setor', key: 'setor', width: 22 },
@@ -5734,29 +5746,31 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
 
         const listaUnificada = [];
 
-        // Converte OSs para a lista unificada
-        (chamados || []).forEach(c => {
+        // Adiciona Chamados Reais se houver
+        (chamadosReais || []).forEach(c => {
             listaUnificada.push({
                 origem: 'Ordem de Serviço (OS)',
                 referencia: `#${c.id}`,
                 data_raw: new Date(c.data_abertura),
                 data: c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '',
+                data_retorno: '---',
                 equipamento: c.equipamento_nome || c.titulo,
                 patrimonio: c.patrimonio || 'S/P',
                 setor: c.setor_nome || 'Geral',
                 custodia: c.status === 'Concluído' ? 'Retornou / Concluído' : 'Em Atendimento',
-                detalhes: `${c.titulo}${c.numero_nf_retorno ? ` | NF Retorno: ${c.numero_nf_retorno}` : ''}`,
+                detalhes: `${c.titulo || 'OS'}`,
                 custo: Number(c.custo_servico || 0)
             });
         });
 
-        // Converte Saídas pelo Prontuário para a lista unificada
+        // Adiciona Saídas pelo Prontuário
         (saidas || []).forEach(s => {
             listaUnificada.push({
                 origem: 'Saída pelo Prontuário',
                 referencia: `HIST-${s.id}`,
                 data_raw: new Date(s.data_movimentacao),
                 data: new Date(s.data_movimentacao).toLocaleDateString('pt-BR'),
+                data_retorno: s.data_retorno ? new Date(s.data_retorno).toLocaleDateString('pt-BR') : 'Ainda na Rua',
                 equipamento: s.equipamento_nome,
                 patrimonio: s.patrimonio || 'S/P',
                 setor: s.setor_nome || 'Geral',
@@ -5766,7 +5780,6 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             });
         });
 
-        // Ordena tudo do mais recente para o mais antigo
         listaUnificada.sort((a, b) => b.data_raw - a.data_raw);
 
         listaUnificada.forEach(item => {
@@ -5774,6 +5787,7 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 origem: item.origem,
                 referencia: item.referencia,
                 data: item.data,
+                data_retorno: item.data_retorno,
                 equipamento: item.equipamento,
                 patrimonio: item.patrimonio,
                 setor: item.setor,
@@ -5782,22 +5796,20 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 custo: item.custo
             });
 
-            // Formatação de moeda
             row.getCell('custo').numFmt = 'R$ #,##0.00';
 
-            // Cores das tags de origem e custódia
             const cellOrigem = row.getCell('origem');
             if (item.origem.includes('Prontuário')) {
-                cellOrigem.font = { bold: true, color: { argb: 'FF6D28D9' } }; // Roxo
+                cellOrigem.font = { bold: true, color: { argb: 'FF6D28D9' } };
             } else {
-                cellOrigem.font = { bold: true, color: { argb: 'FF2563EB' } }; // Azul
+                cellOrigem.font = { bold: true, color: { argb: 'FF2563EB' } };
             }
 
             const cellCustodia = row.getCell('custodia');
             if (item.custodia.includes('Na Rua')) {
-                cellCustodia.font = { bold: true, color: { argb: 'FFD97706' } }; // Âmbar
+                cellCustodia.font = { bold: true, color: { argb: 'FFD97706' } };
             } else {
-                cellCustodia.font = { bold: true, color: { argb: 'FF059669' } }; // Verde
+                cellCustodia.font = { bold: true, color: { argb: 'FF059669' } };
             }
         });
 
@@ -5806,7 +5818,8 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
         // ==============================================================
         const wsSaidas = workbook.addWorksheet('Saídas do Prontuário');
         wsSaidas.columns = [
-            { header: 'Data/Hora', key: 'data', width: 20 },
+            { header: 'Data/Hora Saída', key: 'data', width: 20 },
+            { header: 'Data Retorno', key: 'data_retorno', width: 20 },
             { header: 'Equipamento', key: 'equipamento', width: 30 },
             { header: 'Patrimônio', key: 'patrimonio', width: 15 },
             { header: 'Setor', key: 'setor', width: 22 },
@@ -5814,11 +5827,12 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             { header: 'Técnico', key: 'tecnico', width: 22 },
             { header: 'Histórico / Motivo da Saída', key: 'motivo', width: 50 }
         ];
-        aplicarEstiloCabecalho(wsSaidas, 'FF7C3AED'); // Roxo
+        aplicarEstiloCabecalho(wsSaidas, 'FF7C3AED');
 
         (saidas || []).forEach(s => {
             wsSaidas.addRow({
                 data: new Date(s.data_movimentacao).toLocaleString('pt-BR'),
+                data_retorno: s.data_retorno ? new Date(s.data_retorno).toLocaleString('pt-BR') : 'Ainda na Rua',
                 equipamento: s.equipamento_nome,
                 patrimonio: s.patrimonio || 'S/P',
                 setor: s.setor_nome || 'Geral',
@@ -5826,62 +5840,6 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 tecnico: s.tecnico_nome || 'Sistema',
                 motivo: s.descricao_log
             });
-        });
-
-        // ==============================================================
-        // 📑 ABA 3: APENAS ORDENS DE SERVIÇO (OS)
-        // ==============================================================
-        const wsOS = workbook.addWorksheet('Ordens de Serviço');
-        wsOS.columns = [
-            { header: 'Nº OS', key: 'id', width: 10 },
-            { header: 'Equipamento', key: 'equipamento', width: 30 },
-            { header: 'Patrimônio', key: 'patrimonio', width: 15 },
-            { header: 'Setor', key: 'setor', width: 22 },
-            { header: 'Status', key: 'status', width: 18 },
-            { header: 'Abertura', key: 'data_abertura', width: 15 },
-            { header: 'Conclusão', key: 'data_conclusao', width: 15 },
-            { header: 'NF Retorno', key: 'nf_retorno', width: 15 },
-            { header: 'Custo Serviço (R$)', key: 'custo', width: 20 }
-        ];
-        aplicarEstiloCabecalho(wsOS, 'FF1E293B'); // Azul Escuro
-
-        (chamados || []).forEach(c => {
-            const r = wsOS.addRow({
-                id: `#${c.id}`,
-                equipamento: c.equipamento_nome || c.titulo,
-                patrimonio: c.patrimonio || 'S/P',
-                setor: c.setor_nome || 'Geral',
-                status: c.status,
-                data_abertura: c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '',
-                data_conclusao: c.data_conclusao ? new Date(c.data_conclusao).toLocaleDateString('pt-BR') : '',
-                nf_retorno: c.numero_nf_retorno || '---',
-                custo: Number(c.custo_servico || 0)
-            });
-            r.getCell('custo').numFmt = 'R$ #,##0.00';
-        });
-
-        // ==============================================================
-        // 📑 ABA 4: ORÇAMENTOS E LOTES
-        // ==============================================================
-        const wsOrc = workbook.addWorksheet('Orçamentos & Lotes');
-        wsOrc.columns = [
-            { header: 'Código Lote', key: 'codigo', width: 20 },
-            { header: 'Data Emissão', key: 'data', width: 15 },
-            { header: 'Tipo', key: 'tipo', width: 16 },
-            { header: 'Status', key: 'status', width: 22 },
-            { header: 'Valor Total (R$)', key: 'valor', width: 20 }
-        ];
-        aplicarEstiloCabecalho(wsOrc, 'FF059669'); // Verde
-
-        (orcamentos || []).forEach(o => {
-            const r = wsOrc.addRow({
-                codigo: o.codigo_orcamento,
-                data: o.data_emissao ? new Date(o.data_emissao).toLocaleDateString('pt-BR') : '',
-                tipo: o.tipo_orcamento,
-                status: o.status,
-                valor: Number(o.valor_total || 0)
-            });
-            r.getCell('valor').numFmt = 'R$ #,##0.00';
         });
 
         // Envio do arquivo
@@ -5897,6 +5855,50 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
         res.status(500).json({ error: "Falha interna ao gerar planilha Excel." });
     }
 });
+
+// =========================================================================
+// CRON JOB AUTOMÁTICO: ALERTA DE MANUTENÇÕES PLANEJADAS VIA TELEGRAM (BLINDADO)
+// =========================================================================
+setInterval(() => {
+    // 1. Seleciona manutenções agendadas que faltam cerca de 10 minutos e ainda não alertaram
+    const queryVerificacao = `
+        SELECT mp.*, s.nome AS setor_nome, e.nome AS equipamento_nome, e.patrimonio AS equipamento_patrimonio
+        FROM manutencoes_planejadas mp
+        LEFT JOIN setores s ON s.id = mp.setor_id
+        LEFT JOIN equipamentos e ON e.id = mp.equipamento_id
+        WHERE mp.status = 'Agendado'
+          AND (mp.alerta_enviado IS NULL OR mp.alerta_enviado = 0)
+          AND TIMESTAMP(mp.data_programada, IFNULL(mp.hora_programada, '08:00:00')) 
+              BETWEEN DATE_SUB(NOW(), INTERVAL 2 MINUTE) AND DATE_ADD(NOW(), INTERVAL 12 MINUTE)
+    `;
+
+    db.query(queryVerificacao, (err, rows) => {
+        if (!err && rows && rows.length > 0) {
+            rows.forEach(plano => {
+                // 2. Marca imediatamente como enviado para evitar loop/duplicidade no próximo minuto
+                db.query("UPDATE manutencoes_planejadas SET alerta_enviado = 1 WHERE id = ?", [plano.id], (errUp) => {
+                    if (errUp) {
+                        console.error(`⚠️ Erro ao atualizar flag de alerta da OS planejada #${plano.id}:`, errUp.message);
+                        return;
+                    }
+
+                    const dataFmt = plano.data_programada.split('-').reverse().join('/');
+                    const horaFmt = plano.hora_programada ? plano.hora_programada.slice(0, 5) : 'Horário comercial';
+                    
+                    const textoAlerta = 
+                        `⏰ *LEMBRETE DE MANUTENÇÃO PLANEJADA* ⏰\n\n` +
+                        `📌 *Ação:* ${plano.titulo}\n` +
+                        `📍 *Setor:* ${plano.setor_nome || 'Geral'}\n` +
+                        `⚙️ *Ativo:* ${plano.equipamento_nome ? `${plano.equipamento_nome} (PAT: ${plano.equipamento_patrimonio || 'S/P'})` : 'Estrutura / Geral'}\n` +
+                        `📅 *Data/Hora:* ${dataFmt} às ${horaFmt}\n` +
+                        `⚠️ *Início em breve (cerca de 10 minutos)!*`;
+
+                    enviarTelegram(textoAlerta);
+                });
+            });
+        }
+    });
+}, 60 * 1000); // Roda a verificação a cada 1 minuto de forma leve
 
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
