@@ -24,6 +24,7 @@ export default function NotasFiscais() {
   const [modalNotaAberto, setModalNotaAberto] = useState(false);
   const [modalBoletosAberto, setModalBoletosAberto] = useState(false);
   const [modalItensAberto, setModalItensAberto] = useState(false);
+  const [modalAnexosAberto, setModalAnexosAberto] = useState(false);
   const [notaSelecionada, setNotaSelecionada] = useState(null);
   const [boletosNota, setBoletosNota] = useState([]);
   const [itensNota, setItensNota] = useState([]);
@@ -34,6 +35,8 @@ export default function NotasFiscais() {
     data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: ''
   });
   const [arquivosNota, setArquivosNota] = useState({ xml: null, danfe: null });
+  const [novosArquivosPos, setNovosArquivosPos] = useState({ xml: null, danfe: null });
+  const [enviandoAnexos, setEnviandoAnexos] = useState(false);
 
   // Estado de itens temporários para lançamento
   const [itensNovosNota, setItensNovosNota] = useState([]);
@@ -88,7 +91,6 @@ export default function NotasFiscais() {
       setFornecedores(Array.isArray(dataFornecedores) ? dataFornecedores : []);
       setEstoqueItens(Array.isArray(dataEstoque) ? dataEstoque : []);
       setLocaisEstoque(Array.isArray(dataLocais) ? dataLocais : []);
-      // Filtra apenas as solicitações que ainda não foram entregues
       setSolicitacoesPendentes(Array.isArray(dataSolicitacoes) ? dataSolicitacoes.filter(s => s.status !== 'Entregue') : []);
     } catch (err) {
       console.error('Erro ao carregar dados fiscais:', err);
@@ -101,7 +103,6 @@ export default function NotasFiscais() {
     carregarDados();
   }, []);
 
-  // ⚡ LEITOR AUTOMÁTICO DE XML (PARSER SEFAZ / NFE)
   const handleImportarXML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -256,6 +257,47 @@ export default function NotasFiscais() {
       setModalItensAberto(true);
     } catch (err) {
       alert('Erro ao buscar itens da Nota Fiscal.');
+    }
+  };
+
+  const abrirModalAnexos = (nota) => {
+    setNotaSelecionada(nota);
+    setNovosArquivosPos({ xml: null, danfe: null });
+    setModalAnexosAberto(true);
+  };
+
+  const handleSalvarAnexosPosLançamento = async (e) => {
+    e.preventDefault();
+    if (!novosArquivosPos.danfe && !novosArquivosPos.xml) {
+      alert("Selecione pelo menos um arquivo para anexar.");
+      return;
+    }
+
+    setEnviandoAnexos(true);
+    const formData = new FormData();
+    if (novosArquivosPos.danfe) formData.append('danfe', novosArquivosPos.danfe);
+    if (novosArquivosPos.xml) formData.append('xml', novosArquivosPos.xml);
+
+    try {
+      const res = await fetch(`${API_URL}/notas-fiscais/${notaSelecionada.id}/anexos`, {
+        method: 'PATCH',
+        headers: { 'x-usuario-nivel': obterNivelUsuario() },
+        body: formData
+      });
+
+      if (res.ok) {
+        alert("Documentos anexados à nota fiscal com sucesso!");
+        setModalAnexosAberto(false);
+        setNovosArquivosPos({ xml: null, danfe: null });
+        carregarDados();
+      } else {
+        const err = await res.json();
+        alert(`Erro: ${err.error || 'Falha ao enviar anexos.'}`);
+      }
+    } catch (err) {
+      alert("Falha na comunicação com o servidor ao anexar documentos.");
+    } finally {
+      setEnviandoAnexos(false);
     }
   };
 
@@ -541,7 +583,7 @@ export default function NotasFiscais() {
         </div>
       </div>
 
-      {/* CARDS DE MONITORAMENTO INTERATIVOS */}
+      {/* CARDS DE MONITORAMENTO */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <button 
           type="button"
@@ -697,12 +739,34 @@ export default function NotasFiscais() {
                     <td className="p-5">
                       {renderizarBadgeAlerta(nota)}
                     </td>
-                    <td className="p-5 space-x-1.5">
-                      {nota.url_xml && <a href={`${API_URL.replace('/api', '')}${nota.url_xml}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg uppercase hover:bg-blue-600 hover:text-white transition-all border border-blue-100">XML</a>}
-                      {nota.url_danfe && <a href={`${API_URL.replace('/api', '')}${nota.url_danfe}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase hover:bg-purple-600 hover:text-white transition-all border border-purple-100">DANFE</a>}
+                    <td className="p-5">
+                      <div className="flex items-center gap-1.5">
+                        {nota.url_xml ? (
+                          <a href={`${API_URL.replace('/api', '')}${nota.url_xml}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-1 rounded-lg uppercase hover:bg-blue-600 hover:text-white transition-all border border-blue-100">
+                            XML
+                          </a>
+                        ) : null}
+                        {nota.url_danfe ? (
+                          <a href={`${API_URL.replace('/api', '')}${nota.url_danfe}`} target="_blank" rel="noreferrer" className="text-[10px] font-black bg-purple-50 text-purple-600 px-2 py-1 rounded-lg uppercase hover:bg-purple-600 hover:text-white transition-all border border-purple-100">
+                            DANFE
+                          </a>
+                        ) : null}
+                        {!nota.url_xml && !nota.url_danfe && (
+                          <span className="text-[10px] font-bold text-slate-400 italic">Sem anexo</span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-5 text-center">
-                      <div className="flex justify-center gap-2">
+                      <div className="flex justify-center items-center gap-2">
+                        {/* NOVO BOTÃO: ANEXAR ARQUIVO PÓS-CADASTRO */}
+                        <button 
+                          onClick={() => abrirModalAnexos(nota)}
+                          className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-xl hover:bg-amber-600 hover:text-white transition-all shadow-sm border border-amber-200 text-[11px] font-black uppercase tracking-wider flex items-center gap-1"
+                          title="Anexar ou atualizar DANFE/XML da nota"
+                        >
+                          📎 Anexar
+                        </button>
+
                         <button 
                           onClick={() => verItensNota(nota)} 
                           className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 text-[11px] font-black uppercase tracking-wider"
@@ -769,7 +833,7 @@ export default function NotasFiscais() {
               {/* ⚡ BOTÃO DE LEITURA RÁPIDA DE XML */}
               <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 p-4 rounded-2xl border-2 border-dashed border-blue-200 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="text-left">
-                  <span className="text-xs font-black text-blue-700 uppercase block flex items-center gap-1.5">
+                  <span className="text-xs font-black text-blue-700 uppercase flex items-center gap-1.5">
                     <span>⚡</span> Auto-Preenchimento via XML
                   </span>
                   <p className="text-[10px] text-slate-500 font-bold mt-0.5">
@@ -1244,6 +1308,72 @@ export default function NotasFiscais() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 4: ANEXAR ARQUIVOS APÓS LANÇAMENTO (DANFE ESCANEADO / XML) --- */}
+      {modalAnexosAberto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center bg-amber-600">
+              <span>📎 Anexar Arquivos: NF #{notaSelecionada?.numero_nf}</span>
+              <button onClick={() => setModalAnexosAberto(false)} className="hover:scale-110 transition-transform text-sm font-sans font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleSalvarAnexosPosLançamento} className="p-6 space-y-5">
+              <div className="bg-amber-50 p-3.5 rounded-xl border border-amber-200 text-amber-900 text-xs">
+                <p className="font-bold">Nota: {notaSelecionada?.numero_nf} — {notaSelecionada?.fornecedor_nome}</p>
+                <p className="text-[10px] text-amber-700 mt-0.5">Envie o DANFE escaneado ou atualize o arquivo XML deste lançamento.</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1.5">
+                  Documento DANFE (PDF Escaneado)
+                </label>
+                <input 
+                  type="file" 
+                  accept=".pdf,image/*" 
+                  className="w-full text-xs font-mono p-2 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50"
+                  onChange={e => setNovosArquivosPos(prev => ({ ...prev, danfe: e.target.files[0] }))}
+                />
+                {notaSelecionada?.url_danfe && (
+                  <p className="text-[10px] text-emerald-600 font-bold mt-1">✓ Esta nota já possui um DANFE anexado. O envio substituirá o atual.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1.5">
+                  Arquivo XML da NF-e (Opcional)
+                </label>
+                <input 
+                  type="file" 
+                  accept=".xml" 
+                  className="w-full text-xs font-mono p-2 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50"
+                  onChange={e => setNovosArquivosPos(prev => ({ ...prev, xml: e.target.files[0] }))}
+                />
+                {notaSelecionada?.url_xml && (
+                  <p className="text-[10px] text-emerald-600 font-bold mt-1">✓ Esta nota já possui um XML anexado. O envio substituirá o atual.</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button 
+                  type="button" 
+                  onClick={() => setModalAnexosAberto(false)} 
+                  className="px-5 py-2.5 text-slate-400 font-black text-xs uppercase tracking-wider hover:text-slate-600 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={enviandoAnexos}
+                  className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-amber-100 disabled:opacity-50"
+                >
+                  {enviandoAnexos ? 'Enviando...' : 'Salvar Anexo'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

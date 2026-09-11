@@ -2333,6 +2333,7 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
 // -------------------------------------------------------------------------
 // NOTAS FISCAIS E BOLETOS
 // -------------------------------------------------------------------------
+
 app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const query = `
         SELECT 
@@ -2364,7 +2365,7 @@ app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador'
     });
 });
 
-// 🚀 ROTA CORRIGIDA: INSERE A NOTA, CRIA/ATUALIZA O ESTOQUE E REGISTRA AS ENTRADAS
+// 🚀 ROTA DE CADASTRO COMPLETO: NOTA, ESTOQUE E ENTRADAS
 app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
     { name: 'xml', maxCount: 1 },
     { name: 'danfe', maxCount: 1 }
@@ -2415,7 +2416,6 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
 
             const notaFiscalId = resultNF.insertId;
 
-            // Se foi vinculada a uma Solicitação de Compra, atualiza o status dela e o ID da NF
             if (solicitacao_compra_id && solicitacao_compra_id !== "") {
                 await new Promise((resolve, reject) => {
                     const qUpSol = `UPDATE solicitacoes_compra SET status = 'Entregue', nota_fiscal_id = ? WHERE id = ?`;
@@ -2502,6 +2502,51 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
                     res.status(500).json({ error: errProcess.message });
                 });
             }
+        });
+    });
+});
+
+// 📎 NOVA ROTA: ANEXAR / ATUALIZAR DANFE (ESCANEADO) E XML EM NOTA JÁ EXISTENTE
+app.patch('/api/notas-fiscais/:id/anexos', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
+    { name: 'xml', maxCount: 1 },
+    { name: 'danfe', maxCount: 1 }
+]), (req, res) => {
+    const { id } = req.params;
+
+    const url_xml = req.files && req.files['xml'] && req.files['xml'][0] 
+        ? `/uploads/${req.files['xml'][0].filename}` 
+        : null;
+
+    const url_danfe = req.files && req.files['danfe'] && req.files['danfe'][0] 
+        ? `/uploads/${req.files['danfe'][0].filename}` 
+        : null;
+
+    if (!url_xml && !url_danfe) {
+        return res.status(400).json({ error: "Nenhum arquivo enviado para anexo." });
+    }
+
+    // COALESCE garante que se você só anexar o DANFE, ele não apaga o XML que já existia (e vice-versa)
+    const query = `
+        UPDATE notas_fiscais 
+        SET url_danfe = COALESCE(?, url_danfe),
+            url_xml = COALESCE(?, url_xml)
+        WHERE id = ?
+    `;
+
+    db.query(query, [url_danfe, url_xml, id], (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao anexar arquivos na nota fiscal:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Nota Fiscal não encontrada." });
+        }
+
+        res.json({ 
+            message: "Anexos vinculados à nota fiscal com sucesso! 📄✅",
+            url_danfe,
+            url_xml
         });
     });
 });
