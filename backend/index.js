@@ -1022,6 +1022,13 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
                       AND c.status NOT IN ('Cancelado')
                 ), 0.00) +
                 COALESCE((
+                    SELECT SUM(ci.quantidade * ci.valor_unitario_na_epoca)
+                    FROM chamados_itens ci
+                    INNER JOIN chamados ch ON ci.chamado_id = ch.id
+                    WHERE ch.equipamento_id = e.id
+                      AND ch.status NOT IN ('Cancelado')
+                ), 0.00) +
+                COALESCE((
                     SELECT SUM(oi.valor_unitario)
                     FROM orcamentos_externos_itens oi
                     INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id

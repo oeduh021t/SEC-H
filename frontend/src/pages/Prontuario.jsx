@@ -342,10 +342,8 @@ const Prontuario = () => {
     // 💰 Consolidação precisa do custo acumulado
     const custoOrcamentosAprovados = orcamentosAtivo.reduce((acc, it) => acc + (Number(it.valor_unitario) || 0), 0);
     const custoAcumuladoTotal = Number(
-        equip.custo_total_acumulado !== undefined 
-            ? equip.custo_total_acumulado 
-            : (dados.custoAcumulado !== undefined ? dados.custoAcumulado : custoOrcamentosAprovados)
-    );
+    dados.custoAcumulado ?? equip.custo_total_acumulado ?? custoOrcamentosAprovados ?? 0
+     );
 
     const timelineFiltrada = (dados.timeline || []).filter(item => {
         if (filtroTimeline === 'todos') return true;
