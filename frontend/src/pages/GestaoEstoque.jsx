@@ -26,9 +26,11 @@ export function GestaoEstoque() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 12;
 
-  // Modais de Apoio
+  // Modais de Histórico (Entradas e Saídas)
   const [modalHistoricoItem, setModalHistoricoItem] = useState(null);
+  const [abaHistorico, setAbaHistorico] = useState("entradas");
   const [historicoEntradas, setHistoricoEntradas] = useState([]);
+  const [historicoSaidas, setHistoricoSaidas] = useState([]);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
 
   // Modal de Entrada Rápida
@@ -170,7 +172,7 @@ export function GestaoEstoque() {
     setValorUnitario(item.valor_unitario || 0.0);
     setEstoqueMinimo(item.estoque_minimo || 5);
     setLocalEstoqueId(item.local_estoque_id || "");
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const limparFormulario = () => {
@@ -188,25 +190,34 @@ export function GestaoEstoque() {
   const handleVerHistorico = async (item) => {
     setModalHistoricoItem(item);
     setLoadingHistorico(true);
+    setAbaHistorico("entradas");
+
     try {
-      const res = await fetch(`${API_URL}/estoque/${item.id}/historico-entradas`, {
-        headers: { "x-usuario-nivel": obterNivelUsuario() },
-      });
-      const data = await res.json();
-      setHistoricoEntradas(Array.isArray(data) ? data : []);
+      const headers = { "x-usuario-nivel": obterNivelUsuario() };
+
+      const [resEntradas, resSaidas] = await Promise.all([
+        fetch(`${API_URL}/estoque/${item.id}/historico-entradas`, { headers }),
+        fetch(`${API_URL}/estoque/${item.id}/historico-saidas`, { headers }),
+      ]);
+
+      const dataEntradas = await resEntradas.json();
+      const dataSaidas = await resSaidas.json();
+
+      setHistoricoEntradas(Array.isArray(dataEntradas) ? dataEntradas : []);
+      setHistoricoSaidas(Array.isArray(dataSaidas) ? dataSaidas : []);
     } catch (err) {
-      alert("Erro ao buscar histórico do insumo.");
+      console.error("Erro ao buscar histórico do insumo:", err);
+      alert("Erro ao carregar movimentações do insumo.");
     } finally {
       setLoadingHistorico(false);
     }
   };
 
-  // 📊 EXPORTAR PLANILHA EXCEL
   const handleExportarExcel = async () => {
     setExportando(true);
     try {
       const res = await fetch(`${API_URL}/relatorios/exportar/estoque`, {
-        headers: { "x-usuario-nivel": obterNivelUsuario() }
+        headers: { "x-usuario-nivel": obterNivelUsuario() },
       });
 
       if (!res.ok) throw new Error("Falha ao gerar arquivo Excel.");
@@ -227,7 +238,6 @@ export function GestaoEstoque() {
     }
   };
 
-  // 🔍 FILTRAGEM
   const itensFiltrados = itens.filter((item) => {
     const termoBusca = busca.toLowerCase();
     const nomeBate = item.nome ? item.nome.toLowerCase().includes(termoBusca) : false;
@@ -244,7 +254,6 @@ export function GestaoEstoque() {
   const capitalInvestido = itens.reduce((acc, item) => acc + Number(item.quantidade) * Number(item.valor_unitario || 0), 0);
   const itensCriticos = itens.filter((i) => i.quantidade <= (i.estoque_minimo || 5)).length;
 
-  // Paginação
   const totalPaginas = Math.ceil(itensFiltrados.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
   const itensPaginados = itensFiltrados.slice(indexInicio, indexInicio + itensPorPagina);
@@ -314,7 +323,7 @@ export function GestaoEstoque() {
         </div>
       </div>
 
-      {/* CARDS DE STATUS (COM FILTRO INTERATIVO PARA CRÍTICOS) */}
+      {/* CARDS DE STATUS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 hide-print">
         <div 
           onClick={() => { setFiltroApenasCriticos(false); setPaginaAtual(1); }}
@@ -551,7 +560,7 @@ export function GestaoEstoque() {
                           <button
                             onClick={() => handleVerHistorico(item)}
                             className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg transition-all text-xs"
-                            title="Ver Histórico de Entradas"
+                            title="Ver Extrato (Entradas e Saídas)"
                           >
                             📜
                           </button>
@@ -687,54 +696,161 @@ export function GestaoEstoque() {
         </div>
       )}
 
-      {/* MODAL DE HISTÓRICO DE ENTRADAS */}
+      {/* MODAL DE HISTÓRICO COM ABAS (ENTRADAS E SAÍDAS POR OS/SETOR) */}
       {modalHistoricoItem && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 hide-print">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
-            <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
-              <span>📜 Extrato de Entradas: {modalHistoricoItem.nome}</span>
-              <button onClick={() => setModalHistoricoItem(null)}>✕</button>
+          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+            
+            {/* Cabeçalho do Modal */}
+            <div className="bg-slate-900 p-5 text-white flex justify-between items-center">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Extrato de Movimentações
+                </span>
+                <h2 className="text-sm font-black uppercase text-white mt-0.5">
+                  {modalHistoricoItem.nome}
+                </h2>
+              </div>
+              <button 
+                onClick={() => setModalHistoricoItem(null)}
+                className="text-slate-400 hover:text-white font-bold text-base p-1"
+              >
+                ✕
+              </button>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            {/* Abas Alternáveis */}
+            <div className="flex border-b border-slate-100 bg-slate-50 px-6 pt-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setAbaHistorico("entradas")}
+                className={`pb-3 px-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 ${
+                  abaHistorico === "entradas"
+                    ? "border-blue-600 text-blue-600"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                <span>📥</span> Entradas ({historicoEntradas.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAbaHistorico("saidas")}
+                className={`pb-3 px-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 ${
+                  abaHistorico === "saidas"
+                    ? "border-amber-600 text-amber-600"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                <span>📤</span> Saídas por OS / Setor ({historicoSaidas.length})
+              </button>
+            </div>
+
+            {/* Conteúdo Dinâmico */}
+            <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
               {loadingHistorico ? (
-                <div className="text-center py-6 text-xs text-slate-400 font-bold uppercase animate-pulse">Carregando histórico...</div>
-              ) : historicoEntradas.length === 0 ? (
-                <div className="text-center py-6 text-xs text-slate-400 font-bold uppercase">Nenhuma entrada fiscal registrada para este insumo.</div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase border-b">
-                      <th className="p-3">Data</th>
-                      <th className="p-3">Nota Fiscal</th>
-                      <th className="p-3">Fornecedor</th>
-                      <th className="p-3 text-center">Quantidade</th>
-                      <th className="p-3 text-right">Valor Unit.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs font-medium">
-                    {historicoEntradas.map((h) => (
-                      <tr key={h.id}>
-                        <td className="p-3 font-mono text-[11px]">{new Date(h.data_entrada).toLocaleDateString("pt-BR")}</td>
-                        <td className="p-3 font-bold text-slate-700">{h.num_nota || "Entrada Avulsa"}</td>
-                        <td className="p-3 text-slate-500 uppercase">{h.fornecedor_nome || "---"}</td>
-                        <td className="p-3 text-center font-bold text-blue-600">+{h.quantidade} un.</td>
-                        <td className="p-3 text-right font-mono">R$ {Number(h.valor_unitario).toFixed(2)}</td>
+                <div className="text-center py-10 text-xs text-slate-400 font-bold uppercase animate-pulse">
+                  Carregando movimentações...
+                </div>
+              ) : abaHistorico === "entradas" ? (
+                /* TABELA DE ENTRADAS */
+                historicoEntradas.length === 0 ? (
+                  <div className="text-center py-10 text-xs text-slate-400 font-bold uppercase">
+                    Nenhuma entrada fiscal registrada para este insumo.
+                  </div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase border-b">
+                        <th className="p-3">Data</th>
+                        <th className="p-3">Nota Fiscal</th>
+                        <th className="p-3">Fornecedor</th>
+                        <th className="p-3 text-center">Quantidade</th>
+                        <th className="p-3 text-right">Valor Unit.</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs font-medium">
+                      {historicoEntradas.map((h) => (
+                        <tr key={h.id}>
+                          <td className="p-3 font-mono text-[11px]">
+                            {new Date(h.data_entrada).toLocaleDateString("pt-BR")}
+                          </td>
+                          <td className="p-3 font-bold text-slate-700">
+                            {h.num_nota || "Entrada Avulsa"}
+                          </td>
+                          <td className="p-3 text-slate-500 uppercase">
+                            {h.fornecedor_nome || "---"}
+                          </td>
+                          <td className="p-3 text-center font-bold text-blue-600">
+                            +{h.quantidade} un.
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            R$ {Number(h.valor_unitario || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              ) : (
+                /* TABELA DE SAÍDAS (ORDENS DE SERVIÇO / SETOR) */
+                historicoSaidas.length === 0 ? (
+                  <div className="text-center py-10 text-xs text-slate-400 font-bold uppercase">
+                    Nenhuma saída vinculada a chamados ou OS para este insumo.
+                  </div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase border-b">
+                        <th className="p-3">Data Uso</th>
+                        <th className="p-3">OS / Chamado</th>
+                        <th className="p-3">Setor Atendido</th>
+                        <th className="p-3 text-center">Qtd Utilizada</th>
+                        <th className="p-3 text-right">Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs font-medium">
+                      {historicoSaidas.map((s) => (
+                        <tr key={s.id}>
+                          <td className="p-3 font-mono text-[11px]">
+                            {new Date(s.data_saida).toLocaleDateString("pt-BR")}
+                          </td>
+                          <td className="p-3">
+                            <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-[11px]">
+                              #{s.chamado_id}
+                            </span>
+                            {s.chamado_titulo && (
+                              <span className="text-slate-500 block text-[10px] truncate max-w-[200px]">
+                                {s.chamado_titulo}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 font-bold text-slate-700 uppercase">
+                            📍 {s.setor_nome || "Setor Não Informado"}
+                          </td>
+                          <td className="p-3 text-center font-black text-amber-600">
+                            -{s.quantidade} un.
+                          </td>
+                          <td className="p-3 text-right font-mono text-slate-700">
+                            R$ {(Number(s.quantidade) * Number(s.valor_unitario_na_epoca || 0)).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
               )}
 
-              <div className="pt-2 flex justify-end">
+              <div className="pt-3 border-t border-slate-100 flex justify-end">
                 <button
+                  type="button"
                   onClick={() => setModalHistoricoItem(null)}
-                  className="px-6 py-2 bg-slate-100 text-slate-600 font-black text-xs uppercase rounded-xl"
+                  className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs uppercase rounded-xl transition-colors"
                 >
                   Fechar
                 </button>
               </div>
             </div>
+
           </div>
         </div>
       )}

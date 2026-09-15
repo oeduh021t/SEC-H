@@ -5991,5 +5991,40 @@ setInterval(() => {
     });
 }, 60 * 1000); // Roda a verificação a cada 1 minuto de forma leve
 
+app.get("/api/estoque/:id/historico-saidas", (req, res) => {
+  const { id } = req.params;
+
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  const query = `
+    SELECT 
+      ci.id,
+      ci.quantidade,
+      ci.valor_unitario_na_epoca,
+      ci.data_uso AS data_saida,
+      ci.chamado_id,
+      COALESCE(c.titulo, 'Atendimento OS') AS chamado_titulo,
+      COALESCE(s.nome, c.nome_setor, 'Setor Não Informado') AS setor_nome,
+      COALESCE(c.tecnico_responsavel, c.nome_tecnico, 'Técnico') AS tecnico_nome
+    FROM chamados_itens ci
+    LEFT JOIN chamados c ON ci.chamado_id = c.id
+    LEFT JOIN setores s ON c.setor_id = s.id
+    WHERE ci.item_id = ?
+    ORDER BY ci.data_uso DESC
+  `;
+
+  db.query(query, [id], (err, results) => {
+    if (err) {
+      console.error("❌ Erro ao buscar histórico de saídas do insumo:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    console.log(`[HISTORICO SAIDAS] Item #${id} -> Registros encontrados:`, results ? results.length : 0);
+    return res.json(results || []);
+  });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
