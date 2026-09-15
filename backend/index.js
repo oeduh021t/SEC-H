@@ -2365,7 +2365,7 @@ app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador'
     });
 });
 
-// 🚀 ROTA DE CADASTRO COMPLETO: NOTA, ESTOQUE E ENTRADAS
+// 🚀 ROTA DE CADASTRO COMPLETO: NOTA, ESTOQUE E ENTRADAS (100% CALLBACKS)
 app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
     { name: 'xml', maxCount: 1 },
     { name: 'danfe', maxCount: 1 }
@@ -2405,7 +2405,7 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
             url_danfe
         ];
 
-        conn.query(queryNF, valuesNF, async (errNF, resultNF) => {
+        conn.query(queryNF, valuesNF, (errNF, resultNF) => {
             if (errNF) {
                 return conn.rollback(() => {
                     conn.release();
@@ -2416,92 +2416,102 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
 
             const notaFiscalId = resultNF.insertId;
 
-            if (solicitacao_compra_id && solicitacao_compra_id !== "") {
-                await new Promise((resolve, reject) => {
+            // Função para atualizar a solicitação de compra, se houver vínculo
+            const tratarSolicitacao = (callbackFinal) => {
+                if (solicitacao_compra_id && solicitacao_compra_id !== "") {
                     const qUpSol = `UPDATE solicitacoes_compra SET status = 'Entregue', nota_fiscal_id = ? WHERE id = ?`;
                     conn.query(qUpSol, [notaFiscalId, Number(solicitacao_compra_id)], (errUp) => {
-                        if (errUp) return reject(errUp);
-                        resolve();
+                        if (errUp) console.error("⚠️ Alerta ao atualizar status da solicitacao:", errUp.message);
+                        callbackFinal();
                     });
-                });
-            }
+                } else {
+                    callbackFinal();
+                }
+            };
 
-            if (!listaItens || !Array.isArray(listaItens) || listaItens.length === 0) {
-                return conn.commit((errCommit) => {
-                    if (errCommit) {
-                        return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+            tratarSolicitacao(() => {
+                if (!listaItens || !Array.isArray(listaItens) || listaItens.length === 0) {
+                    return conn.commit((errCommit) => {
+                        if (errCommit) {
+                            return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                        }
+                        conn.release();
+                        return res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: notaFiscalId });
+                    });
+                }
+
+                // Processador sequencial seguro por callbacks
+                let index = 0;
+                const processarProximoItemNF = () => {
+                    if (index >= listaItens.length) {
+                        return conn.commit((errCommit) => {
+                            if (errCommit) {
+                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                            }
+                            conn.release();
+                            return res.status(201).json({ message: "Nota Fiscal, itens e estoque lançados com sucesso! 📦🧾", id: notaFiscalId });
+                        });
                     }
-                    conn.release();
-                    return res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: notaFiscalId });
-                });
-            }
 
-            try {
-                for (const item of listaItens) {
+                    const item = listaItens[index];
                     const qtd = Number(item.quantidade || 0);
                     const vUnit = Number(item.valor_unitario || 0);
 
-                    if (qtd <= 0) continue;
-
-                    let finalItemId = item.item_id ? Number(item.item_id) : null;
-
-                    if (finalItemId) {
-                        await new Promise((resolve, reject) => {
-                            const qUpdate = `
-                                UPDATE itens_estoque 
-                                SET quantidade = quantidade + ?, 
-                                    valor_unitario = IF(? > 0, ?, valor_unitario),
-                                    data_atualizacao = NOW()
-                                WHERE id = ?
-                            `;
-                            conn.query(qUpdate, [qtd, vUnit, vUnit, finalItemId], (errUp) => {
-                                if (errUp) return reject(errUp);
-                                resolve();
-                            });
-                        });
-                    } else {
-                        const nomeInsumo = (item.nome || 'Novo Insumo').trim();
-                        const refInsumo = item.referencia && item.referencia.trim() !== '' ? item.referencia.trim() : null;
-                        const localEstoqueId = item.local_estoque_id ? Number(item.local_estoque_id) : null;
-
-                        finalItemId = await new Promise((resolve, reject) => {
-                            const qInsert = `
-                                INSERT INTO itens_estoque (nome, referencia, quantidade, valor_unitario, local_estoque_id, data_cadastro, data_atualizacao)
-                                VALUES (?, ?, ?, ?, ?, NOW(), NOW())
-                            `;
-                            conn.query(qInsert, [nomeInsumo, refInsumo, qtd, vUnit, localEstoqueId], (errIns, resIns) => {
-                                if (errIns) return reject(errIns);
-                                resolve(resIns.insertId);
-                            });
-                        });
+                    if (qtd <= 0) {
+                        index++;
+                        return processarProximoItemNF();
                     }
 
-                    await new Promise((resolve, reject) => {
+                    const registrarHistoricoEntrada = (finalItemId) => {
                         const qEntrada = `
                             INSERT INTO itens_estoque_entradas (item_id, nota_fiscal_id, quantidade, valor_unitario, num_nota, data_entrada)
                             VALUES (?, ?, ?, ?, ?, NOW())
                         `;
                         conn.query(qEntrada, [finalItemId, notaFiscalId, qtd, vUnit, numero_nf], (errEnt) => {
-                            if (errEnt) return reject(errEnt);
-                            resolve();
+                            if (errEnt) {
+                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEnt.message }); });
+                            }
+                            index++;
+                            processarProximoItemNF();
                         });
-                    });
-                }
+                    };
 
-                conn.commit((errCommit) => {
-                    if (errCommit) {
-                        return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    if (item.item_id) {
+                        // Item já existente no estoque -> Aumenta saldo
+                        const qUpdate = `
+                            UPDATE itens_estoque 
+                            SET quantidade = quantidade + ?, 
+                                valor_unitario = IF(? > 0, ?, valor_unitario),
+                                data_atualizacao = NOW()
+                            WHERE id = ?
+                        `;
+                        conn.query(qUpdate, [qtd, vUnit, vUnit, Number(item.item_id)], (errUp) => {
+                            if (errUp) {
+                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+                            }
+                            registrarHistoricoEntrada(Number(item.item_id));
+                        });
+                    } else {
+                        // Item novo -> Insere no catálogo do estoque
+                        const nomeInsumo = (item.nome || 'Novo Insumo').trim();
+                        const refInsumo = item.referencia && item.referencia.trim() !== '' ? item.referencia.trim() : null;
+                        const localEstoqueId = item.local_estoque_id ? Number(item.local_estoque_id) : null;
+
+                        const qInsert = `
+                            INSERT INTO itens_estoque (nome, referencia, quantidade, valor_unitario, local_estoque_id, data_cadastro, data_atualizacao)
+                            VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+                        `;
+                        conn.query(qInsert, [nomeInsumo, refInsumo, qtd, vUnit, localEstoqueId], (errIns, resIns) => {
+                            if (errIns) {
+                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
+                            }
+                            registrarHistoricoEntrada(resIns.insertId);
+                        });
                     }
-                    conn.release();
-                    res.status(201).json({ message: "Nota Fiscal, itens e estoque lançados com sucesso! 📦🧾", id: notaFiscalId });
-                });
-            } catch (errProcess) {
-                conn.rollback(() => {
-                    conn.release();
-                    console.error("❌ Erro no processamento de itens do estoque:", errProcess.message);
-                    res.status(500).json({ error: errProcess.message });
-                });
-            }
+                };
+
+                processarProximoItemNF();
+            });
         });
     });
 });
@@ -3546,7 +3556,7 @@ app.put('/api/solicitacoes-compra/:id', permitirApenas(['admin', 'coordenador', 
     });
 });
 
-// 5. Alterar Status com Baixa no Estoque + Notificação na OS Vinculada
+// 5. Alterar Status com Baixa no Estoque (Incremento ou Novo Cadastro) + Histórico + Notificação OS
 app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { status, usuario_id, valor_real, nota_fiscal_numero, alimentar_estoque } = req.body;
@@ -3581,7 +3591,7 @@ app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coord
         conn.query(queryUpdate, params, (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-            conn.query("SELECT chamado_id, nota_fiscal_id FROM solicitacoes_compra WHERE id = ?", [id], (errSol, resSol) => {
+            conn.query("SELECT chamado_id, nota_fiscal_id, setor_id FROM solicitacoes_compra WHERE id = ?", [id], (errSol, resSol) => {
                 if (errSol) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errSol.message }); });
 
                 const dadosSol = resSol[0] || {};
@@ -3591,62 +3601,101 @@ app.patch('/api/solicitacoes-compra/:id/status', permitirApenas(['admin', 'coord
                 const finalizarTransacao = () => {
                     if ((status === 'Entregue' || status === 'Comprado') && chamadoVinculadoId) {
                         const nfTexto = nota_fiscal_numero ? ` (NF: #${nota_fiscal_numero})` : '';
-                        const msgAvisoOS = `🔔 [PEÇA DISPONÍVEL] O material solicitado na Compra #${id}${nfTexto} foi entregue no Almoxarifado e está pronto para aplicação!`;
+                        const msgAvisoOS = `🔔 [PEÇA DISPONÍVEL] O material solicitado na Compra #${id}${nfTexto} foi entregue/comprado e creditado no Almoxarifado!`;
                         const qAviso = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Almoxarifado', ?, 'Em Atendimento', NOW())`;
 
                         conn.query(qAviso, [chamadoVinculadoId, msgAvisoOS], (errAviso) => {
-                            if (errAviso) console.error("⚠️ Falha ao injetar aviso de chegada de peça na OS:", errAviso.message);
+                            if (errAviso) console.error("⚠️ Falha ao injetar aviso de peça na OS:", errAviso.message);
 
                             conn.commit((errCommit) => {
                                 if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                                 conn.release();
-                                res.json({ message: `Status alterado para ${status}, estoque atualizado e OS #${chamadoVinculadoId} notificada! 📦🔔✅` });
+                                res.json({ message: `Status alterado para ${status}, estoque alimentado e OS #${chamadoVinculadoId} notificada! 📦✅` });
                             });
                         });
                     } else {
                         conn.commit((errCommit) => {
                             if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                             conn.release();
-                            res.json({ message: `Status alterado para ${status} com sucesso!` });
+                            res.json({ message: `Status alterado para ${status} e estoque alimentado com sucesso! 📦✅` });
                         });
                     }
                 };
 
+                // Executa se o status for Comprado ou Entregue e a opção estiver marcada
                 if ((status === 'Entregue' || status === 'Comprado') && alimentar_estoque !== false) {
-                    conn.query("SELECT * FROM solicitacoes_compra_itens WHERE solicitacao_id = ? AND insumo_id IS NOT NULL", [id], (errItens, itensVinculados) => {
+                    // Busca TODOS os itens do pedido (inclusive avulsos sem insumo_id)
+                    conn.query("SELECT * FROM solicitacoes_compra_itens WHERE solicitacao_id = ?", [id], (errItens, itensPedido) => {
                         if (errItens) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errItens.message }); });
 
-                        if (!itensVinculados || itensVinculados.length === 0) {
+                        if (!itensPedido || itensPedido.length === 0) {
                             return finalizarTransacao();
                         }
 
-                        let concluidos = 0;
-                        itensVinculados.forEach((item) => {
-                            const sqlEstoque = `UPDATE itens_estoque SET quantidade = quantidade + ? WHERE id = ?`;
-                            conn.query(sqlEstoque, [Number(item.quantidade), Number(item.insumo_id)], (errEst) => {
-                                if (errEst) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEst.message }); });
+                        // Processador sequencial seguro
+                        let index = 0;
+                        const processarProximoItem = () => {
+                            if (index >= itensPedido.length) {
+                                return finalizarTransacao();
+                            }
 
+                            const itemAtual = itensPedido[index];
+                            const qtd = Number(itemAtual.quantidade || 1);
+                            const vUnit = Number(itemAtual.valor_estimado || 0);
+
+                            const creditarEntradaNoItem = (idItemEstoque) => {
                                 const sqlEntrada = `
                                     INSERT INTO itens_estoque_entradas 
                                     (item_id, quantidade, valor_unitario, num_nota, nota_fiscal_id, data_entrada)
                                     VALUES (?, ?, ?, ?, ?, NOW())
                                 `;
                                 conn.query(sqlEntrada, [
-                                    Number(item.insumo_id),
-                                    Number(item.quantidade),
-                                    Number(item.valor_estimado || 0),
-                                    nota_fiscal_numero ? String(nota_fiscal_numero).trim() : null,
-                                    nfIdVinculada
-                                ], (errEnt) => {
-                                    if (errEnt) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEnt.message }); });
+                                    idItemEstoque,
+                                    qtd,
+                                    vUnit,
+                                    nota_fiscal_numero ? String(nota_fiscal_numero).trim() : `Compra #${id}`,
+                                    nfIdVinculada || null
+                                ], (errEntrada) => {
+                                    if (errEntrada) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEntrada.message }); });
 
-                                    concluidos++;
-                                    if (concluidos === itensVinculados.length) {
-                                        finalizarTransacao();
-                                    }
+                                    index++;
+                                    processarProximoItem();
                                 });
-                            });
-                        });
+                            };
+
+                            if (itemAtual.insumo_id) {
+                                // 1. Item já existia no catálogo -> Atualiza Saldo e Preço
+                                const sqlEstoque = `
+                                    UPDATE itens_estoque 
+                                    SET quantidade = quantidade + ?,
+                                        valor_unitario = IF(? > 0, ?, valor_unitario),
+                                        data_atualizacao = NOW()
+                                    WHERE id = ?
+                                `;
+                                conn.query(sqlEstoque, [qtd, vUnit, vUnit, Number(itemAtual.insumo_id)], (errEst) => {
+                                    if (errEst) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEst.message }); });
+                                    creditarEntradaNoItem(Number(itemAtual.insumo_id));
+                                });
+                            } else {
+                                // 2. Item avulso -> Cadastra no almoxarifado automaticamente
+                                const sqlNovoItem = `
+                                    INSERT INTO itens_estoque (nome, descricao, quantidade, valor_unitario, estoque_minimo, data_cadastro, data_atualizacao)
+                                    VALUES (?, ?, ?, ?, 5, NOW(), NOW())
+                                `;
+                                conn.query(sqlNovoItem, [itemAtual.descricao.trim(), 'Cadastrado automaticamente via Compra #' + id, qtd, vUnit], (errInsItem, resInsItem) => {
+                                    if (errInsItem) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errInsItem.message }); });
+
+                                    const novoItemId = resInsItem.insertId;
+
+                                    // Vincula o id gerado de volta na linha do pedido
+                                    conn.query("UPDATE solicitacoes_compra_itens SET insumo_id = ? WHERE id = ?", [novoItemId, itemAtual.id], () => {
+                                        creditarEntradaNoItem(novoItemId);
+                                    });
+                                });
+                            }
+                        };
+
+                        processarProximoItem();
                     });
                 } else {
                     finalizarTransacao();
