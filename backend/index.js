@@ -3748,20 +3748,22 @@ app.get('/api/solicitacoes-compra/:id/anexos', permitirApenas(['admin', 'coorden
 });
 
 // 8. Upload de múltiplos arquivos/cotações (PDF ou Imagens)
-app.post('/api/solicitacoes-compra/:id/anexos', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.array('arquivos', 5), (req, res) => {
+app.post('/api/solicitacoes-compra/:id/anexos', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), uploadDocumento.array('arquivos', 5), (req, res) => {
     const { id } = req.params;
 
     if (!req.files || req.files.length === 0) {
         return res.status(400).json({ error: "Nenhum arquivo enviado." });
     }
 
+    // 3 valores mapeados
     const values = req.files.map(file => [
         Number(id),
         file.originalname,
         `/uploads/${file.filename}`
     ]);
 
-    const query = `INSERT INTO solicitacoes_compra_anexos (solicitacao_id, nome_original, arquivo_nome, data_upload) VALUES ?`;
+    // 3 colunas declaradas (data_upload preenche automaticamente com current_timestamp())
+    const query = `INSERT INTO solicitacoes_compra_anexos (solicitacao_id, nome_original, arquivo_nome) VALUES ?`;
 
     db.query(query, [values], (err, result) => {
         if (err) {

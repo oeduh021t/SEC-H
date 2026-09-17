@@ -91,9 +91,12 @@ const SolicitacaoCompras = () => {
       if (res.ok) {
         const dados = await res.json();
         setAnexosExistentes(dados || []);
+        return dados || [];
       }
+      return [];
     } catch (e) {
       console.error("Erro ao buscar anexos:", e);
+      return [];
     }
   };
 
@@ -324,12 +327,26 @@ const SolicitacaoCompras = () => {
   };
 
   const handleImprimir = async (id) => {
-    const res = await fetch(`${API_URL}/solicitacoes-compra/${id}`, {
-      headers: { 'x-usuario-nivel': obterUsuario()?.nivel || '' }
-    });
-    const data = await res.json();
-    setSolicitacaoImpressao(data);
-    setTimeout(() => window.print(), 300);
+    try {
+      const headers = { 'x-usuario-nivel': obterUsuario()?.nivel || '' };
+      const [resData, resAnexos] = await Promise.all([
+        fetch(`${API_URL}/solicitacoes-compra/${id}`, { headers }).then(r => r.json()),
+        fetch(`${API_URL}/solicitacoes-compra/${id}/anexos`, { headers }).then(r => r.json()).catch(() => [])
+      ]);
+
+      setSolicitacaoImpressao({
+        ...resData,
+        anexos: Array.isArray(resAnexos) ? resAnexos : []
+      });
+
+      setTimeout(() => window.print(), 350);
+    } catch (err) {
+      alert("Erro ao preparar documento para impressão.");
+    }
+  };
+
+  const isImagem = (url = '') => {
+    return /\.(jpeg|jpg|png|webp|gif)$/i.test(url);
   };
 
   const renderizarMotivoComLinks = (texto) => {
@@ -397,7 +414,7 @@ const SolicitacaoCompras = () => {
             width: 100%; 
             background: white !important;
           }
-          @page { size: A4; margin: 10mm; }
+          @page { size: A4; margin: 8mm; }
         }
       `}</style>
 
@@ -499,7 +516,6 @@ const SolicitacaoCompras = () => {
               {solicitacoesPaginadas.map(s => (
                 <Fragment key={s.id}>
                   <tr className={`hover:bg-slate-50/60 transition-colors ${itemExpandidoId === s.id ? 'bg-blue-50/30' : ''}`}>
-                    {/* Coluna 1: Nº e Data */}
                     <td className="p-5">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-xl">#{s.id}</span>
@@ -514,18 +530,16 @@ const SolicitacaoCompras = () => {
                       </div>
                     </td>
 
-                    {/* Coluna 2: Solicitante / Setor */}
                     <td className="p-5">
                       <div className="font-black text-slate-700 uppercase">{s.solicitante_nome}</div>
                       <div className="text-[10px] text-blue-600 font-bold uppercase mt-0.5">{s.setor_nome || 'Setor Geral'}</div>
                       {s.motivo && (
-                        <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 font-medium" title={s.motivo}>
+                        <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 font-medium whitespace-pre-wrap break-words" title={s.motivo}>
                           📝 {renderizarMotivoComLinks(s.motivo)}
                         </p>
                       )}
                     </td>
 
-                    {/* Coluna 3: Fornecedor / NF & Boletos (FASE 3 ATUALIZADA) */}
                     <td className="p-5 font-bold text-slate-700">
                       {s.fornecedor_nome ? (
                         <span className="text-slate-800">🚚 {s.fornecedor_nome}</span>
@@ -550,7 +564,6 @@ const SolicitacaoCompras = () => {
                             )}
                           </div>
 
-                          {/* Indicador de Situação Financeira dos Boletos */}
                           {s.total_boletos > 0 ? (
                             s.boletos_atrasados > 0 ? (
                               <span className="inline-flex items-center text-[9px] font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md uppercase w-max border border-rose-200 animate-pulse">
@@ -578,7 +591,6 @@ const SolicitacaoCompras = () => {
                       )}
                     </td>
 
-                    {/* Coluna 4: Valores */}
                     <td className="p-5 font-black text-slate-800">
                       <div className="text-slate-700">Est: R$ {Number(s.valor_total_calculado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                       {s.valor_real && Number(s.valor_real) > 0 && (
@@ -602,7 +614,6 @@ const SolicitacaoCompras = () => {
                       </button>
                     </td>
 
-                    {/* Coluna 5: Urgência */}
                     <td className="p-5">
                       <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
                         s.urgencia === 'Crítica' ? 'bg-rose-100 text-rose-700 border border-rose-200 animate-pulse' :
@@ -612,7 +623,6 @@ const SolicitacaoCompras = () => {
                       </span>
                     </td>
                     
-                    {/* Coluna 6: Select de Baixa */}
                     <td className="p-5">
                       <select
                         value={s.status}
@@ -631,7 +641,6 @@ const SolicitacaoCompras = () => {
                       </select>
                     </td>
 
-                    {/* Coluna 7: Ações */}
                     <td className="p-5 text-center">
                       <div className="flex justify-center gap-1.5">
                         <button
@@ -659,13 +668,11 @@ const SolicitacaoCompras = () => {
                     </td>
                   </tr>
 
-                  {/* 🔽 ACORDEÃO EXPANSÍVEL: ITENS + COTAÇÕES + RESUMO FINANCEIRO (FASE 3) */}
                   {itemExpandidoId === s.id && (
                     <tr className="bg-slate-50/80 border-b border-slate-200">
                       <td colSpan="7" className="p-4 sm:p-6">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                           
-                          {/* TABELA DE ITENS */}
                           <div className="lg:col-span-2 bg-white p-4 rounded-2xl border border-slate-200 shadow-inner">
                             <div className="flex justify-between items-center mb-3">
                               <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
@@ -724,7 +731,6 @@ const SolicitacaoCompras = () => {
                             </div>
                           </div>
 
-                          {/* COLUNA LATERAL: COTAÇÕES + DADOS FINANCEIROS */}
                           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-inner flex flex-col justify-between space-y-4">
                             <div>
                               <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-2">
@@ -756,7 +762,6 @@ const SolicitacaoCompras = () => {
                               </div>
                             </div>
 
-                            {/* RESUMO FINANCEIRO SE HOUVER NF VINCULADA (FASE 3) */}
                             {s.nota_fiscal_numero && (
                               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
                                 <span className="text-[10px] font-black uppercase text-slate-500 block border-b pb-1">
@@ -880,10 +885,9 @@ const SolicitacaoCompras = () => {
 
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Justificativa / Motivo da Compra *</label>
-                <textarea required rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Aquisição de peças para ar-condicionado dos leitos..." />
+                <textarea required rows={3} value={motivo} onChange={e => setMotivo(e.target.value)} className="w-full p-3 border-2 rounded-xl text-xs bg-slate-50 font-medium text-slate-800 outline-none focus:border-blue-500" placeholder="Ex: Aquisição de peças para ar-condicionado dos leitos..." />
               </div>
 
-              {/* VÍNCULOS OPCIONAIS: NOTA FISCAL OU ORÇAMENTO EXTERNO FORMAL */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border-2 rounded-2xl">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Vincular Orçamento Externo (Opcional)</label>
@@ -918,7 +922,6 @@ const SolicitacaoCompras = () => {
                 </div>
               </div>
 
-              {/* UPLOAD DE COTAÇÕES / ARQUIVOS (FASE 2) */}
               <div className="p-4 bg-slate-50 border-2 rounded-2xl space-y-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase block">
                   📎 Anexar Cotações / Orçamentos / Fotos (PDF, Imagens)
@@ -931,7 +934,6 @@ const SolicitacaoCompras = () => {
                   className="text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:bg-blue-600 file:text-white hover:file:bg-blue-700"
                 />
 
-                {/* Lista de anexos que já foram salvos anteriormente */}
                 {anexosExistentes.length > 0 && (
                   <div className="pt-2 border-t mt-2 space-y-1">
                     <span className="text-[10px] font-black uppercase text-slate-400 block">Arquivos já salvos nesta solicitação:</span>
@@ -950,7 +952,6 @@ const SolicitacaoCompras = () => {
                 )}
               </div>
 
-              {/* LISTA DINÂMICA DE ITENS COM BUSCA NO ALMOXARIFADO */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
                 <div className="flex justify-between items-center border-b pb-2">
                   <div>
@@ -1030,7 +1031,7 @@ const SolicitacaoCompras = () => {
         </div>
       )}
 
-      {/* MODAL DE BAIXA: VÍNCULO DE NF, VALOR REAL E ALIMENTAÇÃO DO ESTOQUE */}
+      {/* MODAL DE BAIXA */}
       {modalBaixaAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -1131,11 +1132,16 @@ const SolicitacaoCompras = () => {
                 {solicitacaoImpressao.nota_fiscal_chave && <span className="font-mono text-[10px] ml-2 font-normal text-slate-600">(Chave: {solicitacaoImpressao.nota_fiscal_chave})</span>}
               </div>
             )}
-            <div className="col-span-2 border-t pt-1.5 mt-0.5 break-all"><strong>Motivo / Justificativa:</strong> {solicitacaoImpressao.motivo}</div>
+            <div className="col-span-2 border-t pt-2 mt-1">
+              <strong>Motivo / Justificativa:</strong>
+              <div className="mt-1 whitespace-pre-wrap break-words font-medium text-slate-800">
+                {solicitacaoImpressao.motivo}
+              </div>
+            </div>
           </div>
 
           <h3 className="text-xs font-black uppercase mb-1.5">Itens Solicitados</h3>
-          <table className="w-full text-xs border-collapse border border-slate-300 mb-6">
+          <table className="w-full text-xs border-collapse border border-slate-300 mb-4">
             <thead>
               <tr className="bg-slate-100">
                 <th className="border border-slate-300 p-2 text-left">Item / Descrição</th>
@@ -1156,7 +1162,31 @@ const SolicitacaoCompras = () => {
             </tbody>
           </table>
 
-          <div className="grid grid-cols-2 gap-12 text-center mt-16 pt-2 max-w-xl mx-auto">
+          {/* ANEXOS / FOTOS NO RELATÓRIO */}
+          {solicitacaoImpressao.anexos && solicitacaoImpressao.anexos.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-xs font-black uppercase mb-2">Fotos / Cotações Anexadas</h3>
+              <div className="flex flex-wrap gap-3 items-start">
+                {solicitacaoImpressao.anexos.map((anexo, idx) => (
+                  <div key={idx} className="border border-slate-300 p-1 rounded-lg bg-white max-w-xs">
+                    {isImagem(anexo.arquivo_nome) ? (
+                      <img 
+                        src={`${BASE_URL}${anexo.arquivo_nome}`} 
+                        alt={anexo.nome_original || 'Anexo'}
+                        className="max-h-40 max-w-full object-contain rounded"
+                      />
+                    ) : (
+                      <div className="p-2 text-[10px] font-bold text-slate-700 bg-slate-50 rounded">
+                        📄 {anexo.nome_original || anexo.arquivo_nome} (Documento PDF)
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-12 text-center mt-12 pt-2 max-w-xl mx-auto">
             <div>
               <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
               <p className="text-[10px] text-slate-500 uppercase font-bold">Gestor da Área / Coordenação</p>
