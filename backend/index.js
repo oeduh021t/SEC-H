@@ -5485,7 +5485,7 @@ app.get('/api/orcamentos-externos/:id', (req, res) => {
     });
 });
 
-// 5. Aprovar Orçamento e Contabilizar Gasto Predial / Infraestrutura
+// 5. Aprovar Orçamento, Contabilizar Gasto Predial e Rastrear no Histórico do Ativo
 app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
     if (!['admin', 'coordenador'].includes(nivel)) {
@@ -5532,7 +5532,7 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
                 return res.status(500).json({ error: `Erro no banco: ${errUp.message}` });
             }
 
-            // Lança automaticamente no centro de custos / despesas prediais
+            // 1. Lança automaticamente no centro de custos / despesas prediais
             const queryDespesa = `
                 INSERT INTO despesas_prediais 
                 (orcamento_id, setor_id, fornecedor_id, codigo_referencia, categoria, descricao, valor_total, forma_pagamento, data_competencia, status_pagamento, aprovado_por_id)
@@ -5554,23 +5554,51 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
                 if (errDesp) console.error("⚠️ Alerta ao gerar despesa predial:", errDesp.message);
             });
 
-            // Se o orçamento contiver Ordens de Serviço vinculadas, avança o status
-            const queryItens = `SELECT chamado_id FROM orcamentos_externos_itens WHERE orcamento_id = ? AND chamado_id IS NOT NULL`;
+            // 2. Processa os itens para avançar OSs e registrar custo no histórico do equipamento
+            const queryItens = `
+                SELECT oi.chamado_id, oi.equipamento_id, oi.valor_unitario, oi.item_titulo, 
+                       c.equipamento_id as eq_chamado 
+                FROM orcamentos_externos_itens oi
+                LEFT JOIN chamados c ON oi.chamado_id = c.id
+                WHERE oi.orcamento_id = ?
+            `;
+
             db.query(queryItens, [orcamentoId], (errItens, itens) => {
                 if (!errItens && itens && itens.length > 0) {
-                    itens.forEach(it => {
-                        db.query(`UPDATE chamados SET status = 'Em Andamento' WHERE id = ?`, [it.chamado_id]);
-                        db.query(
-                            `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
-                            [it.chamado_id, `[ORÇAMENTO APROVADO] Lote ${orc.codigo_orcamento} aprovado. Serviço autorizado.`]
-                        );
+                    itens.forEach(item => {
+                        // Atualiza o chamado se houver
+                        if (item.chamado_id) {
+                            db.query(`UPDATE chamados SET status = 'Em Andamento' WHERE id = ?`, [item.chamado_id]);
+                            db.query(
+                                `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
+                                [item.chamado_id, `[ORÇAMENTO APROVADO] Lote ${orc.codigo_orcamento} aprovado. Serviço autorizado.`]
+                            );
+                        }
+
+                        // Registra o custo/serviço no histórico do equipamento correspondente (se houver ID direto ou via OS)
+                        const equipId = item.equipamento_id || item.eq_chamado;
+                        const valorItem = Number(item.valor_unitario) || 0;
+
+                        if (equipId) {
+                            const descLog = `Orçamento Aprovado: ${orc.codigo_orcamento} | ${item.item_titulo || 'Manutenção Externa'} - Fornecedor: ${orc.fornecedor_nome} (R$ ${valorItem.toFixed(2)})`;
+                            
+                            const queryHistoricoAtivo = `
+                                INSERT INTO equipamentos_historico 
+                                (equipamento_id, descricao_log, tecnico_nome, status_anterior, status_novo)
+                                VALUES (?, ?, 'Sistema', 'Em Manutenção', 'Aprovado Orçamento')
+                            `;
+
+                            db.query(queryHistoricoAtivo, [equipId, descLog], (errHist) => {
+                                if (errHist) console.error("⚠️ Erro ao inserir no histórico do equipamento:", errHist.message);
+                            });
+                        }
                     });
                 }
             });
 
             return res.json({ 
                 success: true, 
-                message: `Orçamento ${orc.codigo_orcamento} aprovado e registrado no centro de custos prediais com sucesso! 💰🏢` 
+                message: `Orçamento ${orc.codigo_orcamento} aprovado, registrado nas despesas prediais e vinculado ao histórico dos ativos! 💰🏢` 
             });
         });
     });
