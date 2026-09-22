@@ -5337,7 +5337,7 @@ app.get('/api/orcamentos-externos', (req, res) => {
     });
 });
 
-// 2. Buscar chamados disponíveis para orçar (Admin, Coordenador e Técnico)
+// 2. Buscar chamados disponíveis para orçar (Admin, Coordenador e Técnico) - Traz todas as OSs ativas
 app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
     if (nivel && !['admin', 'coordenador', 'tecnico'].includes(nivel)) {
@@ -5350,19 +5350,14 @@ app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
         FROM chamados c
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
         LEFT JOIN setores s ON c.setor_id = s.id
-        WHERE (
-            c.status = 'Aguardando Externa'
-            OR c.status LIKE '%Externa%'
-            OR c.em_manutencao_externa = 1
-            OR c.em_manutencao_externa = '1'
-        )
-        AND c.status != 'Concluído'
+        WHERE c.status != 'Concluído' 
+          AND c.status != 'Cancelado'
         ORDER BY c.id DESC
     `;
 
     db.query(query, (err, rows) => {
         if (err) {
-            console.error("❌ Erro na busca de chamados externos disponíveis:", err.message);
+            console.error("❌ Erro na busca de chamados disponíveis:", err.message);
             return res.status(500).json({ error: err.message });
         }
         res.json(rows);
@@ -5576,6 +5571,106 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
             return res.json({ 
                 success: true, 
                 message: `Orçamento ${orc.codigo_orcamento} aprovado e registrado no centro de custos prediais com sucesso! 💰🏢` 
+            });
+        });
+    });
+});
+
+// 6. Atualizar orçamento existente (Misto ou Lote)
+app.put('/api/orcamentos-externos/:id', uploadOrcamento.single('anexo'), (req, res) => {
+    const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
+    if (!['admin', 'coordenador'].includes(nivel)) {
+        return res.status(403).json({ error: 'Acesso não autorizado.' });
+    }
+
+    const orcamentoId = req.params.id;
+    const fornecedor_id = req.body.fornecedor_id;
+    const setor_id = req.body.setor_id || null;
+    const observacoes = req.body.observacoes || null;
+    let itens = [];
+
+    try {
+        itens = typeof req.body.itens === 'string' ? JSON.parse(req.body.itens) : (req.body.itens || []);
+    } catch (e) {
+        return res.status(400).json({ error: 'Formato de itens inválido na requisição.' });
+    }
+
+    if (!fornecedor_id || !Array.isArray(itens) || itens.length === 0) {
+        return res.status(400).json({ error: 'Fornecedor e itens são obrigatórios para atualização.' });
+    }
+
+    // Verifica se já está aprovado (opcional: bloquear edição se já passou pelo financeiro)
+    const queryVerifica = `SELECT status FROM orcamentos_externos WHERE id = ?`;
+    db.query(queryVerifica, [orcamentoId], (errV, rowsV) => {
+        if (errV || rowsV.length === 0) {
+            return res.status(404).json({ error: 'Orçamento não encontrado.' });
+        }
+
+        if (rowsV[0].status === 'Aprovado Financeiro') {
+            return res.status(400).json({ error: 'Não é permitido editar um orçamento que já foi Aprovado pelo Financeiro.' });
+        }
+
+        const anexoUrlNovo = req.file ? `/uploads/orcamentos/${req.file.filename}` : null;
+        const valorTotal = itens.reduce((acc, it) => acc + (Number(it.valor_unitario) || 0), 0);
+
+        const temOS = itens.some(i => i.chamado_id);
+        const temAvulso = itens.some(i => !i.chamado_id);
+        const tipoOrcamento = temOS && temAvulso ? 'misto' : (temOS ? 'os' : 'avulso');
+
+        // Monta a query mestre mantendo o anexo antigo se nenhum novo foi enviado
+        let queryMestre = `
+            UPDATE orcamentos_externos 
+            SET fornecedor_id = ?, setor_id = ?, valor_total = ?, tipo_orcamento = ?, observacoes = ?
+        `;
+        const paramsMestre = [fornecedor_id, setor_id, valorTotal, tipoOrcamento, observacoes];
+
+        if (anexoUrlNovo) {
+            queryMestre += `, anexo_url = ?`;
+            paramsMestre.push(anexoUrlNovo);
+        }
+
+        queryMestre += ` WHERE id = ?`;
+        paramsMestre.push(orcamentoId);
+
+        db.query(queryMestre, paramsMestre, (errUp) => {
+            if (errUp) {
+                console.error("❌ Erro ao atualizar orçamento mestre:", errUp.message);
+                return res.status(500).json({ error: `Erro no banco: ${errUp.message}` });
+            }
+
+            // Remove os itens antigos para re-inserir a lista atualizada
+            db.query(`DELETE FROM orcamentos_externos_itens WHERE orcamento_id = ?`, [orcamentoId], (errDel) => {
+                if (errDel) {
+                    console.error("⚠️ Erro ao limpar itens antigos para edição:", errDel.message);
+                }
+
+                // Insere os novos itens
+                itens.forEach((item) => {
+                    const queryItem = `
+                        INSERT INTO orcamentos_externos_itens 
+                        (orcamento_id, chamado_id, item_titulo, setor_id, equipamento_id, descricao_proposta, valor_unitario)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    `;
+
+                    db.query(queryItem, [
+                        orcamentoId,
+                        item.chamado_id || null,
+                        item.item_titulo || (item.chamado_id ? `OS #${item.chamado_id}` : 'Serviço Avulso'),
+                        item.setor_id || setor_id || null,
+                        item.equipamento_id || null,
+                        item.descricao_proposta || '',
+                        Number(item.valor_unitario) || 0
+                    ]);
+
+                    if (item.chamado_id) {
+                        db.query(
+                            `UPDATE chamados SET custo_servico = ?, fornecedor_id = ? WHERE id = ?`,
+                            [Number(item.valor_unitario) || 0, fornecedor_id, item.chamado_id]
+                        );
+                    }
+                });
+
+                return res.json({ success: true, message: 'Orçamento atualizado com sucesso!' });
             });
         });
     });

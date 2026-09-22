@@ -10,6 +10,9 @@ export default function OrcamentosExternos() {
   const [carregandoChamados, setCarregandoChamados] = useState(false);
   const [processandoAprovacao, setProcessandoAprovacao] = useState(null);
 
+  // Estados de Edição
+  const [orcamentoEmEdicaoId, setOrcamentoEmEdicaoId] = useState(null);
+
   // Form State
   const [fornecedorId, setFornecedorId] = useState('');
   const [setorGeralId, setSetorGeralId] = useState('');
@@ -61,7 +64,7 @@ export default function OrcamentosExternos() {
     }
   }, [obterHeadersAuth]);
 
-  const carregarChamados = useCallback(async (fId = '') => {
+  const carregarChamados = useCallback(async () => {
     setCarregandoChamados(true);
     try {
       const headers = {
@@ -69,27 +72,11 @@ export default function OrcamentosExternos() {
         'Content-Type': 'application/json'
       };
 
-      const url = fId 
-        ? `/api/orcamentos-externos/chamados-disponiveis?fornecedor_id=${fId}` 
-        : '/api/orcamentos-externos/chamados-disponiveis';
-
-      let res = await fetch(url, { headers });
-      let data = [];
-      if (res.ok) data = await res.json();
-
-      if (!Array.isArray(data) || data.length === 0) {
-        const resGeral = await fetch('/api/chamados', { headers });
-        if (resGeral.ok) {
-          const todos = await resGeral.json();
-          data = todos.filter(c => 
-            (c.status === 'Aguardando Externa' || 
-             c.status?.toLowerCase().includes('externa') || 
-             Number(c.em_manutencao_externa) === 1) &&
-            c.status !== 'Concluído'
-          );
-        }
+      const resGeral = await fetch('/api/orcamentos-externos/chamados-disponiveis', { headers });
+      if (resGeral.ok) {
+        const data = await resGeral.json();
+        setChamadosDisponiveis(Array.isArray(data) ? data : []);
       }
-      setChamadosDisponiveis(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Erro ao buscar chamados disponíveis:', err);
       setChamadosDisponiveis([]);
@@ -104,9 +91,48 @@ export default function OrcamentosExternos() {
 
   useEffect(() => {
     if (modalNovo) {
-      carregarChamados(fornecedorId);
+      carregarChamados();
     }
-  }, [modalNovo, fornecedorId, carregarChamados]);
+  }, [modalNovo, carregarChamados]);
+
+  // Abrir modal para edição carregando os dados do orçamento
+  const abrirModalEdicao = async (orc) => {
+    if (orc.status === 'Aprovado Financeiro') {
+      return alert('Este orçamento já foi aprovado pelo financeiro e não pode ser editado.');
+    }
+
+    try {
+      const headers = obterHeadersAuth();
+      const res = await fetch(`/api/orcamentos-externos/${orc.id}`, { headers });
+      if (!res.ok) throw new Error('Erro ao buscar detalhes do orçamento.');
+      
+      const data = await res.json();
+      
+      setOrcamentoEmEdicaoId(orc.id);
+      setFornecedorId(data.orcamento.fornecedor_id || '');
+      setSetorGeralId(data.orcamento.setor_id || '');
+      setObservacoes(data.orcamento.observacoes || '');
+      setArquivoAnexo(null);
+
+      // Mapeia os itens vindos do banco para o padrão do state
+      const itensMapeados = data.itens.map(it => ({
+        temp_id: it.chamado_id ? `os-${it.chamado_id}` : `avulso-${it.id || Math.random()}`,
+        chamado_id: it.chamado_id || null,
+        item_titulo: it.item_titulo || it.titulo_exibicao || 'Serviço',
+        equipamento_id: it.equipamento_id || null,
+        equipamento_nome: it.equipamento_nome || 'Serviço Predial / Infraestrutura',
+        patrimonio: it.patrimonio || 'N/A',
+        descricao_proposta: it.descricao_proposta || '',
+        valor_unitario: it.valor_unitario || ''
+      }));
+
+      setItensLote(itensMapeados);
+      setModalNovo(true);
+    } catch (err) {
+      console.error(err);
+      alert('Não foi possível carregar os dados para edição.');
+    }
+  };
 
   // Manipulação de OS vinculada
   const toggleChamadoNoLote = (ch) => {
@@ -119,15 +145,14 @@ export default function OrcamentosExternos() {
         chamado_id: ch.id,
         item_titulo: `OS #${ch.id} — ${ch.equipamento_nome || ch.titulo}`,
         equipamento_id: ch.equipamento_id,
-        equipamento_nome: ch.equipamento_nome || ch.equip_nome || ch.titulo,
-        patrimonio: ch.patrimonio || ch.equip_pat || 'S/P',
+        equipamento_nome: ch.equipamento_nome || ch.titulo,
+        patrimonio: ch.patrimonio || 'S/P',
         descricao_proposta: '',
         valor_unitario: ''
       }]);
     }
   };
 
-  // Adicionar item manual/predial sem OS
   const adicionarItemAvulso = () => {
     if (!novoAvulsoTitulo.trim() || !novoAvulsoValor) {
       return alert('Informe o título do serviço e o valor unitário.');
@@ -180,9 +205,11 @@ export default function OrcamentosExternos() {
       }
 
       const headers = obterHeadersAuth();
+      const url = orcamentoEmEdicaoId ? `/api/orcamentos-externos/${orcamentoEmEdicaoId}` : '/api/orcamentos-externos';
+      const method = orcamentoEmEdicaoId ? 'PUT' : 'POST';
 
-      const res = await fetch('/api/orcamentos-externos', {
-        method: 'POST',
+      const res = await fetch(url, {
+        method,
         headers,
         body: formData
       });
@@ -190,8 +217,9 @@ export default function OrcamentosExternos() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        alert(`Orçamento ${data.codigo} registrado com sucesso! 📑✅`);
+        alert(orcamentoEmEdicaoId ? 'Orçamento atualizado com sucesso! ✏️✅' : `Orçamento ${data.codigo} registrado com sucesso! 📑✅`);
         setModalNovo(false);
+        setOrcamentoEmEdicaoId(null);
         setItensLote([]);
         setFornecedorId('');
         setSetorGeralId('');
@@ -199,7 +227,7 @@ export default function OrcamentosExternos() {
         setArquivoAnexo(null);
         carregarDadosIniciais();
       } else {
-        alert(`Erro: ${data.error || 'Falha ao registrar orçamento.'}`);
+        alert(`Erro: ${data.error || 'Falha ao salvar orçamento.'}`);
       }
     } catch (err) {
       console.error(err);
@@ -207,7 +235,6 @@ export default function OrcamentosExternos() {
     }
   };
 
-  // 💰 Ação de Aprovação e Lançamento nas Despesas Prediais
   const handleAprovarOrcamento = async (orc) => {
     const confirmar = window.confirm(
       `Deseja realmente APROVAR o orçamento ${orc.codigo_orcamento} no valor de R$ ${Number(orc.valor_total).toFixed(2)}?\n\nIsso irá lançar o gasto no centro de custos do setor predial e autorizar a execução.`
@@ -259,9 +286,13 @@ export default function OrcamentosExternos() {
         </div>
         <button
           onClick={() => {
-            setModalNovo(true);
+            setOrcamentoEmEdicaoId(null);
             setItensLote([]);
+            setFornecedorId('');
+            setSetorGeralId('');
+            setObservacoes('');
             setArquivoAnexo(null);
+            setModalNovo(true);
           }}
           className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase rounded-2xl shadow-sm transition-all active:scale-95"
         >
@@ -309,14 +340,23 @@ export default function OrcamentosExternos() {
                   <td className="p-4 text-center">
                     <div className="flex items-center justify-center gap-1.5">
                       {!estaAprovado && (
-                        <button
-                          onClick={() => handleAprovarOrcamento(orc)}
-                          disabled={processandoAprovacao === orc.id}
-                          className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-xs active:scale-95"
-                          title="Aprovar e lançar nas despesas prediais"
-                        >
-                          {processandoAprovacao === orc.id ? 'Aprovando...' : 'Aprovar'}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => abrirModalEdicao(orc)}
+                            className="px-2.5 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-xs"
+                            title="Editar Orçamento"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            onClick={() => handleAprovarOrcamento(orc)}
+                            disabled={processandoAprovacao === orc.id}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl text-[10px] font-black uppercase transition-all shadow-xs active:scale-95"
+                            title="Aprovar e lançar nas despesas prediais"
+                          >
+                            {processandoAprovacao === orc.id ? 'Aprovando...' : 'Aprovar'}
+                          </button>
+                        </>
                       )}
 
                       {orc.anexo_url && (
@@ -354,12 +394,14 @@ export default function OrcamentosExternos() {
         </table>
       </div>
 
-      {/* Modal de Novo Orçamento */}
+      {/* Modal de Novo / Editar Orçamento */}
       {modalNovo && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-slate-900 p-5 text-white flex justify-between items-center shrink-0">
-              <h3 className="font-black text-sm uppercase">Novo Orçamento Comercial (Com ou Sem OS)</h3>
+              <h3 className="font-black text-sm uppercase">
+                {orcamentoEmEdicaoId ? '✏️ Editar Orçamento Comercial' : 'Novo Orçamento Comercial (Com ou Sem OS)'}
+              </h3>
               <button onClick={() => setModalNovo(false)} className="text-xl hover:text-slate-300">✕</button>
             </div>
 
@@ -470,7 +512,7 @@ export default function OrcamentosExternos() {
                     );
                   })}
                   {!carregandoChamados && chamadosDisponiveis.length === 0 && (
-                    <p className="text-[11px] text-slate-400 p-2 col-span-2 text-center italic">Nenhuma OS em manutenção externa no momento.</p>
+                    <p className="text-[11px] text-slate-400 p-2 col-span-2 text-center italic">Nenhuma OS em aberto no momento.</p>
                   )}
                 </div>
               </details>
@@ -542,7 +584,7 @@ export default function OrcamentosExternos() {
                   rows={2}
                   value={observacoes}
                   onChange={e => setObservacoes(e.target.value)}
-                  placeholder="Ex: 50% no pedido e 50% na entrega. Chave Pix: 21974763231 (Nubank)"
+                  placeholder="Ex: 50% no pedido e 50% na entrega..."
                   className="w-full p-2.5 border border-slate-200 rounded-xl text-xs resize-none outline-none focus:border-blue-500"
                 />
               </div>
@@ -559,7 +601,7 @@ export default function OrcamentosExternos() {
                   type="submit"
                   className="flex-[2] py-3 bg-blue-600 hover:bg-blue-700 font-black text-xs uppercase text-white rounded-xl shadow-md transition-all active:scale-95"
                 >
-                  Salvar Orçamento (R$ {totalCalculado.toFixed(2)})
+                  {orcamentoEmEdicaoId ? 'Atualizar Orçamento' : `Salvar Orçamento (R$ ${totalCalculado.toFixed(2)})`}
                 </button>
               </div>
             </form>
