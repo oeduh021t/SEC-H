@@ -554,6 +554,25 @@ app.get('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecn
     });
 });
 
+app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { nome } = req.body;
+
+    if (!nome || !nome.trim()) {
+        return res.status(400).json({ error: 'O nome do tipo de equipamento é obrigatório.' });
+    }
+
+    const query = `INSERT INTO tipos_equipamentos (nome) VALUES (?)`;
+    db.query(query, [nome.trim()], (err, result) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ 
+            message: 'Cadastrado com sucesso!', 
+            id: result.insertId 
+        });
+    });
+});
+
 // -------------------------------------------------------------------------
 // ROTAS DE CHAMADOS / OS
 // -------------------------------------------------------------------------
