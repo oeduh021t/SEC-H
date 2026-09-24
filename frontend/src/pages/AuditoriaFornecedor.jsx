@@ -12,11 +12,14 @@ export default function AuditoriaFornecedor() {
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [exportando, setExportando] = useState(false);
 
-  // Filtros
+  // Filtros de Data e Navegação
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [abaAtiva, setAbaAtiva] = useState('saidas');
+
+  // Filtros de Custódia independentes por aba
   const [filtroCustodia, setFiltroCustodia] = useState('todos'); // 'todos' | 'na_rua' | 'retornou'
+  const [filtroCustodiaOS, setFiltroCustodiaOS] = useState('todos'); // 'todos' | 'na_rua' | 'retornou'
 
   const getAuthHeaders = () => {
     let nivel = 'admin';
@@ -136,7 +139,7 @@ export default function AuditoriaFornecedor() {
   const despesas = dadosAuditoria?.despesas_prediais || [];
   const saidasBrutas = dadosAuditoria?.saidas_externas || [];
 
-  // Filtro dinâmico de custódia
+  // Filtro dinâmico de custódia: Saídas pelo Prontuário
   const saidasFiltradas = saidasBrutas.filter(s => {
     const naRua = s.situacao_custodia === 'Na Rua / Em Manutenção' || ['Em Manutenção', 'Em Manutenção Externa'].includes(s.status_atual_equipamento);
     if (filtroCustodia === 'na_rua') return naRua;
@@ -146,6 +149,17 @@ export default function AuditoriaFornecedor() {
 
   const totalNaRua = saidasBrutas.filter(s => s.situacao_custodia === 'Na Rua / Em Manutenção' || ['Em Manutenção', 'Em Manutenção Externa'].includes(s.status_atual_equipamento)).length;
   const totalRetornados = saidasBrutas.length - totalNaRua;
+
+  // Filtro dinâmico de custódia: Ordens de Serviço
+  const chamadosFiltrados = chamados.filter(c => {
+    const naRua = c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
+    if (filtroCustodiaOS === 'na_rua') return naRua;
+    if (filtroCustodiaOS === 'retornou') return !naRua;
+    return true;
+  });
+
+  const totalOSNaRua = chamados.filter(c => c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1).length;
+  const totalOSRetornadas = chamados.length - totalOSNaRua;
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
@@ -251,7 +265,11 @@ export default function AuditoriaFornecedor() {
               <p className="text-lg font-black text-slate-800 font-mono mt-1">
                 R$ {Number(resumo?.total_gasto_chamados || 0).toFixed(2)}
               </p>
-              <span className="text-[10px] text-slate-400 font-bold">{chamados.length} OSs vinculadas</span>
+              <div className="flex gap-1.5 mt-0.5 text-[10px] font-bold">
+                <span className="text-amber-600">🟡 {totalOSNaRua} na rua</span>
+                <span className="text-slate-300">•</span>
+                <span className="text-emerald-600">🟢 {totalOSRetornadas} concluídas</span>
+              </div>
             </div>
 
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
@@ -320,7 +338,6 @@ export default function AuditoriaFornecedor() {
             {/* ABA: SAÍDAS COM FILTRO DE CUSTÓDIA */}
             {abaAtiva === 'saidas' && (
               <div>
-                {/* Barra de Filtro Rápido de Custódia */}
                 <div className="p-4 bg-slate-50/60 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 no-print">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Filtrar Custódia:</span>
@@ -411,49 +428,95 @@ export default function AuditoriaFornecedor() {
               </div>
             )}
 
-            {/* ABA: CHAMADOS */}
+            {/* ABA: CHAMADOS COM FILTRO DE CUSTÓDIA */}
             {abaAtiva === 'chamados' && (
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
-                  <tr>
-                    <th className="p-4">OS</th>
-                    <th className="p-4">Equipamento / Ativo</th>
-                    <th className="p-4">Setor</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4">Abertura</th>
-                    <th className="p-4 text-right">Custo Serviço</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {chamados.map(ch => (
-                    <tr key={ch.id} className="hover:bg-slate-50/50">
-                      <td className="p-4 font-black text-blue-600 font-mono">#{ch.id}</td>
-                      <td className="p-4 font-bold text-slate-800">
-                        {ch.equipamento_nome || ch.titulo} (Pat: {ch.patrimonio || 'S/P'})
-                      </td>
-                      <td className="p-4 text-slate-500 font-bold">{ch.setor_nome || 'Geral'}</td>
-                      <td className="p-4">
-                        <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-slate-100 text-slate-700">
-                          {ch.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-400 font-mono">
-                        {new Date(ch.data_abertura).toLocaleDateString('pt-BR')}
-                      </td>
-                      <td className="p-4 text-right font-black font-mono text-emerald-600">
-                        R$ {Number(ch.custo_servico || 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                  {chamados.length === 0 && (
+              <div>
+                <div className="p-4 bg-slate-50/60 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 no-print">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Filtrar Custódia:</span>
+                    <button
+                      onClick={() => setFiltroCustodiaOS('todos')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        filtroCustodiaOS === 'todos' ? 'bg-slate-900 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      Todos ({chamados.length})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCustodiaOS('na_rua')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        filtroCustodiaOS === 'na_rua' ? 'bg-amber-500 text-white shadow-xs' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      🟡 Ainda na Rua ({totalOSNaRua})
+                    </button>
+                    <button
+                      onClick={() => setFiltroCustodiaOS('retornou')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                        filtroCustodiaOS === 'retornou' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      🟢 Já Retornaram ({totalOSRetornadas})
+                    </button>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    Exibindo {chamadosFiltrados.length} de {chamados.length} ordens de serviço
+                  </span>
+                </div>
+
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
                     <tr>
-                      <td colSpan="6" className="p-6 text-center text-slate-400 font-bold italic">
-                        Nenhum chamado vinculado no período.
-                      </td>
+                      <th className="p-4">OS</th>
+                      <th className="p-4">Equipamento / Ativo</th>
+                      <th className="p-4">Setor</th>
+                      <th className="p-4 text-center">Custódia / Status</th>
+                      <th className="p-4">Abertura</th>
+                      <th className="p-4 text-right">Custo Serviço</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {chamadosFiltrados.map(ch => {
+                      const naRua = ch.status === 'Aguardando Externa' || Number(ch.em_manutencao_externa) === 1;
+                      return (
+                        <tr key={ch.id} className="hover:bg-slate-50/50">
+                          <td className="p-4 font-black text-blue-600 font-mono">#{ch.id}</td>
+                          <td className="p-4 font-bold text-slate-800">
+                            {ch.equipamento_nome || ch.titulo} <span className="text-slate-400 font-mono font-normal">(Pat: {ch.patrimonio || 'S/P'})</span>
+                          </td>
+                          <td className="p-4 text-slate-500 font-bold">{ch.setor_nome || 'Geral'}</td>
+                          <td className="p-4 text-center whitespace-nowrap">
+                            {naRua ? (
+                              <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                Na Rua
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                Retornou
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-slate-400 font-mono">
+                            {new Date(ch.data_abertura).toLocaleDateString('pt-BR')}
+                          </td>
+                          <td className="p-4 text-right font-black font-mono text-emerald-600">
+                            R$ {Number(ch.custo_servico || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {chamadosFiltrados.length === 0 && (
+                      <tr>
+                        <td colSpan="6" className="p-6 text-center text-slate-400 font-bold italic">
+                          Nenhum chamado vinculado para o filtro selecionado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {/* ABA: ORÇAMENTOS */}

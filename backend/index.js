@@ -5801,7 +5801,7 @@ app.get('/api/fornecedores/:id/extrato-completo', (req, res) => {
 });
 
 // ==========================================
-// 📊 EXPORTAR AUDITORIA DO FORNECEDOR EM .XLSX (COMPLETO: TUDO INCLUSO)
+// 📊 EXPORTAR AUDITORIA DO FORNECEDOR EM .XLSX (COMPLETO: COM CUSTÓDIA NAS OSs)
 // ==========================================
 app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coordenador', 'tecnico']), async (req, res) => {
     const fornecedorId = req.params.id;
@@ -5824,7 +5824,7 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
         const fornecedor = rowsForn[0];
         const nomeBusca = fornecedor.nome_referencia;
 
-        // 2. Consultas completas em paralelo (SQL corrigido)
+        // 2. Consultas completas em paralelo com campo de custódia da OS
         const [
             [chamadosReais],
             [saidas],
@@ -5832,9 +5832,9 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             [notas],
             [despesas]
         ] = await Promise.all([
-            // Ordens de Serviço (OSs vinculadas por fornecedor direto ou externo)
+            // Ordens de Serviço (Trazendo em_manutencao_externa para definir custódia)
             pool.promise().query(`
-                SELECT c.id, c.titulo, c.status, c.data_abertura, c.data_conclusao, 
+                SELECT c.id, c.titulo, c.status, c.em_manutencao_externa, c.data_abertura, c.data_conclusao, 
                        COALESCE(NULLIF(c.valor_servico_externo, 0), NULLIF(c.custo_servico, 0), c.custo_total, 0.00) AS custo_servico,
                        c.numero_nf_retorno, e.nome AS equipamento_nome, e.patrimonio, s.nome AS setor_nome
                 FROM chamados c
@@ -5895,7 +5895,7 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             `, [fornecedorId, dataInicio, dataFim])
         ]);
 
-        // 3. Criação do Arquivo Excel
+        // 3. Montagem da Pasta Excel
         const workbook = new ExcelJS.Workbook();
         workbook.creator = 'SEC-H Hospitalar';
 
@@ -5919,26 +5919,27 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             { header: 'Equipamento / Descrição', key: 'descricao', width: 35 },
             { header: 'Patrimônio', key: 'patrimonio', width: 14 },
             { header: 'Setor', key: 'setor', width: 20 },
-            { header: 'Situação / Status', key: 'status', width: 22 },
+            { header: 'Custódia / Situação', key: 'custodia', width: 24 },
             { header: 'Detalhes / Ocorrência', key: 'detalhes', width: 50 },
             { header: 'Valor (R$)', key: 'valor', width: 18 }
         ];
-        aplicarCabecalho(wsGeral, 'FF0F172A'); // Slate Escuro
+        aplicarCabecalho(wsGeral, 'FF0F172A'); // Slate 900
 
         const listaUnificada = [];
 
-        // Adiciona Ordens de Serviço
+        // Adiciona Ordens de Serviço (com cálculo de custódia)
         (chamadosReais || []).forEach(c => {
+            const naRua = c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
             listaUnificada.push({
                 origem: 'Ordem de Serviço (OS)',
                 referencia: `#${c.id}`,
                 data_raw: new Date(c.data_abertura),
                 data: c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '',
-                data_retorno: c.data_conclusao ? new Date(c.data_conclusao).toLocaleDateString('pt-BR') : 'Em Aberto',
+                data_retorno: c.data_conclusao ? new Date(c.data_conclusao).toLocaleDateString('pt-BR') : 'Ainda na Rua',
                 descricao: c.equipamento_nome || c.titulo,
                 patrimonio: c.patrimonio || 'S/P',
                 setor: c.setor_nome || 'Geral',
-                status: c.status,
+                custodia: naRua ? 'Na Rua / Em Manutenção' : 'Retornou à Unidade',
                 detalhes: c.titulo,
                 valor: Number(c.custo_servico || 0)
             });
@@ -5955,7 +5956,7 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 descricao: s.equipamento_nome,
                 patrimonio: s.patrimonio || 'S/P',
                 setor: s.setor_nome || 'Geral',
-                status: s.situacao_custodia,
+                custodia: s.situacao_custodia,
                 detalhes: s.descricao_log,
                 valor: 0.00
             });
@@ -5972,7 +5973,7 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 descricao: `Proposta de Serviço (${o.tipo_orcamento})`,
                 patrimonio: '---',
                 setor: 'Hospital',
-                status: o.status,
+                custodia: o.status,
                 detalhes: o.observacoes || 'Orçamento cadastrado',
                 valor: Number(o.valor_total || 0)
             });
@@ -5989,13 +5990,13 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 descricao: n.descricao || 'Faturamento de Peças/Serviços',
                 patrimonio: '---',
                 setor: 'Hospital',
-                status: n.status || 'Emitida',
+                custodia: n.status || 'Emitida',
                 detalhes: `Série: ${n.serie || 'Única'}`,
                 valor: Number(n.valor_total || 0)
             });
         });
 
-        // Ordenação cronológica
+        // Ordenação decrescente por data
         listaUnificada.sort((a, b) => b.data_raw - a.data_raw);
 
         listaUnificada.forEach(item => {
@@ -6007,15 +6008,22 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 descricao: item.descricao,
                 patrimonio: item.patrimonio,
                 setor: item.setor,
-                status: item.status,
+                custodia: item.custodia,
                 detalhes: item.detalhes,
                 valor: item.valor
             });
             row.getCell('valor').numFmt = 'R$ #,##0.00';
+            
+            const cellCustodia = row.getCell('custodia');
+            if (item.custodia.includes('Na Rua')) {
+                cellCustodia.font = { bold: true, color: { argb: 'FFD97706' } };
+            } else if (item.custodia.includes('Retornou')) {
+                cellCustodia.font = { bold: true, color: { argb: 'FF059669' } };
+            }
         });
 
         // =================================================================
-        // 🎫 ABA 2: APENAS ORDENS DE SERVIÇO (CHAMADOS)
+        // 🎫 ABA 2: APENAS ORDENS DE SERVIÇO (COM CUSTÓDIA)
         // =================================================================
         const wsChamados = workbook.addWorksheet('Ordens de Serviço');
         wsChamados.columns = [
@@ -6025,7 +6033,8 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             { header: 'Equipamento / Ativo', key: 'equipamento_nome', width: 30 },
             { header: 'Patrimônio', key: 'patrimonio', width: 14 },
             { header: 'Setor', key: 'setor_nome', width: 22 },
-            { header: 'Status', key: 'status', width: 18 },
+            { header: 'Custódia Atual', key: 'custodia', width: 24 },
+            { header: 'Status OS', key: 'status', width: 18 },
             { header: 'Assunto / Ocorrência', key: 'titulo', width: 45 },
             { header: 'NF Retorno', key: 'numero_nf_retorno', width: 16 },
             { header: 'Custo Serviço (R$)', key: 'custo_servico', width: 18 }
@@ -6033,6 +6042,9 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
         aplicarCabecalho(wsChamados, 'FF2563EB'); // Azul Royal
 
         (chamadosReais || []).forEach(c => {
+            const naRua = c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
+            const situacaoCustodia = naRua ? 'Na Rua / Em Manutenção' : 'Retornou à Unidade';
+
             const row = wsChamados.addRow({
                 id: `#${c.id}`,
                 data_abertura: c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '',
@@ -6040,16 +6052,25 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 equipamento_nome: c.equipamento_nome || 'Infraestrutura Predial',
                 patrimonio: c.patrimonio || 'S/P',
                 setor_nome: c.setor_nome || 'Geral',
+                custodia: situacaoCustodia,
                 status: c.status,
                 titulo: c.titulo,
                 numero_nf_retorno: c.numero_nf_retorno || '---',
                 custo_servico: Number(c.custo_servico || 0)
             });
+
             row.getCell('custo_servico').numFmt = 'R$ #,##0.00';
+
+            const cellCustodia = row.getCell('custodia');
+            if (naRua) {
+                cellCustodia.font = { bold: true, color: { argb: 'FFD97706' } }; // Âmbar
+            } else {
+                cellCustodia.font = { bold: true, color: { argb: 'FF059669' } }; // Verde
+            }
         });
 
         // =================================================================
-        // 🚚 ABA 3: APENAS SAÍDAS PELO PRONTUÁRIO (CUSTÓDIA)
+        // 🚚 ABA 3: APENAS SAÍDAS PELO PRONTUÁRIO
         // =================================================================
         const wsSaidas = workbook.addWorksheet('Saídas pelo Prontuário');
         wsSaidas.columns = [
@@ -6065,7 +6086,8 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
         aplicarCabecalho(wsSaidas, 'FF7C3AED'); // Roxo
 
         (saidas || []).forEach(s => {
-            wsSaidas.addRow({
+            const naRua = s.situacao_custodia === 'Na Rua / Em Manutenção' || ['Em Manutenção', 'Em Manutenção Externa'].includes(s.status_atual_equipamento);
+            const row = wsSaidas.addRow({
                 data_saida: new Date(s.data_movimentacao).toLocaleString('pt-BR'),
                 data_retorno: s.data_retorno ? new Date(s.data_retorno).toLocaleString('pt-BR') : 'Ainda na Rua',
                 equipamento: s.equipamento_nome,
@@ -6075,6 +6097,13 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
                 tecnico: s.tecnico_nome || 'Sistema',
                 motivo: s.descricao_log
             });
+
+            const cellCustodia = row.getCell('custodia');
+            if (naRua) {
+                cellCustodia.font = { bold: true, color: { argb: 'FFD97706' } };
+            } else {
+                cellCustodia.font = { bold: true, color: { argb: 'FF059669' } };
+            }
         });
 
         // =================================================================
@@ -6131,7 +6160,35 @@ app.get('/api/relatorios/exportar/fornecedor/:id', permitirApenas(['admin', 'coo
             row.getCell('valor_total').numFmt = 'R$ #,##0.00';
         });
 
-        // Envio do arquivo gerado
+        // =================================================================
+        // 🏢 ABA 6: DESPESAS PREDIAIS
+        // =================================================================
+        const wsDespesas = workbook.addWorksheet('Despesas Prediais');
+        wsDespesas.columns = [
+            { header: 'Código Ref', key: 'codigo_referencia', width: 18 },
+            { header: 'Categoria', key: 'categoria', width: 22 },
+            { header: 'Descrição do Serviço', key: 'descricao', width: 45 },
+            { header: 'Competência', key: 'data_competencia', width: 16 },
+            { header: 'Forma de Pagamento', key: 'forma_pagamento', width: 22 },
+            { header: 'Status Pagamento', key: 'status_pagamento', width: 18 },
+            { header: 'Valor Total (R$)', key: 'valor_total', width: 18 }
+        ];
+        aplicarCabecalho(wsDespesas, 'FFD97706'); // Âmbar Escuro
+
+        (despesas || []).forEach(d => {
+            const row = wsDespesas.addRow({
+                codigo_referencia: d.codigo_referencia || '---',
+                categoria: d.categoria || 'Geral',
+                descricao: d.descricao || '---',
+                data_competencia: d.data_competencia ? new Date(d.data_competencia).toLocaleDateString('pt-BR') : '',
+                forma_pagamento: d.forma_pagamento || 'A Combinar',
+                status_pagamento: d.status_pagamento || 'Pendente',
+                valor_total: Number(d.valor_total || 0)
+            });
+            row.getCell('valor_total').numFmt = 'R$ #,##0.00';
+        });
+
+        // Envio do arquivo
         const filename = `auditoria_completa_${nomeBusca.replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`;
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
