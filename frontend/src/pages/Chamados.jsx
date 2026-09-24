@@ -40,12 +40,13 @@ const Chamados = ({ user: userProp }) => {
   const [modalEditarAberta, setModalEditarAberta] = useState(false);
 
   // 📱 Estado para Visualizador Interno de Anexos/Imagens (Mobile Friendly)
-  const [visualizadorAnexo, setVisualizadorAnexo] = useState(null); // { url, titulo, tipo }
+  const [visualizadorAnexo, setVisualizadorAnexo] = useState(null);
 
-  // ⚡ Captura o filtro inicial vindo da navegação (ex: "Aguardando Externa")
+  // ⚡ Filtros de Estado e Escopo
   const [filtroStatus, setFiltroStatus] = useState(() => {
     return location.state?.filtroInicial || 'Todos';
   });
+  const [filtroEscopo, setFiltroEscopo] = useState('todos'); // 'todos', 'clinica', 'manutencao'
 
   const [busca, setBusca] = useState('');
   const [chamadoSelecionado, setChamadoSelecionado] = useState(null);
@@ -92,7 +93,7 @@ const Chamados = ({ user: userProp }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // 📱 Trava o botão físico "Voltar" do celular para fechar os modais em vez de fechar o app
+  // 📱 Trava o botão físico "Voltar" do telemóvel para fechar os modais
   useEffect(() => {
     const handlePopState = () => {
       if (visualizadorAnexo) {
@@ -156,9 +157,29 @@ const Chamados = ({ user: userProp }) => {
       'x-usuario-nivel': obterNivelUsuario()
     };
 
-    fetch(`${API_URL}/chamados`, { headers }).then(res => res.json()).then(setChamados).catch(err => console.error(err));
-    fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).then(setSetores).catch(err => console.error(err));
-    fetch(`${API_URL}/equipamentos`, { headers }).then(res => res.json()).then(setEquipamentos).catch(err => console.error(err));
+    fetch(`${API_URL}/chamados`, { headers })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setChamados(data);
+        } else {
+          setChamados([]);
+        }
+      })
+      .catch(err => {
+        console.error("Erro ao carregar chamados:", err);
+        setChamados([]);
+      });
+
+    fetch(`${API_URL}/setores`, { headers })
+      .then(res => res.json())
+      .then(data => setSetores(Array.isArray(data) ? data : []))
+      .catch(err => console.error(err));
+
+    fetch(`${API_URL}/equipamentos`, { headers })
+      .then(res => res.json())
+      .then(data => setEquipamentos(Array.isArray(data) ? data : []))
+      .catch(err => console.error(err));
 
     fetch(`${API_URL}/categorias-chamado`, { headers })
       .then(res => res.ok ? res.json() : [])
@@ -216,7 +237,7 @@ const Chamados = ({ user: userProp }) => {
         if (!isUsuarioComum) {
           fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
             .then(res => res.json())
-            .then(setListaDocumentos)
+            .then(dataDocs => setListaDocumentos(Array.isArray(dataDocs) ? dataDocs : []))
             .catch(err => console.error("Erro ao buscar documentos:", err));
         } else {
           setListaDocumentos([]);
@@ -436,17 +457,15 @@ const Chamados = ({ user: userProp }) => {
     return 'bg-emerald-600 text-white shadow-sm shadow-emerald-200';
   };
 
-  const totalExternos = chamados.filter(c => isManutencaoExterna(c)).length;
-  const totalAbertos = chamados.filter(c => c.status === 'Aberto').length;
-  const totalAtendimento = chamados.filter(c => c.status === 'Em Atendimento').length;
-  const totalConcluidos = chamados.filter(c => c.status === 'Concluído').length;
+  const listaSegura = Array.isArray(chamados) ? chamados : [];
 
-  const filtrados = chamados.filter(c => {
+  const filtrados = listaSegura.filter(c => {
     if (isUsuarioComum) {
       const pertenceAoUsuario = String(c.usuario_abertura_id) === String(user?.id);
       if (!pertenceAoUsuario) return false;
     }
 
+    // 1. Filtro de Status
     let bateStatus = false;
     if (filtroStatus === 'Todos') {
       bateStatus = true;
@@ -456,14 +475,34 @@ const Chamados = ({ user: userProp }) => {
       bateStatus = c.status === filtroStatus;
     }
 
+    // 2. Filtro por Local / Escopo de Cadastro do Equipamento
+    let bateEscopo = true;
+    const nomeEscopoAtivo = (c.escopo_nome || '').toLowerCase();
+
+    const isClinica = nomeEscopoAtivo.includes('clínica') || 
+                      nomeEscopoAtivo.includes('clinica') ||
+                      (!c.equipamento_id && c.categoria?.toLowerCase().includes('clínica'));
+
+    if (filtroEscopo === 'clinica') {
+      bateEscopo = isClinica;
+    } else if (filtroEscopo === 'manutencao') {
+      bateEscopo = !isClinica;
+    }
+
+    // 3. Filtro de Busca Textual
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.id?.toString().includes(busca) ||
                       c.setor_nome?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.equip_nome?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.equip_pat?.toLowerCase().includes(busca.toLowerCase());
 
-    return bateStatus && bateBusca;
+    return bateStatus && bateEscopo && bateBusca;
   });
+
+  const totalExternos = filtrados.filter(c => isManutencaoExterna(c)).length;
+  const totalAbertos = filtrados.filter(c => c.status === 'Aberto').length;
+  const totalAtendimento = filtrados.filter(c => c.status === 'Em Atendimento').length;
+  const totalConcluidos = filtrados.filter(c => c.status === 'Concluído').length;
 
   return (
     <div className="p-3 sm:p-4 bg-slate-50 min-h-screen font-sans text-dark">
@@ -487,6 +526,18 @@ const Chamados = ({ user: userProp }) => {
           )}
         </h1>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch sm:items-center">
+          
+          {/* SELETOR DE ESCOPO / LOCAL DE ESTOQUE */}
+          <select
+            value={filtroEscopo}
+            onChange={(e) => setFiltroEscopo(e.target.value)}
+            className="border-2 border-slate-100 rounded-xl p-2.5 outline-none font-black text-xs bg-slate-50 text-slate-700 focus:border-blue-500 transition-colors uppercase cursor-pointer"
+          >
+            <option value="todos">🏬 Todos os Escopos</option>
+            <option value="clinica">🤖 Engenharia Clínica</option>
+            <option value="manutencao">🏢 Manutenção Geral</option>
+          </select>
+
           <input 
             type="text" 
             placeholder="Buscar por OS, ativo, setor..." 
@@ -528,7 +579,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       </div>
 
-      {/* BARRA DE ABAS / FILTROS RESPONSIVA COM SCROLL HORIZONTAL */}
+      {/* BARRA DE ABAS / FILTROS */}
       <div className="flex items-center gap-2 mb-6 bg-white p-2 sm:p-3 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto no-scrollbar">
         <button
           type="button"
@@ -539,7 +590,7 @@ const Chamados = ({ user: userProp }) => {
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
-          <span>📋</span> Todos ({chamados.length})
+          <span>📋</span> Todos ({filtrados.length})
         </button>
 
         <button
@@ -624,6 +675,14 @@ const Chamados = ({ user: userProp }) => {
                           <>
                             <span>•</span>
                             <span className="text-indigo-600 font-black">🏷️ {c.categoria}</span>
+                          </>
+                        )}
+                        {c.escopo_nome && (
+                          <>
+                            <span>•</span>
+                            <span className="text-emerald-700 font-black bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60">
+                              📦 {c.escopo_nome}
+                            </span>
                           </>
                         )}
                       </div>
@@ -773,47 +832,6 @@ const Chamados = ({ user: userProp }) => {
           );
         })}
       </div>
-
-      {/* 📱 NOVO: VISUALIZADOR INTERNO DE ANEXOS / FOTOS EM TELA CHEIA */}
-      {visualizadorAnexo && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
-          {/* Barra Superior com botão Voltar / Fechar nítido */}
-          <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">
-            <button 
-              onClick={fecharVisualizadorInterno}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-black text-xs uppercase flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"
-            >
-              <span>←</span> Voltar ao Chamado
-            </button>
-            <span className="text-xs font-black uppercase truncate max-w-[200px] text-slate-300">
-              {visualizadorAnexo.titulo}
-            </span>
-            <button 
-              onClick={fecharVisualizadorInterno}
-              className="text-xl text-slate-400 hover:text-white px-2"
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* Área de Visualização Central */}
-          <div className="flex-1 overflow-auto flex items-center justify-center p-2 sm:p-4">
-            {visualizadorAnexo.tipo === 'imagem' ? (
-              <img 
-                src={visualizadorAnexo.url} 
-                alt="Documento ampliado" 
-                className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
-              />
-            ) : (
-              <iframe 
-                src={visualizadorAnexo.url} 
-                title="Visualizador de PDF"
-                className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
-              />
-            )}
-          </div>
-        </div>
-      )}
 
       {/* MODAL: DETALHES DO CHAMADO */}
       {modalDetalhesAberta && chamadoSelecionado && (() => {
@@ -1239,7 +1257,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* 🏷️ CATEGORIA DINÂMICA NA EDIÇÃO */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Especialidade Técnica *
@@ -1324,7 +1341,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* 📣 MODAL COMPLETO: NOVA SOLICITAÇÃO (ENGENHARIA & MANUTENÇÃO HOSPITALAR) */}
+      {/* 📣 MODAL COMPLETO: NOVA SOLICITAÇÃO */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 text-dark">
           <form onSubmit={enviarChamado} className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 border border-slate-100">
@@ -1377,7 +1394,7 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* LINHA 2: EQUIPAMENTO & ESPECIALIDADE / CATEGORIA DINÂMICA */}
+              {/* LINHA 2: EQUIPAMENTO & ESPECIALIDADE */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">

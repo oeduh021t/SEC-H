@@ -574,7 +574,7 @@ app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tec
 });
 
 // -------------------------------------------------------------------------
-// ROTAS DE CHAMADOS / OS
+// ROTAS DE CHAMADOS / OS (COM ESCOPO DE ESTOQUE DO EQUIPAMENTO)
 // -------------------------------------------------------------------------
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
@@ -583,6 +583,8 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
             s.nome as setor_nome, 
             e.nome as equip_nome, 
             e.patrimonio as equip_pat,
+            e.local_estoque_id as equip_local_estoque_id,
+            le.nome as escopo_nome,
             u.nome as solicitante_nome,
 
             CASE 
@@ -613,8 +615,9 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
         FROM chamados c
         LEFT JOIN setores s ON c.setor_id = s.id
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        LEFT JOIN locais_estoque le ON e.local_estoque_id = le.id
         LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
-        ORDER BY
+        ORDER BY 
             CASE
                 WHEN c.status = 'Aberto' THEN 1
                 WHEN c.status = 'Em Atendimento' THEN 2
@@ -624,8 +627,11 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
             c.data_abertura DESC`;
 
     db.query(query, (err, result) => {
-        if (err) return res.status(500).json(err);
-        res.json(result);
+        if (err) {
+            console.error("❌ Erro no SQL de /api/chamados:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(result || []);
     });
 });
 
@@ -639,7 +645,9 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             e.num_serie, 
             e.nome as eq_nome, 
             e.modelo, 
-            e.fabricante, 
+            e.fabricante,
+            e.local_estoque_id as equip_local_estoque_id,
+            le.nome as escopo_nome,
             s.nome as setor_nome, 
             f.nome_fantasia as empresa_terceirizada,
             u.nome as solicitante_nome,
@@ -671,6 +679,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             END AS status_sla
         FROM chamados c
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        LEFT JOIN locais_estoque le ON e.local_estoque_id = le.id
         LEFT JOIN setores s ON c.setor_id = s.id
         LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
         LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
@@ -699,264 +708,6 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 res.json(chamado);
             });
         });
-    });
-});
-
-app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), upload.single('foto'), (req, res) => {
-    const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
-    
-    const usuario_id = req.headers['x-usuario-id'] || req.body.usuario_id || null;
-    const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
-    const categoryFinal = categoria || category || 'Manutenção';
-
-    const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
-    const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
-    const v_usuario_id = usuario_id && usuario_id !== "" && usuario_id !== "null" && usuario_id !== "undefined" ? Number(usuario_id) : null;
-
-    const query = `INSERT INTO chamados (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())`;
-    const values = [v_setor_id, v_equipamento_id, v_usuario_id, titulo, descricao_problema, prioridade || 'Média', categoryFinal, tipo_manutencao || 'Corretiva', foto_abertura];
-
-    db.query(query, values, (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const novaOsId = result.insertId;
-
-        const queryDadosTelegram = `
-            SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
-                    s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
-            FROM chamados c
-            LEFT JOIN setores s ON c.setor_id = s.id
-            LEFT JOIN equipamentos e ON c.equipamento_id = e.id
-            WHERE c.id = ?
-        `;
-
-        db.query(queryDadosTelegram, [novaOsId], (errTelegram, resultsTelegram) => {
-            if (!errTelegram && resultsTelegram.length > 0) {
-                const dados = resultsTelegram[0];
-                const textoTelegram =
-                    `🚨 *NOVA ORDEM DE SERVIÇO* 🚨\n\n` +
-                    `🎫 *Número da OS:* #${dados.id}\n` +
-                    `📍 *Setor:* ${dados.setor_nome || 'Não Informado'}\n` +
-                    `⚙️ *Ativo:* ${dados.equip_nome ? `${dados.equip_nome} (PAT: ${dados.equip_pat || 'S/P'})` : 'Nenhum ativo vinculado'}\n` +
-                    `📝 *Assunto:* ${dados.titulo}\n` +
-                    `⏰ *Hora de Abertura:* ${dados.hora_formatada}`;
-
-                enviarTelegram(textoTelegram);
-            } else {
-                enviarTelegram(`🚨 *NOVA OS #${novaOsId}*\n📝 *Assunto:* ${titulo}`);
-            }
-        });
-
-        res.json({ message: "Chamado aberto!", id: novaOsId });
-    });
-});
-
-app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
-    const { id } = req.params;
-    const { 
-        status, 
-        tipo_atendimento, 
-        descricao_solucao, 
-        fornecedor_id, 
-        nf_referencia, 
-        custo_servico, 
-        tecnico_responsavel, 
-        tecnico_id 
-    } = req.body;
-    
-    const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
-    const v_tecnico_id = tecnico_id && tecnico_id !== "" ? Number(tecnico_id) : null;
-
-    db.beginTransaction((err, conn) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        const queryUpdate = `
-            UPDATE chamados
-            SET status = ?, 
-                tipo_atendimento = ?, 
-                tecnico_responsavel = ?, 
-                tecnico_id = ?, 
-                fornecedor_id = ?, 
-                nf_referencia = ?, 
-                custo_servico = ?,
-                data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
-            WHERE id = ?
-        `;
-        const valuesUpdate = [
-            status, 
-            tipo_atendimento, 
-            tecnico_nome, 
-            v_tecnico_id, 
-            fornecedor_id || null, 
-            nf_referencia || null, 
-            custo_servico || 0, 
-            status, 
-            id
-        ];
-
-        conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
-            if (errUpdate) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpdate.message }); });
-
-            if (descricao_solucao && descricao_solucao.trim() !== "") {
-                const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
-                conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (errHist) => {
-                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
-
-                    conn.commit((errCommit) => {
-                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                        conn.release();
-                        res.json({ message: "Chamado e cronologia atualizados com sucesso!" });
-                    });
-                });
-            } else {
-                conn.commit((errCommit) => {
-                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                    conn.release();
-                    res.json({ message: "Chamado atualizado com sucesso!" });
-                });
-            }
-        });
-    });
-});
-
-app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
-    const { id } = req.params;
-    const { item_id, quantity, quantidade } = req.body;
-
-    const qtd_solicitada = Number(quantidade || quantity || 0);
-
-    if (!id || id === "0" || id === "null" || id === "undefined") {
-        return res.status(400).json({ error: "Não é possível vincular uma peça sem uma Ordem de Serviço (OS) válida aberta." });
-    }
-
-    db.beginTransaction((err, conn) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        conn.query("SELECT id FROM chamados WHERE id = ?", [id], (errChamado, chamadoExiste) => {
-            if (errChamado) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errChamado.message }); });
-            
-            if (chamadoExiste.length === 0) {
-                return conn.rollback(() => { 
-                    conn.release(); 
-                    res.status(400).json({ error: `A Ordem de Serviço OS #${id} não existe no sistema. Verifique os dados.` }); 
-                });
-            }
-
-            conn.query("SELECT nome, quantidade, valor_unitario FROM itens_estoque WHERE id = ?", [item_id], (errEstoque, results) => {
-                if (errEstoque || results.length === 0) {
-                    return conn.rollback(() => { conn.release(); res.status(400).json({ error: "Item de insumo não localizado no almoxarifado." }); });
-                }
-
-                const item = results[0];
-                if (item.quantidade < qtd_solicitada) {
-                    return conn.rollback(() => { conn.release(); res.status(400).json({ error: `Estoque insuficiente! Saldo atual: ${item.quantidade} un.` }); });
-                }
-
-                const queryIns = "INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca) VALUES (?, ?, ?, ?)";
-                conn.query(queryIns, [id, item_id, qtd_solicitada, item.valor_unitario], (errIns) => {
-                    if (errIns) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
-
-                    conn.query("UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?", [qtd_solicitada, item_id], (errDeduz) => {
-                        if (errDeduz) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errDeduz.message }); });
-
-                        const msgEstoque = `Peça utilizada: ${qtd_solicitada}x ${item.nome}`;
-                        const queryHist = "INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())";
-
-                        conn.query(queryHist, [id, msgEstoque], (errHist) => {
-                            if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
-                            
-                            conn.commit((errCommit) => {
-                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                                conn.release();
-                                res.json({ message: "Estoque deduzido e associado à OS com sucesso!" });
-                            });
-                        });
-                    });
-                });
-            });
-        });
-    });
-});
-
-app.patch('/api/chamados/:id/finalizar', permitirApenas(['admin', 'coordenador', 'tecnico']), upload.single('foto'), (req, res) => {
-    const { id } = req.params;
-    const { status, tecnico_responsavel, descricao_solucao, tipo_atendimento } = req.body;
-    const foto_conclusao = req.file ? `/uploads/${req.file.filename}` : null;
-
-    db.beginTransaction((err, conn) => {
-        if (err) return res.status(500).json(err);
-
-        const queryUpdate = `
-            UPDATE chamados
-            SET status = ?, 
-                tecnico_responsavel = ?, 
-                descricao_solucao = ?, 
-                tipo_atendimento = ?,
-                foto_conclusao = COALESCE(?, foto_conclusao),
-                data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
-            WHERE id = ?
-        `;
-        const valuesUpdate = [status, tecnico_responsavel, descricao_solucao, tipo_atendimento, foto_conclusao, status, id];
-
-        conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
-            if (errUpdate) return conn.rollback(() => { conn.release(); res.status(500).json(errUpdate); });
-
-            const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
-            const msgHist = descricao_solucao || `Status alterado para ${status}`;
-
-            conn.query(queryHist, [id, tecnico_responsavel, msgHist, status], (errHist) => {
-                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json(errHist); });
-                
-                conn.commit(errCommit => {
-                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json(errCommit); });
-                    conn.release();
-                    res.json({ message: "Sucesso!" });
-                });
-            });
-        });
-    });
-});
-
-app.patch('/api/chamados/:id/observacao', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    const { id } = req.params;
-    const { nova_obs, usuario_nome, usuario_nivel } = req.body;
-    const niveisPermitidos = ['admin', 'coordenador'];
-    if (!niveisPermitidos.includes(usuario_nivel?.toLowerCase())) {
-        return res.status(403).json({ error: "Acesso negado: Apenas gestores podem adicionar notas." });
-    }
-
-    const data = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
-    const carimbo = `\n\n--- ${data} (${usuario_nome} | ${usuario_nivel}) ---\n${nova_obs}`;
-    const query = `UPDATE chamados SET observacao_coordenador = CONCAT(COALESCE(observacao_coordenador, ''), ?) WHERE id = ?`;
-
-    db.query(query, [carimbo, id], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({ message: "Nota adicionada com sucesso!" });
-    });
-});
-
-app.patch('/api/chamados/:id/assinar', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
-    const { id } = req.params;
-    const { tipo, signatureBase64, assinaturaBase64, nome } = req.body;
-
-    const imagemAssinatura = assinaturaBase64 || signatureBase64;
-    const nomeDigitado = nome || req.body.nome_digitado;
-
-    if (!imagemAssinatura) {
-        return res.status(400).json({ error: "Dados da assinatura digital ausentes." });
-    }
-
-    const campoAssinatura = tipo === 'tecnico' ? 'assinatura_tecnico' : 'assinatura_setor';
-    const campoNomeExtenso = tipo === 'tecnico' ? 'nome_tecnico' : 'nome_setor';
-
-    const query = `UPDATE chamados SET ${campoAssinatura} = ?, ${campoNomeExtenso} = ? WHERE id = ?`;
-
-    db.query(query, [imagemAssinatura, nomeDigitado || null, id], (err, result) => {
-        if (err) {
-            console.error("❌ Erro no MySQL ao salvar assinatura e nome:", err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        return res.status(200).json({ message: "Assinatura e nome por extenso arquivados com sucesso!" });
     });
 });
 
