@@ -711,6 +711,141 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
     });
 });
 
+app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), upload.single('foto'), (req, res) => {
+    const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
+    
+    const usuario_id = req.headers['x-usuario-id'] || req.body.usuario_id || null;
+    const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
+    const categoryFinal = categoria || category || 'Manutenção';
+
+    const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
+    const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
+    const v_usuario_id = usuario_id && usuario_id !== "" && usuario_id !== "null" && usuario_id !== "undefined" ? Number(usuario_id) : null;
+
+    const query = `
+        INSERT INTO chamados 
+        (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())
+    `;
+    const values = [
+        v_setor_id, 
+        v_equipamento_id, 
+        v_usuario_id, 
+        titulo, 
+        descricao_problema, 
+        prioridade || 'Média', 
+        categoryFinal, 
+        tipo_manutencao || 'Corretiva', 
+        foto_abertura
+    ];
+
+    db.query(query, values, (err, result) => {
+        if (err) {
+            console.error("❌ Erro ao abrir chamado:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+
+        const novaOsId = result.insertId;
+
+        // Notificação Telegram
+        const queryDadosTelegram = `
+            SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
+                   s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
+            FROM chamados c
+            LEFT JOIN setores s ON c.setor_id = s.id
+            LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+            WHERE c.id = ?
+        `;
+
+        db.query(queryDadosTelegram, [novaOsId], (errTelegram, resultsTelegram) => {
+            if (!errTelegram && resultsTelegram.length > 0) {
+                const dados = resultsTelegram[0];
+                const textoTelegram =
+                    `🚨 *NOVA ORDEM DE SERVIÇO* 🚨\n\n` +
+                    `🎫 *Número da OS:* #${dados.id}\n` +
+                    `📍 *Setor:* ${dados.setor_nome || 'Não Informado'}\n` +
+                    `⚙️ *Ativo:* ${dados.equip_nome ? `${dados.equip_nome} (PAT:${dados.equip_pat || 'S/P'})` : 'Nenhum ativo vinculado'}\n` +
+                    `📝 *Assunto:* ${dados.titulo}\n` +
+                    `⏰ *Hora de Abertura:* ${dados.hora_formatada}`;
+
+                enviarTelegram(textoTelegram);
+            } else {
+                enviarTelegram(`🚨 *NOVA OS #${novaOsId}*\n📝 *Assunto:* ${titulo}`);
+            }
+        });
+
+        res.status(201).json({ message: "Chamado aberto com sucesso!", id: novaOsId });
+    });
+});
+
+app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { 
+        status, 
+        tipo_atendimento, 
+        descricao_solucao, 
+        fornecedor_id, 
+        nf_referencia, 
+        custo_servico, 
+        tecnico_responsavel, 
+        tecnico_id 
+    } = req.body;
+    
+    const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
+    const v_tecnico_id = tecnico_id && tecnico_id !== "" ? Number(tecnico_id) : null;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const queryUpdate = `
+            UPDATE chamados
+            SET status = ?, 
+                tipo_atendimento = ?, 
+                tecnico_responsavel = ?, 
+                tecnico_id = ?, 
+                fornecedor_id = ?, 
+                nf_referencia = ?, 
+                custo_servico = ?,
+                data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
+            WHERE id = ?
+        `;
+        const valuesUpdate = [
+            status, 
+            tipo_atendimento, 
+            tecnico_nome, 
+            v_tecnico_id, 
+            fornecedor_id || null, 
+            nf_referencia || null, 
+            custo_servico || 0, 
+            status, 
+            id
+        ];
+
+        conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
+            if (errUpdate) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpdate.message }); });
+
+            if (descricao_solucao && descricao_solucao.trim() !== "") {
+                const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
+                conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (errHist) => {
+                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                        conn.release();
+                        res.json({ message: "Chamado e cronologia atualizados com sucesso!" });
+                    });
+                });
+            } else {
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.json({ message: "Chamado atualizado com sucesso!" });
+                });
+            }
+        });
+    });
+});
+
 // -------------------------------------------------------------------------
 // ROTAS DE PREVENTIVAS
 // -------------------------------------------------------------------------
