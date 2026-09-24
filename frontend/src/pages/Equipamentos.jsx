@@ -75,7 +75,12 @@ const Equipamentos = () => {
   const handleExportarExcel = async () => {
     setExportando(true)
     try {
-      const res = await fetch(`${API_URL}/relatorios/exportar/equipamentos`, {
+      const params = new URLSearchParams();
+      if (filtroSetor && filtroSetor !== 'todos') params.append('setor_id', filtroSetor);
+      if (filtroStatus && filtroStatus !== 'todos') params.append('status', filtroStatus);
+      if (filtroTipo && filtroTipo !== 'todos') params.append('tipo_id', filtroTipo);
+
+      const res = await fetch(`${API_URL}/relatorios/exportar/inventario-geral?${params.toString()}`, {
         headers: { "x-usuario-nivel": obterNivelUsuario() }
       })
 
