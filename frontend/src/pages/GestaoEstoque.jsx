@@ -38,6 +38,7 @@ export function GestaoEstoque() {
   const [qtdEntradaRapida, setQtdEntradaRapida] = useState(1);
   const [valorEntradaRapida, setValorEntradaRapida] = useState(0.0);
   const [notaEntradaRapida, setNotaEntradaRapida] = useState("");
+  const [salvandoEntradaRapida, setSalvandoEntradaRapida] = useState(false);
 
   const [modalEtiqueta, setModalEtiqueta] = useState(null);
 
@@ -135,8 +136,9 @@ export function GestaoEstoque() {
 
   const handleSalvarEntradaRapida = async (e) => {
     e.preventDefault();
-    if (!modalEntradaRapida || qtdEntradaRapida <= 0) return;
+    if (!modalEntradaRapida || qtdEntradaRapida <= 0 || salvandoEntradaRapida) return;
 
+    setSalvandoEntradaRapida(true);
     try {
       const res = await fetch(`${API_URL}/estoque/${modalEntradaRapida.id}/entrada-rapida`, {
         method: "POST",
@@ -160,6 +162,8 @@ export function GestaoEstoque() {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setSalvandoEntradaRapida(false);
     }
   };
 
@@ -679,16 +683,18 @@ export function GestaoEstoque() {
               <div className="pt-2 flex gap-2">
                 <button
                   type="button"
+                  disabled={salvandoEntradaRapida}
                   onClick={() => setModalEntradaRapida(null)}
-                  className="flex-1 py-3 bg-slate-100 text-slate-600 font-black text-xs uppercase rounded-xl"
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 font-black text-xs uppercase rounded-xl disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase rounded-xl shadow-md transition-all active:scale-[0.98]"
+                  disabled={salvandoEntradaRapida}
+                  className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase rounded-xl shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  ➕ Confirmar Entrada
+                  {salvandoEntradaRapida ? "Gravando..." : "➕ Confirmar Entrada"}
                 </button>
               </div>
             </form>
