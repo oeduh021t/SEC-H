@@ -7,11 +7,13 @@ const Chamados = ({ user: userProp }) => {
 
   const fileInputCameraRef = useRef(null);
   const fileInputGaleriaRef = useRef(null);
+  const tituloRef = useRef(null);
+  const descricaoRef = useRef(null);
 
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
-  
+
   // 🏷️ Categorias dinâmicas
   const [categorias, setCategorias] = useState([
     { id: 1, nome: 'Engenharia Clínica', icone: '🤖' },
@@ -293,17 +295,21 @@ const Chamados = ({ user: userProp }) => {
 
   const enviarChamado = (e) => {
     e.preventDefault();
+
+    const tituloValor = tituloRef.current?.value || '';
+    const descricaoValor = descricaoRef.current?.value || '';
+
     const formData = new FormData();
     formData.append('setor_id', form.setor_id);
     formData.append('equipamento_id', form.equipamento_id);
-    formData.append('titulo', form.titulo);
+    formData.append('titulo', tituloValor);
     
-    let relatoFormatado = form.descricao_problema;
+    let relatoFormatado = descricaoValor;
     if (form.impacto === 'Paralisado' || form.ramal_contato) {
       const prefixos = [];
       if (form.impacto === 'Paralisado') prefixos.push('🚨 [LEITO/SETOR PARALISADO]');
       if (form.ramal_contato) prefixos.push(`📞 [CONTATO: ${form.ramal_contato}]`);
-      relatoFormatado = `${prefixos.join(' ')}\n\n${form.descricao_problema}`;
+      relatoFormatado = `${prefixos.join(' ')}\n\n${descricaoValor}`;
     }
 
     formData.append('descricao_problema', relatoFormatado);
@@ -321,6 +327,10 @@ const Chamados = ({ user: userProp }) => {
     }).then(() => {
       setModalAberta(false);
       setFotoAbertura(null);
+
+      if (tituloRef.current) tituloRef.current.value = '';
+      if (descricaoRef.current) descricaoRef.current.value = '';
+
       setForm({
         setor_id: '',
         equipamento_id: '',
@@ -541,7 +551,7 @@ const Chamados = ({ user: userProp }) => {
           <input 
             type="text" 
             placeholder="Buscar por OS, ativo, setor..." 
-            value={busca}
+            value={busca} 
             className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800 focus:border-blue-500 transition-colors text-sm" 
             onChange={(e) => setBusca(e.target.value)} 
           />
@@ -560,6 +570,8 @@ const Chamados = ({ user: userProp }) => {
 
           <button 
             onClick={() => { 
+              if (tituloRef.current) tituloRef.current.value = '';
+              if (descricaoRef.current) descricaoRef.current.value = '';
               setForm({
                 setor_id: '',
                 equipamento_id: '',
@@ -1033,8 +1045,8 @@ const Chamados = ({ user: userProp }) => {
                                   {isPdf ? '📄' : '📷'} {doc.nome_original}
                                 </span>
                                 <button 
-                                  type="button"
-                                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? 'pdf' : 'imagem')}
+                                  type="button" 
+                                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? 'pdf' : 'imagem')} 
                                   className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 active:scale-95 transition-all shadow-xs"
                                 >
                                   Ver ↗
@@ -1354,6 +1366,8 @@ const Chamados = ({ user: userProp }) => {
                 onClick={() => { 
                   setModalAberta(false); 
                   setFotoAbertura(null); 
+                  if (tituloRef.current) tituloRef.current.value = '';
+                  if (descricaoRef.current) descricaoRef.current.value = '';
                 }} 
                 className="text-xl text-white hover:opacity-80"
               >
@@ -1506,18 +1520,17 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* LINHA 4: ASSUNTO */}
+              {/* LINHA 4: ASSUNTO (DESVINCULADO DO STATE: SEM ATRASO NA DIGITAÇÃO) */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Assunto Resumido da Ocorrência *
                 </label>
                 <input 
+                  ref={tituloRef}
                   type="text" 
                   placeholder="Ex: Cadeira quebrada no consultório, Telefone mudo, Monitor não liga..." 
                   className="w-full border-2 border-slate-100 p-2.5 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500" 
                   required 
-                  value={form.titulo} 
-                  onChange={e => setForm({...form, titulo: e.target.value})} 
                 />
               </div>
 
@@ -1531,7 +1544,7 @@ const Chamados = ({ user: userProp }) => {
                   ref={fileInputCameraRef}
                   type="file" 
                   accept="image/*" 
-                  capture="environment"
+                  capture="environment" 
                   className="hidden" 
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
@@ -1592,17 +1605,16 @@ const Chamados = ({ user: userProp }) => {
                 )}
               </div>
 
-              {/* LINHA 6: DESCRIÇÃO DETALHADA */}
+              {/* LINHA 6: DESCRIÇÃO DETALHADA (DESVINCULADO DO STATE: SEM ATRASO NA DIGITAÇÃO) */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Relato Descritivo do Problema *
                 </label>
                 <textarea 
+                  ref={descricaoRef}
                   placeholder="Descreva detalhadamente a falha, orientações de acesso ao local..." 
                   className="w-full border-2 border-slate-100 p-3 rounded-xl h-24 text-xs font-medium text-slate-700 outline-none focus:border-amber-500 resize-none" 
                   required 
-                  value={form.descricao_problema} 
-                  onChange={e => setForm({...form, descricao_problema: e.target.value})} 
                 />
               </div>
 
@@ -1613,6 +1625,8 @@ const Chamados = ({ user: userProp }) => {
                   onClick={() => { 
                     setModalAberta(false); 
                     setFotoAbertura(null); 
+                    if (tituloRef.current) tituloRef.current.value = '';
+                    if (descricaoRef.current) descricaoRef.current.value = '';
                   }} 
                   className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-500 py-3 rounded-2xl font-black text-xs uppercase transition-all"
                 >
