@@ -7,6 +7,7 @@ const Preventivas = () => {
     const [tipos, setTipos] = useState([]); 
     const [loading, setLoading] = useState(true);
     const [exportando, setExportando] = useState(false);
+    const [imprimindoTudo, setImprimindoTudo] = useState(false);
     
     // Controle de Modais e Formulário
     const [modalBaixa, setModalBaixa] = useState(false);
@@ -59,6 +60,20 @@ const Preventivas = () => {
     };
 
     useEffect(() => { carregarDados(); }, []);
+
+    // 🖨️ AÇÃO DE IMPRESSÃO COMPLETA (SEM CORTE DE PAGINAÇÃO)
+    const handleImprimirCompleto = () => {
+        setImprimindoTudo(true);
+        setTimeout(() => {
+            window.print();
+        }, 300);
+    };
+
+    useEffect(() => {
+        const handleAposImprimir = () => setImprimindoTudo(false);
+        window.addEventListener('afterprint', handleAposImprimir);
+        return () => window.removeEventListener('afterprint', handleAposImprimir);
+    }, []);
 
     // 📊 EXPORTAR PLANILHA EXCEL
     const handleExportarExcel = async () => {
@@ -166,10 +181,12 @@ const Preventivas = () => {
         setPaginaAtual(1);
     };
 
-    // Cálculos de Paginação
+    // Cálculos de Paginação (se estiver em modo de impressão, desativa o slice e imprime todos)
     const totalPaginas = Math.ceil(dadosFiltrados.length / itensPorPagina) || 1;
     const indexInicio = (paginaAtual - 1) * itensPorPagina;
-    const dadosPaginados = dadosFiltrados.slice(indexInicio, indexInicio + itensPorPagina);
+    const dadosPaginados = imprimindoTudo 
+        ? dadosFiltrados 
+        : dadosFiltrados.slice(indexInicio, indexInicio + itensPorPagina);
 
     if (loading) return (
         <div className="p-10 text-center animate-pulse text-slate-500 font-black tracking-widest uppercase text-xs">
@@ -183,19 +200,36 @@ const Preventivas = () => {
             {/* ESTILO DE IMPRESSÃO */}
             <style>{`
                 @media print {
+                    @page {
+                        size: A4 portrait;
+                        margin: 10mm;
+                    }
+                    body {
+                        background: white !important;
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                    }
                     body * {
                         visibility: hidden;
-                        background: white !important;
                     }
                     .relatorio-container,
                     .relatorio-container * {
                         visibility: visible;
                     }
                     .relatorio-container {
-                        position: absolute;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
+                        position: relative !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                    }
+                    tr {
+                        page-break-inside: avoid !important;
+                        break-inside: avoid !important;
+                    }
+                    thead {
+                        display: table-header-group !important;
                     }
                     .hide-print {
                         display: none !important;
@@ -223,10 +257,10 @@ const Preventivas = () => {
                 </button>
 
                 <button
-                    onClick={() => window.print()}
+                    onClick={handleImprimirCompleto}
                     className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-transform shadow-md flex items-center gap-2"
                 >
-                    <span>🖨️</span> Imprimir / PDF
+                    <span>🖨️</span> {imprimindoTudo ? "Preparando..." : "Imprimir / PDF"}
                 </button>
             </div>
 

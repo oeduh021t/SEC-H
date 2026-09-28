@@ -995,7 +995,7 @@ app.post('/api/preventivas/baixa', permitirApenas(['admin', 'coordenador', 'tecn
 app.get('/api/equipamentos/:id/prontuario', (req, res) => {
     const param = req.params.id;
 
-    // Busca híbrida: aceita tanto o ID primário quanto o Patrimônio
+    // Busca híbrida: prioriza e.id caso haja conflito numérico com e.patrimonio
     const queryEquip = `
         SELECT 
             e.*, 
@@ -1012,7 +1012,7 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
                     SELECT SUM(ci.quantidade * ci.valor_unitario_na_epoca)
                     FROM chamados_itens ci
                     INNER JOIN chamados ch ON ci.chamado_id = ch.id
-                    WHERE ch.equipamento_id = e.id
+                    WHERE ch.equipamento_id = e.id 
                       AND ch.status NOT IN ('Cancelado')
                 ), 0.00) +
                 COALESCE((
@@ -1037,10 +1037,11 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
         FROM equipamentos e 
         LEFT JOIN setores s ON e.setor_id = s.id 
         WHERE e.id = ? OR e.patrimonio = ?
+        ORDER BY CASE WHEN e.id = ? THEN 0 ELSE 1 END ASC
         LIMIT 1
     `;
 
-    db.query(queryEquip, [param, param], (errEquip, rowsEquip) => {
+    db.query(queryEquip, [param, param, param], (errEquip, rowsEquip) => {
         if (errEquip) {
             console.error("❌ Erro ao buscar equipamento no prontuário:", errEquip.message);
             return res.status(500).json({ error: errEquip.message });
@@ -2904,58 +2905,23 @@ app.get('/api/documentos', permitirApenas(['admin', 'coordenador', 'tecnico', 'u
     });
 });
 
-// -------------------------------------------------------------------------
-// TROCAS E RESERVAS
-// -------------------------------------------------------------------------
-app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
-    const { tipo_de_equipamento_com_base_em } = req.query;
-
-    if (!tipo_de_equipamento_com_base_em) {
-        return res.status(400).json({ error: "O ID do equipamento de referência é obrigatório." });
-    }
-
-    const queryTipo = `SELECT id, tipo_id, tipo_equipamento_id FROM equipamentos WHERE id = ?`;
-    
-    db.query(queryTipo, [Number(tipo_de_equipamento_com_base_em)], (errTipo, resultTipo) => {
-        if (errTipo) return res.status(500).json({ error: errTipo.message });
-        if (resultTipo.length === 0) return res.status(404).json({ error: "Equipamento de referência não encontrado." });
-
-        const tipoId = resultTipo[0].tipo_id || resultTipo[0].tipo_equipamento_id;
-
-        let queryReservas = `
-            SELECT e.id, e.nome, e.patrimonio, e.status, IFNULL(s.nome, 'Sem Setor / Reserva') as setor_nome 
-            FROM equipamentos e
-            LEFT JOIN setores s ON e.setor_id = s.id
-            WHERE e.id != ? AND e.status IN ('Reserva', 'Ativo')
-        `;
-        const queryParams = [Number(tipo_de_equipamento_com_base_em)];
-
-        if (tipoId) {
-            queryReservas += ` AND (e.tipo_id = ? OR e.tipo_equipamento_id = ?)`;
-            queryParams.push(tipoId, tipoId);
-        }
-
-        queryReservas += ` ORDER BY e.status DESC, e.nome ASC`;
-
-        db.query(queryReservas, queryParams, (errRes, resultReservas) => {
-            if (errRes) return res.status(500).json({ error: errRes.message });
-            res.json(resultReservas || []);
-        });
-    });
-});
-
 app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { 
         equipamento_atual_id, 
         equipamento_reserva_id,
         chamado_id, 
         tecnico_nome, 
-        setor_destino_id 
+        setor_destino_id,
+        setor_manutencao_id // Opcional: pode vir do front se enviado
     } = req.body;
 
     if (!equipamento_atual_id || !equipamento_reserva_id || !setor_destino_id) {
         return res.status(400).json({ error: "Dados incompletos para processar a substituição." });
     }
+
+    // Configure aqui o ID do setor correspondente (ex: Oficina, Engenharia Clínica ou Estoque Reserva)
+    // Se não enviado na requisição, coloque o ID padrão do banco de dados:
+    const SETOR_MANUTENCAO_DESTINO = setor_manutencao_id || 129; 
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -2972,15 +2938,17 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
             const eqAntigo = eqResults.find(e => e.id === Number(equipamento_atual_id));
             const eqNovo = eqResults.find(e => e.id === Number(equipamento_reserva_id));
 
+            // 1. O equipamento avariado passa para 'Em Manutenção' e é alocado no setor de manutenção/oficina
             const queryUpdateAntigo = `
                 UPDATE equipamentos 
-                SET status = 'Inoperante', 
-                    setor_id = NULL 
+                SET status = 'Em Manutenção', 
+                    setor_id = ? 
                 WHERE id = ?`;
             
-            conn.query(queryUpdateAntigo, [equipamento_atual_id], (errUpAntigo) => {
+            conn.query(queryUpdateAntigo, [SETOR_MANUTENCAO_DESTINO, equipamento_atual_id], (errUpAntigo) => {
                 if (errUpAntigo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpAntigo.message }); });
 
+                // 2. O equipamento reserva passa para 'Ativo' no setor onde ocorreu a troca
                 const queryUpdateNovo = `
                     UPDATE equipamentos 
                     SET status = 'Ativo', 
@@ -2990,15 +2958,17 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                 conn.query(queryUpdateNovo, [setor_destino_id, equipamento_reserva_id], (errUpNovo) => {
                     if (errUpNovo) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpNovo.message }); });
 
-                    const logDescricaoAntigo = `Retirado do setor devido a avaria relatada${chamado_id ? ` na OS #${chamado_id}` : ''}. Substituído pelo equipamento ${eqNovo.nome} (Pat: ${eqNovo.patrimonio}).`;
+                    // 3. Log de histórico do ativo retirado
+                    const logDescricaoAntigo = `Retirado do setor devido a avaria relatada${chamado_id ? ` na OS #${chamado_id}` : ''}. Encaminhado para manutenção e substituído pelo equipamento ${eqNovo.nome} (Pat: ${eqNovo.patrimonio}).`;
                     const queryHistAntigo = `
                         INSERT INTO equipamentos_historico 
                         (equipamento_id, setor_origem_id, setor_destino_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao) 
-                        VALUES (?, ?, NULL, ?, 'Inoperante', ?, ?, NOW())`;
+                        VALUES (?, ?, ?, ?, 'Em Manutenção', ?, ?, NOW())`;
 
-                    conn.query(queryHistAntigo, [equipamento_atual_id, eqAntigo.setor_id, eqAntigo.status, logDescricaoAntigo, tecnico_nome || 'Técnico'], (errHistA) => {
+                    conn.query(queryHistAntigo, [equipamento_atual_id, eqAntigo.setor_id, SETOR_MANUTENCAO_DESTINO, eqAntigo.status, logDescricaoAntigo, tecnico_nome || 'Técnico'], (errHistA) => {
                         if (errHistA) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistA.message }); });
 
+                        // 4. Log de histórico do ativo que entrou
                         const logDescricaoNovo = `Instalado no setor (ID: ${setor_destino_id}) em substituição/permuta ao equipamento ${eqAntigo.nome} (Pat: ${eqAntigo.patrimonio}).`;
                         const queryHistNovo = `
                             INSERT INTO equipamentos_historico 
@@ -3008,12 +2978,13 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
                         conn.query(queryHistNovo, [equipamento_reserva_id, eqNovo.setor_id, setor_destino_id, eqNovo.status, logDescricaoNovo, tecnico_nome || 'Técnico'], (errHistN) => {
                             if (errHistN) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHistN.message }); });
 
+                            // 5. Atualização da OS com o novo equipamento vinculado
                             if (chamado_id && chamado_id !== "0" && chamado_id !== "null") {
                                 const queryUpdateChamado = `UPDATE chamados SET equipamento_id = ? WHERE id = ?`;
                                 conn.query(queryUpdateChamado, [equipamento_reserva_id, chamado_id], (errChamado) => {
                                     if (errChamado) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errChamado.message }); });
 
-                                    const msgHistOs = `[🔄 SUBSTITUIÇÃO/PERMUTA DE ATIVO] Equipamento anterior (Pat: ${eqAntigo.patrimonio}) substituído por novo equipamento (Pat: ${eqNovo.patrimonio}).`;
+                                    const msgHistOs = `[🔄 SUBSTITUIÇÃO/PERMUTA DE ATIVO] Equipamento anterior (Pat: ${eqAntigo.patrimonio}) enviado para Manutenção. Novo equipamento instalado no setor (Pat: ${eqNovo.patrimonio}).`;
                                     const queryHistOs = `
                                         INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
                                         VALUES (?, ?, ?, 'Em Atendimento', NOW())`;
