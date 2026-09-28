@@ -151,9 +151,14 @@ const Preventivas = () => {
     }, { atrasadas: 0, criticas: 0, emDia: 0 });
 
     const formatarDataLocal = (dataStr) => {
-        if (!dataStr || dataStr.startsWith('1970')) return 'Nunca Realizada';
-        const data = new Date(dataStr);
-        return isNaN(data.getTime()) ? 'Nunca Realizada' : data.toLocaleDateString('pt-BR');
+        if (!dataStr || String(dataStr).startsWith('1970')) return 'Nunca Realizada';
+        const apenasData = String(dataStr).split('T')[0];
+        const partes = apenasData.split('-');
+        if (partes.length === 3) {
+            const [ano, mes, dia] = partes;
+            return `${dia.padStart(2, '0')}/${mes.padStart(2, '0')}/${ano}`;
+        }
+        return '---';
     };
 
     const alternarFiltroCard = (tipoCard) => {
@@ -344,7 +349,7 @@ const Preventivas = () => {
                                         <td className="p-3.5">
                                             <div className="font-bold text-slate-700 flex items-center gap-1">
                                                 <span>📅</span>
-                                                <span>{p.data_vencimento ? new Date(p.data_vencimento).toLocaleDateString('pt-BR') : '---'}</span>
+                                                <span>{p.data_vencimento ? formatarDataLocal(p.data_vencimento) : '---'}</span>
                                                 <span className="text-[10px] text-slate-400 font-normal">({p.periodicidade_preventiva}d)</span>
                                             </div>
                                             <div className="text-[10px] text-slate-400 mt-0.5 font-medium">Última: {formatarDataLocal(p.data_ultima_preventiva)}</div>
@@ -438,8 +443,8 @@ const Preventivas = () => {
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">Laudo / Relatório de Execução</label>
                                 <textarea 
                                     required 
-                                    value={relatorio}
-                                    onChange={e => setRelatorio(e.target.value)}
+                                    value={relatorio} 
+                                    onChange={e => setRelatorio(e.target.value)} 
                                     className="w-full border-2 border-slate-100 bg-slate-50/50 focus:bg-white rounded-2xl p-4 h-32 focus:border-green-500 outline-none transition-all resize-none text-xs font-medium text-slate-700 text-black" 
                                     placeholder="Descreva detalhadamente as ações de manutenção efetuadas..."
                                 />
@@ -451,7 +456,7 @@ const Preventivas = () => {
                                     type="file" 
                                     accept="image/*,application/pdf" 
                                     className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-white hover:file:bg-slate-900 file:cursor-pointer" 
-                                    onChange={e => setArquivoLaudo(e.target.files[0])}
+                                    onChange={e => setArquivoLaudo(e.target.files[0])} 
                                 />
                             </div>
 

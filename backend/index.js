@@ -846,6 +846,88 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
     });
 });
 
+app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { item_id, quantidade } = req.body;
+
+    const qtd = Number(quantidade);
+    const idItem = Number(item_id);
+
+    if (!idItem || !qtd || qtd <= 0) {
+        return res.status(400).json({ error: "Item e quantidade válida são obrigatórios." });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Busca quantidade e valor unitário com bloqueio de linha
+        const sqlItem = `SELECT valor_unitario, quantidade FROM itens_estoque WHERE id = ? FOR UPDATE`;
+        conn.query(sqlItem, [idItem], (errItem, rowsItem) => {
+            if (errItem) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(500).json({ error: errItem.message });
+                });
+            }
+
+            if (rowsItem.length === 0) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(404).json({ error: "Item de estoque não encontrado." });
+                });
+            }
+
+            const itemEstoque = rowsItem[0];
+
+            // Validação de saldo disponível
+            if (itemEstoque.quantidade < qtd) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(400).json({ error: "Quantidade insuficiente em estoque." });
+                });
+            }
+
+            const valorUnitario = itemEstoque.valor_unitario || 0;
+
+            // 2. Insere o item na tabela chamados_itens
+            const sqlInsert = `
+                INSERT INTO chamados_itens (chamado_id, item_id, quantidade, valor_unitario_na_epoca, data_uso) 
+                VALUES (?, ?, ?, ?, NOW())
+            `;
+            conn.query(sqlInsert, [id, idItem, qtd, valorUnitario], (errInsert) => {
+                if (errInsert) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(500).json({ error: errInsert.message });
+                    });
+                }
+
+                // 3. Debita a quantidade da tabela itens_estoque
+                const sqlUpdateEstoque = `UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?`;
+                conn.query(sqlUpdateEstoque, [qtd, idItem], (errStock) => {
+                    if (errStock) {
+                        return conn.rollback(() => {
+                            conn.release();
+                            res.status(500).json({ error: errStock.message });
+                        });
+                    }
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) {
+                            return conn.rollback(() => {
+                                conn.release();
+                                res.status(500).json({ error: errCommit.message });
+                            });
+                        }
+                        conn.release();
+                        res.status(201).json({ message: "Item adicionado e debitado com sucesso!" });
+                    });
+                });
+            });
+        });
+    });
+});
+
 // -------------------------------------------------------------------------
 // ROTAS DE PREVENTIVAS
 // -------------------------------------------------------------------------
