@@ -63,25 +63,29 @@ export function ImprimirOS() {
 
   // Funções Auxiliares de Formatação
   const formatarData = (data) => data ? new Date(data).toLocaleString('pt-BR') : "---";
-  const formatarMoeda = (valor) => new Number(valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const formatarMoeda = (valor) => new Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
   if (loading) return <p className="p-8 text-center font-bold">Gerando Relatório...</p>;
   if (!chamado) return <p className="p-8 text-center text-red-500 font-bold">OS não encontrada.</p>;
 
-  // Cálculo de Peças
+  // Cálculo de Peças e Totais
   const totalPecas = chamado.itens_vinculados?.reduce((acc, item) => acc + (item.quantidade * item.valor_unitario), 0) || 0;
-  const totalGeral = totalPecas + (Number(chamado.custo_servico) || 0);
+  const custoServico = Number(chamado.custo_servico) || 0;
+  const totalGeral = totalPecas + custoServico;
 
-  // 🔑 EXTRAÇÃO DA SOLUÇÃO TÉCNICA BASEADA NO HISTÓRICO DE CONCLUSÃO DA OS
+  // Extração da Solução Técnica
   const logConclusao = chamado.historico?.find(
     (h) => h.status_momento?.toLowerCase() === "concluído" || h.status_momento?.toLowerCase() === "concluido"
   );
   const solucaoTecnica = logConclusao?.texto_historico?.trim() || chamado.descricao_solucao?.trim();
 
+  // Flag de Fornecedor Terceirizado
+  const temTerceirizado = Boolean(chamado.empresa_terceirizada || chamado.fornecedor_id);
+
   return (
     <div className="p-2 md:p-8 max-w-[210mm] mx-auto text-black bg-white">
       
-      {/* ISOLAMENTO DA IMPRESSÃO IGUAL AO DO RELATÓRIO (Evita páginas brancas de layouts externos) */}
+      {/* ISOLAMENTO DA IMPRESSÃO */}
       <style>{`
         @media print {
           body * {
@@ -106,6 +110,11 @@ export function ImprimirOS() {
           .hide-print {
             display: none !important;
           }
+
+          .break-inside-avoid {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
         }
       `}</style>
 
@@ -115,7 +124,7 @@ export function ImprimirOS() {
         <button onClick={() => navigate(-1)} className="bg-slate-200 text-slate-700 px-6 py-2 rounded-lg font-bold">VOLTAR</button>
       </div>
 
-      {/* CONTAINER PRINCIPAL COM A CLASSE DE VISIBILIDADE ISOLADA */}
+      {/* CONTAINER PRINCIPAL */}
       <div className="os-impressao-container border border-slate-300 p-8 bg-white">
         
         {/* CABEÇALHO CORPORATIVO */}
@@ -133,44 +142,102 @@ export function ImprimirOS() {
         {/* METADADOS DO CHAMADO */}
         <div className="grid grid-cols-4 gap-4 mb-6 text-[11px] bg-slate-50 p-3 border border-slate-200 rounded-lg">
           <div><label className="font-black block text-slate-400">STATUS:</label><span className="font-bold">{chamado.status?.toUpperCase()}</span></div>
-          <div><label className="font-black block text-slate-400">TIPO:</label><span className="font-bold">{chamado.tipo_manutencao || "CORRETIVA"}</span></div>
+          <div><label className="font-black block text-slate-400">TIPO:</label><span className="font-bold">{chamado.tipo_manutencao?.toUpperCase() || "CORRETIVA"}</span></div>
           <div><label className="font-black block text-slate-400">ABERTO EM:</label><span className="font-bold">{formatarData(chamado.data_abertura)}</span></div>
           <div><label className="font-black block text-slate-400">CONCLUÍDO EM:</label><span className="font-bold">{formatarData(chamado.data_conclusao)}</span></div>
         </div>
 
-        {/* BOX: DADOS DO EQUIPAMENTO */}
-        <div className="mb-6 border border-black">
-          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">1. Identificação do Ativo</div>
-          <div className="grid grid-cols-2 gap-y-2 p-3 text-sm">
+        {/* BOX 1: DADOS DO ATIVO E LOCALIZAÇÃO */}
+        <div className="mb-6 border border-black break-inside-avoid">
+          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+            1. Identificação do Ativo / Local
+          </div>
+          <div className="grid grid-cols-2 gap-y-2 p-3 text-xs">
             <p><strong>Equipamento:</strong> {chamado.eq_nome || "N/A"}</p>
             <p><strong>Patrimônio:</strong> {chamado.patrimonio || "N/A"}</p>
             <p><strong>Modelo:</strong> {chamado.modelo || "N/A"}</p>
             <p><strong>Nº de Série:</strong> {chamado.num_serie || "N/A"}</p>
-            <p><strong>Setor Localizado:</strong> {chamado.setor_nome || "N/A"}</p>
-            <p><strong>Fabricante:</strong> {chamado.fabricante || "N/A"}</p>
+            <p><strong>Setor / Local:</strong> {chamado.setor_nome || "N/A"}</p>
+            <p><strong>Solicitante:</strong> {chamado.solicitante_nome || "N/A"}</p>
           </div>
         </div>
 
-        {/* BOX: RELATÓRIO TÉCNICO */}
-        <div className="mb-6 border border-black">
-          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">2. Descrição Técnica do Atendimento</div>
+        {/* BOX 2: DADOS DO FORNECEDOR / TERCEIRIZADO (RENDERIZA SE HOUVER) */}
+        {temTerceirizado && (
+          <div className="mb-6 border border-black break-inside-avoid">
+            <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase flex justify-between">
+              <span>2. Prestação de Serviço Terceirizado</span>
+              <span className="font-bold">FORNECEDOR HOMOLOGADO</span>
+            </div>
+            <div className="grid grid-cols-3 gap-y-2 p-3 text-xs">
+              <p className="col-span-2"><strong>Empresa Prestadora:</strong> {chamado.empresa_terceirizada || "N/A"}</p>
+              <p><strong>NF de Referência:</strong> {chamado.nf_referencia || "Não informada"}</p>
+              <p><strong>Técnico / Representante:</strong> {chamado.tecnico_externo_nome || "Não informado"}</p>
+              <p><strong>Valor Mão de Obra / Serviço:</strong> {formatarMoeda(custoServico)}</p>
+              <p><strong>Tipo de Atendimento:</strong> {chamado.tipo_atendimento || "Interno"}</p>
+            </div>
+          </div>
+        )}
+
+        {/* BOX 3: RELATÓRIO TÉCNICO */}
+        <div className="mb-6 border border-black break-inside-avoid">
+          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+            {temTerceirizado ? "3." : "2."} Descrição Técnica do Atendimento
+          </div>
           <div className="p-3">
             <div className="mb-4">
               <label className="text-[10px] font-black text-slate-400 block mb-1">RECLAMAÇÃO / DIAGNÓSTICO:</label>
-              <div className="text-sm italic min-h-[40px]">{chamado.descricao_problema}</div>
+              <div className="text-xs italic min-h-[30px]">{chamado.descricao_problema}</div>
             </div>
             <div>
               <label className="text-[10px] font-black text-slate-400 block mb-1">SOLUÇÃO TÉCNICA APLICADA:</label>
-              <div className="text-sm font-bold min-h-[50px]">
+              <div className="text-xs font-bold min-h-[40px]">
                 {solucaoTecnica && solucaoTecnica !== "" ? solucaoTecnica : "Aguardando conclusão."}
               </div>
             </div>
           </div>
         </div>
 
-        {/* TABELA DE PEÇAS / INSUMOS */}
-        <div className="mb-6 border border-black">
-          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">3. Peças e Insumos Aplicados</div>
+        {/* BOX 4: FOTOS E REGISTROS FOTOGRÁFICOS */}
+        {(chamado.foto_abertura || chamado.foto_conclusao) && (
+          <div className="mb-6 border border-black break-inside-avoid">
+            <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+              {temTerceirizado ? "4." : "3."} Evidências Fotográficas
+            </div>
+            <div className="grid grid-cols-2 gap-4 p-3">
+              {chamado.foto_abertura && (
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Evidência na Abertura</p>
+                  <div className="border border-slate-300 p-1 rounded bg-slate-50 flex items-center justify-center">
+                    <img 
+                      src={chamado.foto_abertura} 
+                      alt="Foto de Abertura" 
+                      className="max-h-48 max-w-full object-contain mx-auto" 
+                    />
+                  </div>
+                </div>
+              )}
+              {chamado.foto_conclusao && (
+                <div className="text-center">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Evidência na Conclusão</p>
+                  <div className="border border-slate-300 p-1 rounded bg-slate-50 flex items-center justify-center">
+                    <img 
+                      src={chamado.foto_conclusao} 
+                      alt="Foto de Conclusão" 
+                      className="max-h-48 max-w-full object-contain mx-auto" 
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* BOX 5: TABELA DE PEÇAS / INSUMOS */}
+        <div className="mb-6 border border-black break-inside-avoid">
+          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+            {temTerceirizado ? "5." : "4."} Peças e Insumos Aplicados
+          </div>
           <table className="w-full text-xs text-left">
             <thead>
               <tr className="border-b border-black bg-slate-50">
@@ -200,21 +267,23 @@ export function ImprimirOS() {
                 <td className="p-2 text-right">{formatarMoeda(totalPecas)}</td>
               </tr>
               <tr className="bg-slate-100 font-black border-t border-black">
-                <td colSpan="3" className="p-2 text-right uppercase text-[10px]">Custo Total da OS (Peças + Mão de Obra):</td>
-                <td className="p-2 text-right text-lg">{formatarMoeda(totalGeral)}</td>
+                <td colSpan="3" className="p-2 text-right uppercase text-[10px]">Custo Total da OS (Peças + Mão de Obra/Terceiros):</td>
+                <td className="p-2 text-right text-base">{formatarMoeda(totalGeral)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
 
         {/* RODAPÉ DE ASSINATURAS */}
-        <div className="grid grid-cols-2 gap-10 mt-12">
+        <div className="grid grid-cols-2 gap-10 mt-8 break-inside-avoid">
           {["tecnico", "setor"].map((tipo) => {
             const assinado = tipo === "tecnico" ? chamado.assinatura_tecnico : chamado.assinatura_setor;
-            const nomeExibicao = tipo === "tecnico" ? (chamado.nome_tecnico || chamado.tecnico_responsavel) : chamado.nome_setor;
+            const nomeExibicao = tipo === "tecnico" 
+              ? (chamado.nome_tecnico || chamado.tecnico_responsavel || chamado.empresa_terceirizada) 
+              : chamado.nome_setor;
 
             return (
-              <div key={tipo} className="text-center flex flex-col justify-end min-h-[160px]">
+              <div key={tipo} className="text-center flex flex-col justify-end min-h-[140px]">
                 {assinado ? (
                   <div className="mb-2">
                     <img src={assinado} alt="Rubrica" className="h-14 mx-auto object-contain" />
@@ -223,19 +292,22 @@ export function ImprimirOS() {
                 ) : (
                   <div className="hide-print space-y-2 mb-2">
                     <input type="text" placeholder="Nome Completo" value={nomes[tipo]} onChange={e => setNomes({...nomes, [tipo]: e.target.value})} className="w-full border-2 border-slate-200 p-2 rounded text-xs font-bold text-center" />
-                    <div className="border border-slate-300 rounded"><SignaturePad ref={tipo === "tecnico" ? padTecnico : padSetor} canvasProps={{ height: 100, className: "w-full" }} /></div>
-                    <div className="mt-4 pt-3 border-t border-slate-700/50 flex justify-around items-center"></div>
+                    <div className="border border-slate-300 rounded"><SignaturePad ref={tipo === "tecnico" ? padTecnico : padSetor} canvasProps={{ height: 90, className: "w-full" }} /></div>
                     <button onClick={() => salvarAssinatura(tipo)} className="w-full bg-blue-600 text-white py-1 rounded text-[10px] font-black uppercase">Validar Assinatura</button>
                   </div>
                 )}
-                <p className="text-[9px] font-black text-slate-400 uppercase">{tipo === "tecnico" ? "Técnico Responsável" : "Aceite do Responsável pelo Setor"}</p>
+                <p className="text-[9px] font-black text-slate-400 uppercase">
+                  {tipo === "tecnico" 
+                    ? (temTerceirizado ? "Prestador / Técnico Responsável" : "Técnico Responsável") 
+                    : "Aceite do Responsável pelo Setor"}
+                </p>
               </div>
             );
           })}
         </div>
 
-        {/* NOTA DE RODAPÉ (Legal) */}
-        <div className="mt-10 pt-4 border-t border-slate-200 text-[9px] text-center text-slate-400 uppercase tracking-widest">
+        {/* NOTA DE RODAPÉ */}
+        <div className="mt-8 pt-3 border-t border-slate-200 text-[9px] text-center text-slate-400 uppercase tracking-widest break-inside-avoid">
             Documento gerado eletronicamente pelo Sistema SEC-H - {new Date().getFullYear()}
         </div>
       </div>
