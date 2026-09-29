@@ -648,7 +648,12 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             e.fabricante,
             e.local_estoque_id as equip_local_estoque_id,
             le.nome as escopo_nome,
-            s.nome as setor_nome, 
+            s.nome as setor_nome,
+            sp.nome as setor_pai_nome,
+            CASE 
+                WHEN sp.nome IS NOT NULL THEN CONCAT(sp.nome, ' > ', s.nome)
+                ELSE s.nome 
+            END AS setor_completo,
             f.nome_fantasia as empresa_terceirizada,
             u.nome as solicitante_nome,
 
@@ -681,6 +686,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
         LEFT JOIN locais_estoque le ON e.local_estoque_id = le.id
         LEFT JOIN setores s ON c.setor_id = s.id
+        LEFT JOIN setores sp ON s.setor_pai_id = sp.id
         LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
         LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
         WHERE c.id = ?
@@ -5526,9 +5532,11 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
                     itens.forEach(item => {
                         // Atualiza o chamado se houver
                         if (item.chamado_id) {
-                            db.query(`UPDATE chamados SET status = 'Em Andamento' WHERE id = ?`, [item.chamado_id]);
+                            // 🟢 CORRIGIDO: Status unificado para 'Em Atendimento'
+                            db.query(`UPDATE chamados SET status = 'Em Atendimento' WHERE id = ?`, [item.chamado_id]);
+                            
                             db.query(
-                                `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
+                                `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())`,
                                 [item.chamado_id, `[ORÇAMENTO APROVADO] Lote ${orc.codigo_orcamento} aprovado. Serviço autorizado.`]
                             );
                         }
@@ -5542,8 +5550,8 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
                             
                             const queryHistoricoAtivo = `
                                 INSERT INTO equipamentos_historico 
-                                (equipamento_id, descricao_log, tecnico_nome, status_anterior, status_novo)
-                                VALUES (?, ?, 'Sistema', 'Em Manutenção', 'Aprovado Orçamento')
+                                (equipamento_id, descricao_log, tecnico_nome, status_anterior, status_novo, data_movimentacao)
+                                VALUES (?, ?, 'Sistema', 'Em Manutenção', 'Aprovado Orçamento', NOW())
                             `;
 
                             db.query(queryHistoricoAtivo, [equipId, descLog], (errHist) => {
@@ -5585,7 +5593,7 @@ app.put('/api/orcamentos-externos/:id', uploadOrcamento.single('anexo'), (req, r
         return res.status(400).json({ error: 'Fornecedor e itens são obrigatórios para atualização.' });
     }
 
-    // Verifica se já está aprovado (opcional: bloquear edição se já passou pelo financeiro)
+    // Verifica se já está aprovado
     const queryVerifica = `SELECT status FROM orcamentos_externos WHERE id = ?`;
     db.query(queryVerifica, [orcamentoId], (errV, rowsV) => {
         if (errV || rowsV.length === 0) {
@@ -5603,7 +5611,6 @@ app.put('/api/orcamentos-externos/:id', uploadOrcamento.single('anexo'), (req, r
         const temAvulso = itens.some(i => !i.chamado_id);
         const tipoOrcamento = temOS && temAvulso ? 'misto' : (temOS ? 'os' : 'avulso');
 
-        // Monta a query mestre mantendo o anexo antigo se nenhum novo foi enviado
         let queryMestre = `
             UPDATE orcamentos_externos 
             SET fornecedor_id = ?, setor_id = ?, valor_total = ?, tipo_orcamento = ?, observacoes = ?
