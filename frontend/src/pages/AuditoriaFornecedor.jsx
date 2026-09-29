@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 
 export default function AuditoriaFornecedor() {
   const { id } = useParams();
@@ -386,6 +386,8 @@ export default function AuditoriaFornecedor() {
                   <tbody className="divide-y divide-slate-100">
                     {saidasFiltradas.map(s => {
                       const naRua = s.situacao_custodia === 'Na Rua / Em Manutenção' || ['Em Manutenção', 'Em Manutenção Externa'].includes(s.status_atual_equipamento);
+                      const idEquip = s.equipamento_id || s.ativo_id || s.id_equipamento || s.equipamentoId || s.patrimonio;
+
                       return (
                         <tr key={s.id} className="hover:bg-slate-50/50">
                           <td className="p-4 text-slate-500 font-mono whitespace-nowrap">
@@ -394,8 +396,20 @@ export default function AuditoriaFornecedor() {
                           <td className="p-4 text-slate-500 font-mono whitespace-nowrap">
                             {s.data_retorno ? new Date(s.data_retorno).toLocaleString('pt-BR') : <span className="text-amber-500 italic">Pendente</span>}
                           </td>
-                          <td className="p-4 font-bold text-slate-800">
-                            {s.equipamento_nome} <span className="text-slate-400 font-mono font-normal">(Pat: {s.patrimonio || 'S/P'})</span>
+                          <td className="p-4 font-bold">
+                            {idEquip ? (
+                              <Link
+                                to={`/prontuario/${idEquip}`}
+                                className="text-blue-600 hover:text-blue-800 hover:underline"
+                                title="Abrir prontuário do ativo"
+                              >
+                                {s.equipamento_nome} <span className="text-slate-400 font-mono font-normal">(Pat: {s.patrimonio || 'S/P'})</span>
+                              </Link>
+                            ) : (
+                              <span className="text-slate-800">
+                                {s.equipamento_nome} <span className="text-slate-400 font-mono font-normal">(Pat: {s.patrimonio || 'S/P'})</span>
+                              </span>
+                            )}
                           </td>
                           <td className="p-4 text-slate-500 font-bold">{s.setor_nome || 'Geral'}</td>
                           <td className="p-4 text-center whitespace-nowrap">
@@ -478,11 +492,33 @@ export default function AuditoriaFornecedor() {
                   <tbody className="divide-y divide-slate-100">
                     {chamadosFiltrados.map(ch => {
                       const naRua = ch.status === 'Aguardando Externa' || Number(ch.em_manutencao_externa) === 1;
+                      const idEquip = ch.equipamento_id || ch.ativo_id || ch.id_equipamento || ch.equipamentoId || ch.patrimonio;
+
                       return (
                         <tr key={ch.id} className="hover:bg-slate-50/50">
-                          <td className="p-4 font-black text-blue-600 font-mono">#{ch.id}</td>
-                          <td className="p-4 font-bold text-slate-800">
-                            {ch.equipamento_nome || ch.titulo} <span className="text-slate-400 font-mono font-normal">(Pat: {ch.patrimonio || 'S/P'})</span>
+                          <td className="p-4 font-black font-mono">
+                            <Link
+                              to={`/chamados/${ch.id}/tratar`}
+                              className="text-blue-600 hover:text-blue-800 hover:underline"
+                              title={`Abrir OS #${ch.id}`}
+                            >
+                              #{ch.id}
+                            </Link>
+                          </td>
+                          <td className="p-4 font-bold">
+                            {idEquip ? (
+                              <Link
+                                to={`/prontuario/${idEquip}`}
+                                className="text-blue-600 hover:text-blue-800 hover:underline"
+                                title="Abrir prontuário do ativo"
+                              >
+                                {ch.equipamento_nome || ch.titulo} <span className="text-slate-400 font-mono font-normal">(Pat: {ch.patrimonio || 'S/P'})</span>
+                              </Link>
+                            ) : (
+                              <span className="text-slate-800">
+                                {ch.equipamento_nome || ch.titulo} <span className="text-slate-400 font-mono font-normal">(Pat: {ch.patrimonio || 'S/P'})</span>
+                              </span>
+                            )}
                           </td>
                           <td className="p-4 text-slate-500 font-bold">{ch.setor_nome || 'Geral'}</td>
                           <td className="p-4 text-center whitespace-nowrap">
