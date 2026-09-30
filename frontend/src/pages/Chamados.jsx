@@ -14,7 +14,6 @@ const Chamados = ({ user: userProp }) => {
   const [setores, setSetores] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
 
-  // 🏷️ Categorias dinâmicas
   const [categorias, setCategorias] = useState([
     { id: 1, nome: 'Engenharia Clínica', icone: '🤖' },
     { id: 2, nome: 'Refrigeração', icone: '❄️' },
@@ -41,21 +40,16 @@ const Chamados = ({ user: userProp }) => {
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
   const [modalEditarAberta, setModalEditarAberta] = useState(false);
 
-  // 📱 Estado para Visualizador Interno de Anexos/Imagens (Mobile Friendly)
+  // Visualizador Interno de Anexos
   const [visualizadorAnexo, setVisualizadorAnexo] = useState(null);
 
-  // ⚡ Filtros de Estado e Escopo
-  const [filtroStatus, setFiltroStatus] = useState(() => {
-    return location.state?.filtroInicial || 'Todos';
-  });
-  const [filtroEscopo, setFiltroEscopo] = useState('todos'); // 'todos', 'clinica', 'manutencao'
-
+  // Filtros
+  const [filtroStatus, setFiltroStatus] = useState(() => location.state?.filtroInicial || 'Todos');
+  const [filtroEscopo, setFiltroEscopo] = useState('todos');
   const [busca, setBusca] = useState('');
   const [chamadoSelecionado, setChamadoSelecionado] = useState(null);
-
   const [fotoAbertura, setFotoAbertura] = useState(null);
 
-  // Formulário de Abertura Completo
   const [form, setForm] = useState({
     setor_id: '',
     equipamento_id: '',
@@ -78,12 +72,15 @@ const Chamados = ({ user: userProp }) => {
   });
 
   const [textoObs, setTextoObs] = useState('');
-
-  const API_URL = '/api';
-  const BASE_URL = '';
-
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
+  const [enviandoDoc, setEnviandoDoc] = useState(false);
+
+  const API_URL = '/api';
+  // Resolução dinâmica do endereço do backend para que /uploads não bata no Vite (porta 5173)
+  const BASE_URL = window.location.port === '5173'
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : '';
 
   const obterNivelUsuario = () => user?.nivel || '';
   const nivelLimpo = (user?.nivel || '').toLowerCase().trim();
@@ -95,29 +92,26 @@ const Chamados = ({ user: userProp }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // 📱 Trava o botão físico "Voltar" do telemóvel para fechar os modais
   useEffect(() => {
     const handlePopState = () => {
-      if (visualizadorAnexo) {
-        setVisualizadorAnexo(null);
-      } else if (modalDetalhesAberta) {
-        setModalDetalhesAberta(false);
-      } else if (modalAberta) {
-        setModalAberta(false);
-      } else if (modalEditarAberta) {
-        setModalEditarAberta(false);
-      } else if (modalObsAberta) {
-        setModalObsAberta(false);
-      }
+      if (visualizadorAnexo) setVisualizadorAnexo(null);
+      else if (modalDetalhesAberta) setModalDetalhesAberta(false);
+      else if (modalAberta) setModalAberta(false);
+      else if (modalEditarAberta) setModalEditarAberta(false);
+      else if (modalObsAberta) setModalObsAberta(false);
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [visualizadorAnexo, modalDetalhesAberta, modalAberta, modalEditarAberta, modalObsAberta]);
 
-  const abrirVisualizadorInterno = (url, titulo = 'Visualização de Arquivo', tipo = 'imagem') => {
+  const abrirVisualizadorInterno = (urlRelativaOuAbsoluta, titulo = 'Visualização de Arquivo', tipo = 'imagem') => {
+    let urlFinal = urlRelativaOuAbsoluta;
+    if (urlRelativaOuAbsoluta && !urlRelativaOuAbsoluta.startsWith('http')) {
+      urlFinal = `${BASE_URL}${urlRelativaOuAbsoluta.startsWith('/') ? '' : '/'}${urlRelativaOuAbsoluta}`;
+    }
     window.history.pushState({ visualizando: true }, '');
-    setVisualizadorAnexo({ url, titulo, tipo });
+    setVisualizadorAnexo({ url: urlFinal, titulo, tipo });
   };
 
   const fecharVisualizadorInterno = () => {
@@ -128,7 +122,6 @@ const Chamados = ({ user: userProp }) => {
     if (!dataInicioStr) {
       return { texto: '---', horasDecorridas: 0, percentual: 0, atrasado: false, metaHoras: 24 };
     }
-
     const metasHoras = { Urgente: 2, Alta: 6, 'Média': 24, Baixa: 48 };
     const metaHoras = metasHoras[prioridade] || 24;
 
@@ -161,67 +154,44 @@ const Chamados = ({ user: userProp }) => {
 
     fetch(`${API_URL}/chamados`, { headers })
       .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setChamados(data);
-        } else {
-          setChamados([]);
-        }
-      })
-      .catch(err => {
-        console.error("Erro ao carregar chamados:", err);
-        setChamados([]);
-      });
+      .then(data => setChamados(Array.isArray(data) ? data : []))
+      .catch(() => setChamados([]));
 
     fetch(`${API_URL}/setores`, { headers })
       .then(res => res.json())
       .then(data => setSetores(Array.isArray(data) ? data : []))
-      .catch(err => console.error(err));
+      .catch(console.error);
 
     fetch(`${API_URL}/equipamentos`, { headers })
       .then(res => res.json())
       .then(data => setEquipamentos(Array.isArray(data) ? data : []))
-      .catch(err => console.error(err));
+      .catch(console.error);
 
     fetch(`${API_URL}/categorias-chamado`, { headers })
       .then(res => res.ok ? res.json() : [])
       .then(data => {
-        if (Array.isArray(data) && data.length > 0) {
-          setCategorias(data);
-        }
+        if (Array.isArray(data) && data.length > 0) setCategorias(data);
       })
-      .catch(err => console.error("Erro ao carregar categorias dinâmicas:", err));
+      .catch(console.error);
   };
 
   useEffect(() => {
     carregarDados();
   }, []);
 
-  useEffect(() => {
-    if (location.state?.filtroInicial) {
-      setFiltroStatus(location.state.filtroInicial);
-      navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [location.state, navigate, location.pathname]);
-
-  useEffect(() => {
-    if (location.state?.buscaId) {
-      setBusca(String(location.state.buscaId));
-      navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [location.state, navigate, location.pathname]);
-
-  useEffect(() => {
-    if (location.state?.pre_configurado) {
-      setForm(prev => ({
-        ...prev,
-        setor_id: location.state.setor_id ? String(location.state.setor_id) : '',
-        equipamento_id: location.state.equipamento_id ? String(location.state.equipamento_id) : ''
-      }));
-      setModalAberta(true);
-      navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [location.state, navigate, location.pathname]);
+  const carregarDocumentosDoChamado = (id) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-usuario-nivel': obterNivelUsuario()
+    };
+    fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
+      .then(res => res.json())
+      .then(dataDocs => setListaDocumentos(Array.isArray(dataDocs) ? dataDocs : []))
+      .catch(err => {
+        console.error("Erro ao buscar documentos:", err);
+        setListaDocumentos([]);
+      });
+  };
 
   const abrirDetalhes = (id) => {
     const headers = {
@@ -235,15 +205,7 @@ const Chamados = ({ user: userProp }) => {
         setChamadoSelecionado(data);
         window.history.pushState({ modalDetalhes: true }, '');
         setModalDetalhesAberta(true);
-
-        if (!isUsuarioComum) {
-          fetch(`${API_URL}/documentos?chamado_id=${id}`, { method: 'GET', headers })
-            .then(res => res.json())
-            .then(dataDocs => setListaDocumentos(Array.isArray(dataDocs) ? dataDocs : []))
-            .catch(err => console.error("Erro ao buscar documentos:", err));
-        } else {
-          setListaDocumentos([]);
-        }
+        carregarDocumentosDoChamado(id);
       })
       .catch(err => console.error("Erro ao buscar detalhes:", err));
   };
@@ -288,7 +250,6 @@ const Chamados = ({ user: userProp }) => {
         alert(errData.error || "Erro ao salvar alterações.");
       }
     } catch (err) {
-      console.error(err);
       alert("Erro de conexão ao atualizar chamado.");
     }
   };
@@ -342,11 +303,11 @@ const Chamados = ({ user: userProp }) => {
         ramal_contato: ''
       });
       carregarDados();
-    }).catch(err => console.error("Erro ao abrir chamado:", err));
+    }).catch(console.error);
   };
 
   const handleReabrirChamado = (id) => {
-    const motivo = prompt("Informe a justificativa/motivo para reabrir esta Ordem de Serviço:");
+    const motivo = prompt("Informe a justificativa para reabrir esta Ordem de Serviço:");
     if (motivo === null) return;
     if (!motivo.trim()) return alert("É obrigatório informar uma justificativa.");
 
@@ -371,13 +332,14 @@ const Chamados = ({ user: userProp }) => {
         if (modalDetalhesAberta) abrirDetalhes(id);
       }
     })
-    .catch(err => console.error("Erro ao reabrir chamado:", err));
+    .catch(console.error);
   };
 
   const handleUploadDocumento = (e) => {
     e.preventDefault();
     if (!documentoSelecionado) return alert("Selecione um arquivo PDF ou Imagem!");
 
+    setEnviandoDoc(true);
     const formData = new FormData();
     formData.append('arquivo', documentoSelecionado);
     formData.append('chamado_id', chamadoSelecionado.id);
@@ -397,13 +359,17 @@ const Chamados = ({ user: userProp }) => {
       if (data.error) {
         alert(data.error);
       } else {
-        alert("Documento anexado com sucesso para fins de auditoria! ✅");
+        alert("Documento anexado com sucesso! ✅");
         setDocumentoSelecionado(null);
-        abrirDetalhes(chamadoSelecionado.id);
+        carregarDocumentosDoChamado(chamadoSelecionado.id);
         carregarDados();
       }
     })
-    .catch(err => console.error("Erro no upload do documento:", err));
+    .catch(err => {
+      console.error("Erro no upload do documento:", err);
+      alert("Falha ao subir anexo.");
+    })
+    .finally(() => setEnviandoDoc(false));
   };
 
   const salvarObs = (e) => {
@@ -434,72 +400,46 @@ const Chamados = ({ user: userProp }) => {
       } else {
         alert("Erro nas permissões.");
       }
-    }).catch(err => console.error("Erro ao salvar observação:", err));
+    }).catch(console.error);
   };
 
-  const isManutencaoExterna = (c) => {
-    return c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
-  };
+  const isManutencaoExterna = (c) => c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
 
   const obterEstiloCard = (c) => {
-    if (isManutencaoExterna(c)) {
-      return 'bg-purple-50/60 border-purple-200 border-l-purple-600 shadow-purple-50';
-    }
-    if (c.status === 'Aberto') {
-      return 'bg-red-50/40 border-red-200 border-l-red-500 shadow-red-50';
-    }
-    if (c.status === 'Em Atendimento') {
-      return 'bg-amber-50/40 border-amber-200 border-l-amber-500 shadow-amber-50';
-    }
+    if (isManutencaoExterna(c)) return 'bg-purple-50/60 border-purple-200 border-l-purple-600 shadow-purple-50';
+    if (c.status === 'Aberto') return 'bg-red-50/40 border-red-200 border-l-red-500 shadow-red-50';
+    if (c.status === 'Em Atendimento') return 'bg-amber-50/40 border-amber-200 border-l-amber-500 shadow-amber-50';
     return 'bg-emerald-50/30 border-emerald-200 border-l-emerald-500 shadow-emerald-50';
   };
 
   const obterBadgeStatus = (c) => {
-    if (isManutencaoExterna(c)) {
-      return 'bg-purple-600 text-white shadow-sm shadow-purple-200';
-    }
-    if (c.status === 'Aberto') {
-      return 'bg-red-500 text-white shadow-sm shadow-red-200';
-    }
-    if (c.status === 'Em Atendimento') {
-      return 'bg-amber-500 text-white shadow-sm shadow-amber-200';
-    }
+    if (isManutencaoExterna(c)) return 'bg-purple-600 text-white shadow-sm shadow-purple-200';
+    if (c.status === 'Aberto') return 'bg-red-500 text-white shadow-sm shadow-red-200';
+    if (c.status === 'Em Atendimento') return 'bg-amber-500 text-white shadow-sm shadow-amber-200';
     return 'bg-emerald-600 text-white shadow-sm shadow-emerald-200';
   };
 
   const listaSegura = Array.isArray(chamados) ? chamados : [];
 
   const filtrados = listaSegura.filter(c => {
-    if (isUsuarioComum) {
-      const pertenceAoUsuario = String(c.usuario_abertura_id) === String(user?.id);
-      if (!pertenceAoUsuario) return false;
+    if (isUsuarioComum && String(c.usuario_abertura_id) !== String(user?.id)) {
+      return false;
     }
 
-    // 1. Filtro de Status
     let bateStatus = false;
-    if (filtroStatus === 'Todos') {
-      bateStatus = true;
-    } else if (filtroStatus === 'Aguardando Externa') {
-      bateStatus = isManutencaoExterna(c);
-    } else {
-      bateStatus = c.status === filtroStatus;
-    }
+    if (filtroStatus === 'Todos') bateStatus = true;
+    else if (filtroStatus === 'Aguardando Externa') bateStatus = isManutencaoExterna(c);
+    else bateStatus = c.status === filtroStatus;
 
-    // 2. Filtro por Local / Escopo de Cadastro do Equipamento
     let bateEscopo = true;
     const nomeEscopoAtivo = (c.escopo_nome || '').toLowerCase();
-
     const isClinica = nomeEscopoAtivo.includes('clínica') || 
                       nomeEscopoAtivo.includes('clinica') ||
                       (!c.equipamento_id && c.categoria?.toLowerCase().includes('clínica'));
 
-    if (filtroEscopo === 'clinica') {
-      bateEscopo = isClinica;
-    } else if (filtroEscopo === 'manutencao') {
-      bateEscopo = !isClinica;
-    }
+    if (filtroEscopo === 'clinica') bateEscopo = isClinica;
+    else if (filtroEscopo === 'manutencao') bateEscopo = !isClinica;
 
-    // 3. Filtro de Busca Textual
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.id?.toString().includes(busca) ||
                       c.setor_nome?.toLowerCase().includes(busca.toLowerCase()) ||
@@ -515,8 +455,8 @@ const Chamados = ({ user: userProp }) => {
   const totalConcluidos = filtrados.filter(c => c.status === 'Concluído').length;
 
   return (
-    <div className="p-3 sm:p-4 bg-slate-50 min-h-screen font-sans text-dark">
-      {/* HEADER PRINCIPAL */}
+    <div className="p-3 sm:p-4 bg-slate-50 min-h-screen font-sans text-slate-800">
+      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100">
         <h1 className="text-2xl sm:text-3xl font-black text-slate-800 flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
           <div className="flex items-center gap-2.5">
@@ -536,8 +476,6 @@ const Chamados = ({ user: userProp }) => {
           )}
         </h1>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-stretch sm:items-center">
-          
-          {/* SELETOR DE ESCOPO / LOCAL DE ESTOQUE */}
           <select
             value={filtroEscopo}
             onChange={(e) => setFiltroEscopo(e.target.value)}
@@ -562,7 +500,6 @@ const Chamados = ({ user: userProp }) => {
               target="_blank"
               rel="noopener noreferrer"
               className="hidden md:flex bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-black shadow-lg shadow-indigo-100 transition-all items-center gap-2 active:scale-95"
-              title="Abrir Painel de TV em tempo real"
             >
               <span>📺</span> PAINEL TV
             </Link>
@@ -591,67 +528,26 @@ const Chamados = ({ user: userProp }) => {
         </div>
       </div>
 
-      {/* BARRA DE ABAS / FILTROS */}
+      {/* FILTROS DE STATUS */}
       <div className="flex items-center gap-2 mb-6 bg-white p-2 sm:p-3 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto no-scrollbar">
-        <button
-          type="button"
-          onClick={() => setFiltroStatus('Todos')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-            filtroStatus === 'Todos'
-              ? 'bg-slate-900 text-white shadow-md shadow-slate-200'
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-          }`}
-        >
-          <span>📋</span> Todos ({filtrados.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFiltroStatus('Aberto')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-            filtroStatus === 'Aberto'
-              ? 'bg-red-500 text-white shadow-md shadow-red-100'
-              : 'bg-red-50 text-red-700 hover:bg-red-100'
-          }`}
-        >
-          <span>🔴</span> Abertos ({totalAbertos})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFiltroStatus('Em Atendimento')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-            filtroStatus === 'Em Atendimento'
-              ? 'bg-amber-500 text-white shadow-md shadow-amber-100'
-              : 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-          }`}
-        >
-          <span>🟡</span> Em Atendimento ({totalAtendimento})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFiltroStatus('Aguardando Externa')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-            filtroStatus === 'Aguardando Externa'
-              ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
-              : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/50'
-          }`}
-        >
-          <span>🚚</span> Manutenção Externa ({totalExternos})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setFiltroStatus('Concluído')}
-          className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-            filtroStatus === 'Concluído'
-              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-100'
-              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-          }`}
-        >
-          <span>🟢</span> Concluídos ({totalConcluidos})
-        </button>
+        {[
+          { key: 'Todos', label: '📋 Todos', count: filtrados.length, style: 'bg-slate-900 text-white', defaultStyle: 'bg-slate-100 text-slate-600' },
+          { key: 'Aberto', label: '🔴 Abertos', count: totalAbertos, style: 'bg-red-500 text-white', defaultStyle: 'bg-red-50 text-red-700' },
+          { key: 'Em Atendimento', label: '🟡 Em Atendimento', count: totalAtendimento, style: 'bg-amber-500 text-white', defaultStyle: 'bg-amber-50 text-amber-700' },
+          { key: 'Aguardando Externa', label: '🚚 Manutenção Externa', count: totalExternos, style: 'bg-purple-600 text-white', defaultStyle: 'bg-purple-50 text-purple-700' },
+          { key: 'Concluído', label: '🟢 Concluídos', count: totalConcluidos, style: 'bg-emerald-600 text-white', defaultStyle: 'bg-emerald-50 text-emerald-700' }
+        ].map(item => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setFiltroStatus(item.key)}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+              filtroStatus === item.key ? item.style : `${item.defaultStyle} hover:opacity-80`
+            }`}
+          >
+            {item.label} ({item.count})
+          </button>
+        ))}
       </div>
 
       {/* GRID DE CARDS */}
@@ -738,7 +634,7 @@ const Chamados = ({ user: userProp }) => {
                       <img 
                         src={`${BASE_URL}${c.foto_abertura}`} 
                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
-                        onClick={() => abrirVisualizadorInterno(`${BASE_URL}${c.foto_abertura}`, `Foto de Abertura - OS #${c.id}`, 'imagem')} 
+                        onClick={() => abrirVisualizadorInterno(c.foto_abertura, `Foto de Abertura - OS #${c.id}`, 'imagem')} 
                         alt="Miniatura Abertura" 
                         title="Toque para ampliar"
                       />
@@ -787,7 +683,6 @@ const Chamados = ({ user: userProp }) => {
                       <button
                         onClick={() => abrirModalEdicao(c)}
                         className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl text-[10px] font-black uppercase transition-all active:scale-95"
-                        title="Editar solicitação"
                       >
                         ✏️ Editar
                       </button>
@@ -810,7 +705,6 @@ const Chamados = ({ user: userProp }) => {
                       <button
                         onClick={() => handleReabrirChamado(c.id)}
                         className="px-3 py-1.5 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-600 hover:text-white rounded-xl text-[10px] font-black uppercase transition-all active:scale-95"
-                        title="Reabrir esta OS"
                       >
                         🔄 Reabrir
                       </button>
@@ -831,7 +725,6 @@ const Chamados = ({ user: userProp }) => {
                       <button 
                         onClick={() => { setChamadoSelecionado(c); setTextoObs(''); setModalObsAberta(true); }} 
                         className="px-2.5 py-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 rounded-xl text-[10px] font-black uppercase transition-all active:scale-95"
-                        title="Adicionar nota de coordenação"
                       >
                         💬 Obs
                       </button>
@@ -990,7 +883,7 @@ const Chamados = ({ user: userProp }) => {
                             <img 
                               src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} 
                               className="rounded-xl border border-slate-200 w-full h-28 object-cover cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
-                              onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamadoSelecionado.foto_abertura}`, `Foto de Abertura - OS #${chamadoSelecionado.id}`, 'imagem')} 
+                              onClick={() => abrirVisualizadorInterno(chamadoSelecionado.foto_abertura, `Foto de Abertura - OS #${chamadoSelecionado.id}`, 'imagem')} 
                               alt="Foto Abertura" 
                             />
                           ) : (
@@ -1006,7 +899,7 @@ const Chamados = ({ user: userProp }) => {
                             <img 
                               src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} 
                               className="rounded-xl border border-slate-200 w-full h-28 object-cover cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
-                              onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamadoSelecionado.foto_conclusao}`, `Foto de Conclusão - OS #${chamadoSelecionado.id}`, 'imagem')} 
+                              onClick={() => abrirVisualizadorInterno(chamadoSelecionado.foto_conclusao, `Foto de Conclusão - OS #${chamadoSelecionado.id}`, 'imagem')} 
                               alt="Foto Conclusão" 
                             />
                           ) : (
@@ -1018,48 +911,82 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {!isUsuarioComum && (
-                      <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
-                        <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5 border-b pb-2">
+                    {/* BLOCO DE LAUDOS E ARQUIVOS CORRIGIDO */}
+                    <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
+                      <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center justify-between border-b pb-2">
+                        <span className="flex items-center gap-1.5">
                           <span>📎</span> Laudos & Arquivos ({listaDocumentos.length})
-                        </h4>
-                        
+                        </span>
+                        {listaDocumentos.length > 0 && (
+                          <span className="text-[9px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">
+                            Salvos no Servidor
+                          </span>
+                        )}
+                      </h4>
+                      
+                      {!isConcluido && (
                         <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
                           <input 
                             type="file" 
                             accept="image/*,application/pdf" 
+                            disabled={enviandoDoc}
                             className="text-xs w-full block file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
                             onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
                           />
-                          <button type="submit" className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95">
-                            + Enviar Laudo / Documento
+                          <button 
+                            type="submit" 
+                            disabled={enviandoDoc || !documentoSelecionado}
+                            className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                          >
+                            {enviandoDoc ? 'Enviando...' : '+ Enviar Laudo / Documento'}
                           </button>
                         </form>
+                      )}
 
-                        <div className="space-y-2 max-h-36 overflow-y-auto">
-                          {listaDocumentos.map((doc) => {
-                            const isPdf = doc.tipo_mimetype?.includes('pdf') || doc.nome_original?.toLowerCase().endsWith('.pdf');
-                            return (
-                              <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
-                                <span className="font-bold text-slate-700 truncate max-w-[170px]" title={doc.nome_original}>
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {listaDocumentos.map((doc) => {
+                          const isPdf = doc.tipo_mimetype?.includes('pdf') || doc.nome_original?.toLowerCase().endsWith('.pdf');
+                          const linkCompleto = doc.url_arquivo?.startsWith('http')
+                            ? doc.url_arquivo
+                            : `${BASE_URL}${doc.url_arquivo?.startsWith('/') ? '' : '/'}${doc.url_arquivo}`;
+
+                          return (
+                            <div key={doc.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex justify-between items-center text-xs hover:bg-slate-100/70 transition-colors">
+                              <div className="flex flex-col min-w-0 pr-2">
+                                <span className="font-bold text-slate-800 truncate" title={doc.nome_original}>
                                   {isPdf ? '📄' : '📷'} {doc.nome_original}
                                 </span>
+                                <span className="text-[9px] text-slate-400">
+                                  {doc.data_upload ? new Date(doc.data_upload).toLocaleString('pt-BR') : ''}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
                                 <button 
                                   type="button" 
-                                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? 'pdf' : 'imagem')} 
+                                  onClick={() => abrirVisualizadorInterno(doc.url_arquivo, doc.nome_original, isPdf ? 'pdf' : 'imagem')} 
                                   className="text-blue-600 hover:text-blue-800 font-black text-[10px] uppercase bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-100 active:scale-95 transition-all shadow-xs"
                                 >
                                   Ver ↗
                                 </button>
+                                <a 
+                                  href={linkCompleto}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  download
+                                  className="text-slate-600 hover:text-slate-900 font-black text-[10px] uppercase bg-slate-200/60 px-2 py-1.5 rounded-lg active:scale-95 transition-all"
+                                  title="Baixar arquivo original"
+                                >
+                                  ⬇
+                                </a>
                               </div>
-                            );
-                          })}
-                          {listaDocumentos.length === 0 && (
-                            <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>
-                          )}
-                        </div>
+                            </div>
+                          );
+                        })}
+                        {listaDocumentos.length === 0 && (
+                          <p className="text-[10px] text-slate-400 italic text-center py-2">Nenhum laudo anexado.</p>
+                        )}
                       </div>
-                    )}
+                    </div>
 
                   </div>
 
@@ -1192,7 +1119,11 @@ const Chamados = ({ user: userProp }) => {
                         setModalDetalhesAberta(false);
                         navigate(`/chamados/${chamadoSelecionado.id}/tratar`);
                       }}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                      className={`px-4 py-2 text-white rounded-xl text-xs font-black uppercase shadow-md active:scale-95 flex items-center gap-1.5 ${
+                        isExternaModal 
+                          ? 'bg-purple-600 hover:bg-purple-700' 
+                          : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
                     >
                       <span>🛠️</span> Atender
                     </button>
@@ -1216,7 +1147,7 @@ const Chamados = ({ user: userProp }) => {
 
       {/* MODAL: EDITAR CHAMADO */}
       {modalEditarAberta && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-slate-800">
           <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
             <div className="bg-slate-900 p-5 text-white font-black flex justify-between items-center text-base uppercase">
               <span>✏️ Editar Ordem de Serviço #{formEdicao.id}</span>
@@ -1330,7 +1261,7 @@ const Chamados = ({ user: userProp }) => {
 
       {/* MODAL: OBSERVAÇÃO COORDENADOR */}
       {modalObsAberta && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-dark">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-slate-800">
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
             <div className="bg-cyan-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">
               <span>Histórico da Coordenação</span>
@@ -1345,7 +1276,7 @@ const Chamados = ({ user: userProp }) => {
               </div>
               <div className="mb-6">
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">Nova Anotação:</label>
-                <textarea required className="w-full border-2 border-slate-100 rounded-2xl p-4 h-32 focus:border-cyan-400 outline-none transition-all resize-none text-sm font-medium text-dark" placeholder="Escreva a nota..." value={textoObs} onChange={e => setTextoObs(e.target.value)} />
+                <textarea required className="w-full border-2 border-slate-100 rounded-2xl p-4 h-32 focus:border-cyan-400 outline-none transition-all resize-none text-sm font-medium text-slate-800" placeholder="Escreva a nota..." value={textoObs} onChange={e => setTextoObs(e.target.value)} />
               </div>
               <button type="submit" className="w-full bg-cyan-500 hover:bg-cyan-600 text-white py-4 rounded-2xl font-black text-lg shadow-xl uppercase tracking-widest transition-all">ADICIONAR NOTA</button>
             </form>
@@ -1353,9 +1284,9 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* 📣 MODAL COMPLETO: NOVA SOLICITAÇÃO */}
+      {/* MODAL COMPLETO: NOVA SOLICITAÇÃO */}
       {modalAberta && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 text-dark">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 text-slate-800">
           <form onSubmit={enviarChamado} className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 border border-slate-100">
             <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-base sm:text-lg uppercase tracking-tight">
               <span className="flex items-center gap-2">
@@ -1377,7 +1308,6 @@ const Chamados = ({ user: userProp }) => {
 
             <div className="p-5 sm:p-7 space-y-4 max-h-[85vh] overflow-y-auto">
               
-              {/* LINHA 1: SETOR SOLICITANTE & RAMAL */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
@@ -1408,7 +1338,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* LINHA 2: EQUIPAMENTO & ESPECIALIDADE */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
@@ -1470,7 +1399,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* LINHA 3: CRITICIDADE / SLA & IMPACTO OPERACIONAL */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/70">
                 <div>
                   <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
@@ -1483,7 +1411,7 @@ const Chamados = ({ user: userProp }) => {
                     onChange={e => setForm({...form, prioridade: e.target.value})}
                   >
                     <option value="Urgente">🚨 Urgente (Meta: 2h)</option>
-                    <option value="Alta">⚠️ Alta (Meta: 6h)</option>
+                    <option value="Alta">⚠️️ Alta (Meta: 6h)</option>
                     <option value="Média">🟡 Média (Meta: 24h)</option>
                     <option value="Baixa">⚪ Baixa (Meta: 48h)</option>
                   </select>
@@ -1520,7 +1448,6 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* LINHA 4: ASSUNTO (DESVINCULADO DO STATE: SEM ATRASO NA DIGITAÇÃO) */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Assunto Resumido da Ocorrência *
@@ -1534,7 +1461,6 @@ const Chamados = ({ user: userProp }) => {
                 />
               </div>
 
-              {/* LINHA 5: FOTO OU EVIDÊNCIA */}
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   Foto ou Evidência do Problema
@@ -1605,7 +1531,6 @@ const Chamados = ({ user: userProp }) => {
                 )}
               </div>
 
-              {/* LINHA 6: DESCRIÇÃO DETALHADA (DESVINCULADO DO STATE: SEM ATRASO NA DIGITAÇÃO) */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Relato Descritivo do Problema *
@@ -1618,7 +1543,6 @@ const Chamados = ({ user: userProp }) => {
                 />
               </div>
 
-              {/* AÇÕES */}
               <div className="flex gap-3 pt-2">
                 <button 
                   type="button" 
@@ -1644,6 +1568,57 @@ const Chamados = ({ user: userProp }) => {
           </form>
         </div>
       )}
+
+      {/* 📱 VISUALIZADOR INTERNO DE ANEXOS / LAUDOS / FOTOS EM TELA CHEIA */}
+      {visualizadorAnexo && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
+          <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">
+            <button 
+              onClick={fecharVisualizadorInterno}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-black text-xs uppercase flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"
+            >
+              <span>←</span> Voltar
+            </button>
+            <span className="text-xs font-black uppercase truncate max-w-[200px] sm:max-w-md text-slate-300">
+              {visualizadorAnexo.titulo}
+            </span>
+            <div className="flex items-center gap-2">
+              <a 
+                href={visualizadorAnexo.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-black text-blue-400 hover:text-blue-300 uppercase px-2 py-1 bg-slate-800 rounded-lg"
+                title="Abrir em nova aba do navegador"
+              >
+                Abrir Externo ↗
+              </a>
+              <button 
+                onClick={fecharVisualizadorInterno}
+                className="text-xl text-slate-400 hover:text-white px-2"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto flex items-center justify-center p-2 sm:p-4">
+            {visualizadorAnexo.tipo === 'imagem' ? (
+              <img 
+                src={visualizadorAnexo.url} 
+                alt="Documento ampliado" 
+                className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              />
+            ) : (
+              <iframe 
+                src={visualizadorAnexo.url} 
+                title="Visualizador de PDF"
+                className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
+              />
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

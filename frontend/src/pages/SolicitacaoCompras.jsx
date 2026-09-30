@@ -373,6 +373,44 @@ const SolicitacaoCompras = () => {
     });
   };
 
+  // Encurta URLs longas na impressão preservando o hiperlink clicável no PDF gerado
+  const formatarTextoParaImpressao = (texto) => {
+    if (!texto) return '';
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const partes = texto.split(urlRegex);
+
+    return partes.map((parte, index) => {
+      if (parte.match(urlRegex)) {
+        let textoBotao = '🔗 Acessar Link do Produto';
+        try {
+          const urlObj = new URL(parte);
+          const dominio = urlObj.hostname.replace('www.', '');
+          textoBotao = `🔗 Acessar Link (${dominio})`;
+        } catch {
+          textoBotao = '🔗 Acessar Link Externo';
+        }
+
+        return (
+          <a
+            key={index}
+            href={parte}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center text-blue-800 underline font-black bg-blue-50 px-2 py-0.5 rounded border border-blue-200 mx-1 text-[10px]"
+            title="Clique para abrir o link do anúncio"
+          >
+            {textoBotao}
+          </a>
+        );
+      }
+      return parte;
+    });
+  };
+
+  const calcularTotalImpressao = (itensLista = []) => {
+    return itensLista.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(it.valor_estimado || 0)), 0);
+  };
+
   const solicitacoesFiltradas = solicitacoes.filter(s => {
     const t = busca.toLowerCase();
     const bateBusca = (
@@ -403,18 +441,24 @@ const SolicitacaoCompras = () => {
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
 
+      {/* ESTILOS DE IMPRESSÃO PROFISSIONAL A4 */}
       <style>{`
         @media print {
-          body * { visibility: hidden; }
-          #documento-impressao, #documento-impressao * { visibility: visible; }
+          body * { visibility: hidden !important; }
+          #documento-impressao, #documento-impressao * { visibility: visible !important; }
           #documento-impressao { 
-            position: absolute; 
-            left: 0; 
-            top: 0; 
-            width: 100%; 
+            position: absolute !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100% !important; 
             background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
           }
-          @page { size: A4; margin: 8mm; }
+          @page { 
+            size: A4 portrait; 
+            margin: 10mm 14mm; 
+          }
         }
       `}</style>
 
@@ -842,7 +886,7 @@ const SolicitacaoCompras = () => {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
-              <span>{editandoId ? `✏️ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
+              <span>{editandoId ? `✏️️ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
               <button onClick={() => setModalNova(false)} className="text-lg">✕</button>
             </div>
 
@@ -1106,77 +1150,179 @@ const SolicitacaoCompras = () => {
         </div>
       )}
 
-      {/* BLOCO PARA IMPRESSÃO A4 */}
+      {/* BLOCO PARA IMPRESSÃO A4 PROFISSIONAL (DIRETORIA) */}
       {solicitacaoImpressao && (
-        <div id="documento-impressao" className="hidden print:block font-sans text-slate-900 bg-white p-4">
-          <div className="border-b-2 border-slate-900 pb-3 mb-4 flex justify-between items-center">
-            <div>
-              <h1 className="text-base font-black uppercase tracking-tight">HOSPITAL DOMINGOS LOURENÇO</h1>
-              <p className="text-[10px] font-bold text-slate-600 uppercase">Setor de Engenharia Clínica & Infraestrutura — Requisição de Compras</p>
+        <div id="documento-impressao" className="hidden print:block font-sans text-slate-800 bg-white">
+          
+          {/* CABEÇALHO EXECUTIVO */}
+          <div className="flex justify-between items-center border-b-2 border-slate-900 pb-3 mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-xl shadow-sm">
+                🏥
+              </div>
+              <div>
+                <h1 className="text-base font-black uppercase tracking-tight text-slate-900 leading-tight">
+                  CLÍNICA MATERNO INFANTIL DOMINGOS LOURENÇO
+                </h1>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  Setor de Engenharia Clínica & Infraestrutura Hospitalar
+                </p>
+                <p className="text-[9px] text-slate-400 font-semibold uppercase">
+                  Formulário Oficial de Autorização de Compras e Despesas
+                </p>
+              </div>
             </div>
+
             <div className="text-right">
-              <span className="text-sm font-mono font-black border border-slate-900 px-2 py-0.5 rounded">REQUISIÇÃO Nº #{solicitacaoImpressao.id}</span>
-              <p className="text-[10px] font-bold text-slate-500 mt-0.5">{new Date(solicitacaoImpressao.data_solicitacao).toLocaleDateString('pt-BR')}</p>
+              <div className="inline-block bg-slate-100 border border-slate-300 px-3 py-1 rounded-lg">
+                <span className="text-[9px] uppercase tracking-widest text-slate-500 font-black block">Requisição</span>
+                <span className="text-base font-mono font-black text-slate-900">#{String(solicitacaoImpressao.id).padStart(4, '0')}</span>
+              </div>
+              <p className="text-[10px] font-bold text-slate-500 mt-1">
+                Data: {new Date(solicitacaoImpressao.data_solicitacao).toLocaleDateString('pt-BR')}
+              </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs mb-4 border-2 border-slate-200 p-3 rounded-xl bg-slate-50/50">
-            <div><strong>Solicitante:</strong> {solicitacaoImpressao.solicitante_nome}</div>
-            <div><strong>Setor Alvo:</strong> {solicitacaoImpressao.setor_nome || 'Geral'}</div>
-            <div><strong>Fornecedor Sugerido:</strong> {solicitacaoImpressao.fornecedor_nome || 'A definir / Cotação'}</div>
-            <div><strong>Urgência:</strong> <span className="uppercase font-bold">{solicitacaoImpressao.urgencia}</span></div>
-            <div className="col-span-2"><strong>Ativo Vinculado:</strong> {solicitacaoImpressao.equipamento_nome ? `${solicitacaoImpressao.equipamento_nome} (PAT: ${solicitacaoImpressao.equipamento_patrimonio || 'S/P'})` : 'Nenhum'}</div>
-            {solicitacaoImpressao.nota_fiscal_numero && (
-              <div className="col-span-2 text-emerald-700 font-bold">
-                <strong>Nota Fiscal Vinculada:</strong> #{solicitacaoImpressao.nota_fiscal_numero} 
-                {solicitacaoImpressao.nota_fiscal_chave && <span className="font-mono text-[10px] ml-2 font-normal text-slate-600">(Chave: {solicitacaoImpressao.nota_fiscal_chave})</span>}
+          {/* DADOS DA REQUISIÇÃO EM GRADE */}
+          <div className="border border-slate-300 rounded-xl overflow-hidden mb-4 shadow-xs">
+            <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300">
+              <h2 className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                1. Identificação do Pedido e Destinação
+              </h2>
+            </div>
+            
+            <div className="p-3 text-[11px] grid grid-cols-3 gap-y-2 gap-x-4 bg-white">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Solicitante Responsável:</span>
+                <strong className="text-slate-900">{solicitacaoImpressao.solicitante_nome}</strong>
               </div>
-            )}
-            <div className="col-span-2 border-t pt-2 mt-1">
-              <strong>Motivo / Justificativa:</strong>
-              <div className="mt-1 whitespace-pre-wrap break-words font-medium text-slate-800">
-                {solicitacaoImpressao.motivo}
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Setor Alvo / Destino:</span>
+                <strong className="text-slate-900">{solicitacaoImpressao.setor_nome || 'Geral'}</strong>
               </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Grau de Urgência:</span>
+                <span className={`inline-block font-black text-[10px] uppercase px-2 py-0.5 rounded ${
+                  solicitacaoImpressao.urgencia === 'Crítica' ? 'bg-red-100 text-red-800 border border-red-300' :
+                  solicitacaoImpressao.urgencia === 'Alta' ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                  'bg-slate-100 text-slate-700 border border-slate-300'
+                }`}>
+                  {solicitacaoImpressao.urgencia}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Fornecedor Sugerido:</span>
+                <span className="text-slate-800 font-semibold">{solicitacaoImpressao.fornecedor_nome || 'A definir / Cotação'}</span>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Ativo / Patrimônio:</span>
+                <span className="text-slate-800 font-semibold">
+                  {solicitacaoImpressao.equipamento_nome ? `${solicitacaoImpressao.equipamento_nome} (PAT: ${solicitacaoImpressao.equipamento_patrimonio || 'S/P'})` : 'Estrutura / Sem Ativo'}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Status da Requisição:</span>
+                <strong className="text-slate-700 uppercase">{solicitacaoImpressao.status}</strong>
+              </div>
+
+              {solicitacaoImpressao.nota_fiscal_numero && (
+                <div className="col-span-3 pt-1 border-t border-slate-100 flex items-center gap-3">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700">Nota Fiscal Faturada:</span>
+                  <span className="font-mono font-bold text-slate-800">NF #{solicitacaoImpressao.nota_fiscal_numero}</span>
+                  {solicitacaoImpressao.nota_fiscal_chave && (
+                    <span className="text-[9px] font-mono text-slate-500 truncate">(Chave: {solicitacaoImpressao.nota_fiscal_chave})</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <h3 className="text-xs font-black uppercase mb-1.5">Itens Solicitados</h3>
-          <table className="w-full text-xs border-collapse border border-slate-300 mb-4">
-            <thead>
-              <tr className="bg-slate-100">
-                <th className="border border-slate-300 p-2 text-left">Item / Descrição</th>
-                <th className="border border-slate-300 p-2 text-center w-16">Qtd</th>
-                <th className="border border-slate-300 p-2 text-right w-28">Val. Est. Un.</th>
-                <th className="border border-slate-300 p-2 text-right w-28">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {solicitacaoImpressao.itens?.map((it, idx) => (
-                <tr key={idx}>
-                  <td className="border border-slate-300 p-2 font-bold">{it.descricao}</td>
-                  <td className="border border-slate-300 p-2 text-center">{it.quantidade}</td>
-                  <td className="border border-slate-300 p-2 text-right">R$ {Number(it.valor_estimado).toFixed(2)}</td>
-                  <td className="border border-slate-300 p-2 text-right font-bold">R$ {(Number(it.quantidade) * Number(it.valor_estimado)).toFixed(2)}</td>
+          {/* JUSTIFICATIVA TÉCNICA (COM TRATAMENTO DE LINKS CLICÁVEIS) */}
+          <div className="border border-slate-300 rounded-xl overflow-hidden mb-5 shadow-xs">
+            <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300">
+              <h2 className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                2. Justificativa da Aplicação / Motivo Operacional
+              </h2>
+            </div>
+            <div className="p-3 text-[11px] text-slate-700 font-medium leading-relaxed bg-white whitespace-pre-wrap break-words">
+              {formatarTextoParaImpressao(solicitacaoImpressao.motivo)}
+            </div>
+          </div>
+
+          {/* TABELA DE ITENS COM TOTALIZADOR CLARO */}
+          <div className="border border-slate-300 rounded-xl overflow-hidden mb-5 shadow-xs">
+            <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300 flex justify-between items-center">
+              <h2 className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                3. Especificação dos Materiais / Itens Solicitados
+              </h2>
+              <span className="text-[9px] font-bold text-slate-500 uppercase">
+                {solicitacaoImpressao.itens?.length || 0} item(ns)
+              </span>
+            </div>
+
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] font-black text-slate-600 uppercase border-b border-slate-300">
+                  <th className="py-2 px-3 text-center w-10">Item</th>
+                  <th className="py-2 px-3 text-left">Descrição do Material / Peça</th>
+                  <th className="py-2 px-3 text-center w-16">Qtd</th>
+                  <th className="py-2 px-3 text-right w-28">Val. Unit. Est.</th>
+                  <th className="py-2 px-3 text-right w-32">Subtotal</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-[11px]">
+                {solicitacaoImpressao.itens?.map((it, idx) => (
+                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}>
+                    <td className="py-2 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                    <td className="py-2 px-3 font-bold text-slate-900">{it.descricao}</td>
+                    <td className="py-2 px-3 text-center font-bold text-slate-800">{it.quantidade}</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-700">
+                      R$ {Number(it.valor_estimado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                      R$ {(Number(it.quantidade || 0) * Number(it.valor_estimado || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-100 border-t-2 border-slate-400 font-bold text-xs text-slate-900">
+                  <td colSpan="4" className="py-2.5 px-3 text-right uppercase tracking-wider font-black">
+                    Valor Total Estimado da Requisição:
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-mono font-black text-sm text-slate-900">
+                    R$ {calcularTotalImpressao(solicitacaoImpressao.itens).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
           {/* ANEXOS / FOTOS NO RELATÓRIO */}
           {solicitacaoImpressao.anexos && solicitacaoImpressao.anexos.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-xs font-black uppercase mb-2">Fotos / Cotações Anexadas</h3>
-              <div className="flex flex-wrap gap-3 items-start">
+            <div className="mb-5 border border-slate-300 rounded-xl overflow-hidden">
+              <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300">
+                <h3 className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                  4. Comprovantes / Cotações Anexadas
+                </h3>
+              </div>
+              <div className="p-3 flex flex-wrap gap-3 items-start bg-white">
                 {solicitacaoImpressao.anexos.map((anexo, idx) => (
-                  <div key={idx} className="border border-slate-300 p-1 rounded-lg bg-white max-w-xs">
+                  <div key={idx} className="border border-slate-200 p-1 rounded-lg bg-slate-50 max-w-xs">
                     {isImagem(anexo.arquivo_nome) ? (
                       <img 
                         src={`${BASE_URL}${anexo.arquivo_nome}`} 
-                        alt={anexo.nome_original || 'Anexo'}
-                        className="max-h-40 max-w-full object-contain rounded"
+                        alt={anexo.nome_original || 'Anexo'} 
+                        className="max-h-36 max-w-full object-contain rounded"
                       />
                     ) : (
-                      <div className="p-2 text-[10px] font-bold text-slate-700 bg-slate-50 rounded">
+                      <div className="p-2 text-[10px] font-bold text-slate-700">
                         📄 {anexo.nome_original || anexo.arquivo_nome} (Documento PDF)
                       </div>
                     )}
@@ -1186,18 +1332,27 @@ const SolicitacaoCompras = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-12 text-center mt-12 pt-2 max-w-xl mx-auto">
-            <div>
-              <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
-              <p className="text-[10px] text-slate-500 uppercase font-bold">Gestor da Área / Coordenação</p>
-              <p className="text-[9px] text-slate-400">Visto de Aprovação</p>
+          {/* DECLARAÇÃO E ASSINATURAS */}
+          <div className="border border-slate-300 rounded-xl p-3 mb-8 bg-slate-50/50 text-[10px] text-slate-600 italic">
+            * Declaro para os devidos fins que os materiais e quantidades discriminados acima foram verificados junto à necessidade operacional do setor e ao estoque atual do Almoxarifado Central.
+          </div>
+
+          <div className="grid grid-cols-2 gap-12 text-center pt-6 max-w-2xl mx-auto">
+            <div className="flex flex-col items-center">
+              <div className="w-64 border-t-2 border-slate-800 mb-1.5"></div>
+              <span className="text-[11px] font-black uppercase text-slate-900">Engenharia Clínica / Coordenação</span>
+              <span className="text-[9px] text-slate-500">Responsável Técnico / Emissor</span>
+              <span className="text-[9px] text-slate-400 mt-0.5">Data: ____/____/________</span>
             </div>
-            <div>
-              <p className="border-t-2 border-slate-800 pt-1 font-bold">_______________________</p>
-              <p className="text-[10px] text-slate-500 uppercase font-bold">Diretoria / Financeiro</p>
-              <p className="text-[9px] text-slate-400">Autorização de Compra</p>
+
+            <div className="flex flex-col items-center">
+              <div className="w-64 border-t-2 border-slate-800 mb-1.5"></div>
+              <span className="text-[11px] font-black uppercase text-slate-900">Diretoria Executiva / Financeiro</span>
+              <span className="text-[9px] text-slate-500">Autorização de Pagamento / Compra</span>
+              <span className="text-[9px] text-slate-400 mt-0.5">Data: ____/____/________</span>
             </div>
           </div>
+
         </div>
       )}
     </div>
