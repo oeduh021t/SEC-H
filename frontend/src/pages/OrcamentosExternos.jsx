@@ -13,7 +13,7 @@ export default function OrcamentosExternos() {
   // Estados de Edição
   const [orcamentoEmEdicaoId, setOrcamentoEmEdicaoId] = useState(null);
 
-  // Form State
+  // Form State Geral do Lote
   const [fornecedorId, setFornecedorId] = useState('');
   const [setorGeralId, setSetorGeralId] = useState('');
   const [observacoes, setObservacoes] = useState('');
@@ -22,10 +22,11 @@ export default function OrcamentosExternos() {
 
   // Form temporário para item avulso/predial
   const [novoAvulsoTitulo, setNovoAvulsoTitulo] = useState('');
+  const [novoAvulsoSetorId, setNovoAvulsoSetorId] = useState('');
   const [novoAvulsoDesc, setNovoAvulsoDesc] = useState('');
   const [novoAvulsoValor, setNovoAvulsoValor] = useState('');
 
-  // 🛡️ Helper para montar os headers de privilégio e autenticação
+  // 🛡️ Helper de Autenticação
   const obterHeadersAuth = useCallback(() => {
     const nivel = localStorage.getItem('usuario_nivel') || localStorage.getItem('nivel') || 'admin';
     const usuarioId = localStorage.getItem('usuario_id') || localStorage.getItem('id') || '1';
@@ -95,7 +96,7 @@ export default function OrcamentosExternos() {
     }
   }, [modalNovo, carregarChamados]);
 
-  // Abrir modal para edição carregando os dados do orçamento
+  // Abrir modal para edição trazendo todos os campos de cada item
   const abrirModalEdicao = async (orc) => {
     if (orc.status === 'Aprovado Financeiro') {
       return alert('Este orçamento já foi aprovado pelo financeiro e não pode ser editado.');
@@ -114,11 +115,12 @@ export default function OrcamentosExternos() {
       setObservacoes(data.orcamento.observacoes || '');
       setArquivoAnexo(null);
 
-      // Mapeia os itens vindos do banco para o padrão do state
-      const itensMapeados = data.itens.map(it => ({
+      const itensMapeados = (data.itens || []).map(it => ({
         temp_id: it.chamado_id ? `os-${it.chamado_id}` : `avulso-${it.id || Math.random()}`,
         chamado_id: it.chamado_id || null,
         item_titulo: it.item_titulo || it.titulo_exibicao || 'Serviço',
+        setor_id: it.setor_id || data.orcamento.setor_id || '',
+        setor_nome: it.item_setor_completo || it.setor_nome || 'Setor Geral',
         equipamento_id: it.equipamento_id || null,
         equipamento_nome: it.equipamento_nome || 'Serviço Predial / Infraestrutura',
         patrimonio: it.patrimonio || 'N/A',
@@ -134,7 +136,7 @@ export default function OrcamentosExternos() {
     }
   };
 
-  // Manipulação de OS vinculada
+  // Toggle de Chamados Existentes
   const toggleChamadoNoLote = (ch) => {
     const existe = itensLote.find(i => i.chamado_id === ch.id);
     if (existe) {
@@ -144,8 +146,10 @@ export default function OrcamentosExternos() {
         temp_id: `os-${ch.id}`,
         chamado_id: ch.id,
         item_titulo: `OS #${ch.id} — ${ch.equipamento_nome || ch.titulo}`,
-        equipamento_id: ch.equipamento_id,
-        equipamento_nome: ch.equipamento_nome || ch.titulo,
+        setor_id: ch.setor_id || setorGeralId || null,
+        setor_nome: ch.setor_nome || 'Setor do Chamado',
+        equipamento_id: ch.equipamento_id || null,
+        equipamento_nome: ch.equipamento_nome || 'Infraestrutura Predial',
         patrimonio: ch.patrimonio || 'S/P',
         descricao_proposta: '',
         valor_unitario: ''
@@ -153,24 +157,30 @@ export default function OrcamentosExternos() {
     }
   };
 
+  // Inclusão de Serviço Predial com Setor Específico
   const adicionarItemAvulso = () => {
     if (!novoAvulsoTitulo.trim() || !novoAvulsoValor) {
-      return alert('Informe o título do serviço e o valor unitário.');
+      return alert('Informe o título do serviço e o valor.');
     }
+
+    const setorSelecionado = setores.find(s => String(s.id) === String(novoAvulsoSetorId || setorGeralId));
 
     const novoItem = {
       temp_id: `avulso-${Date.now()}`,
       chamado_id: null,
-      item_titulo: novoAvulsoTitulo,
+      item_titulo: novoAvulsoTitulo.trim(),
+      setor_id: novoAvulsoSetorId || setorGeralId || null,
+      setor_nome: setorSelecionado ? setorSelecionado.nome : 'Geral / Manutenção',
       equipamento_id: null,
       equipamento_nome: 'Serviço Predial / Infraestrutura',
       patrimonio: 'N/A',
-      descricao_proposta: novoAvulsoDesc,
+      descricao_proposta: novoAvulsoDesc.trim(),
       valor_unitario: novoAvulsoValor
     };
 
     setItensLote([...itensLote, novoItem]);
     setNovoAvulsoTitulo('');
+    setNovoAvulsoSetorId('');
     setNovoAvulsoDesc('');
     setNovoAvulsoValor('');
   };
@@ -188,7 +198,7 @@ export default function OrcamentosExternos() {
   const handleSalvarLote = async (e) => {
     e.preventDefault();
     if (!fornecedorId) {
-      return alert('Selecione o prestador / fornecedor.');
+      return alert('Selecione a empresa prestadora / fornecedor.');
     }
     if (itensLote.length === 0) {
       return alert('Adicione pelo menos um item avulso ou selecione uma OS para compor o orçamento.');
@@ -237,7 +247,7 @@ export default function OrcamentosExternos() {
 
   const handleAprovarOrcamento = async (orc) => {
     const confirmar = window.confirm(
-      `Deseja realmente APROVAR o orçamento ${orc.codigo_orcamento} no valor de R$ ${Number(orc.valor_total).toFixed(2)}?\n\nIsso irá lançar o gasto no centro de custos do setor predial e autorizar a execução.`
+      `Deseja realmente APROVAR o orçamento ${orc.codigo_orcamento} no valor de R$ ${Number(orc.valor_total).toFixed(2)}?\n\nIsso irá lançar o gasto no centro de custos do setor predial, autorizar o serviço e atualizar as OSs para "Em Atendimento".`
     );
     if (!confirmar) return;
 
@@ -260,7 +270,7 @@ export default function OrcamentosExternos() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        alert(data.message || 'Orçamento aprovado e lançado no centro de custos! 💰');
+        alert(data.message || 'Orçamento aprovado e lançado com sucesso! 💰');
         carregarDadosIniciais();
       } else {
         alert(`Erro: ${data.error || 'Falha ao aprovar orçamento.'}`);
@@ -275,6 +285,7 @@ export default function OrcamentosExternos() {
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
+      {/* Topo da Página */}
       <div className="flex justify-between items-center bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mb-6">
         <div>
           <h1 className="text-xl font-black text-slate-800 uppercase flex items-center gap-2">
@@ -394,10 +405,10 @@ export default function OrcamentosExternos() {
         </table>
       </div>
 
-      {/* Modal de Novo / Editar Orçamento */}
+      {/* Modal de Cadastro / Edição Completa */}
       {modalNovo && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-150">
+          <div className="bg-white w-full max-w-4xl max-h-[92vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-slate-900 p-5 text-white flex justify-between items-center shrink-0">
               <h3 className="font-black text-sm uppercase">
                 {orcamentoEmEdicaoId ? '✏️ Editar Orçamento Comercial' : 'Novo Orçamento Comercial (Com ou Sem OS)'}
@@ -406,9 +417,13 @@ export default function OrcamentosExternos() {
             </div>
 
             <form onSubmit={handleSalvarLote} className="p-6 overflow-y-auto space-y-4 flex-1">
+              
+              {/* Seleção de Fornecedor e Setor Padrão do Lote */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Prestador / Fornecedor *</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                    Prestador / Fornecedor *
+                  </label>
                   <select
                     required
                     value={fornecedorId}
@@ -423,7 +438,9 @@ export default function OrcamentosExternos() {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Setor Destino / Obra (Opcional)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                    Setor Padrão do Lote / Centro de Custo
+                  </label>
                   <select
                     value={setorGeralId}
                     onChange={e => setSetorGeralId(e.target.value)}
@@ -437,44 +454,61 @@ export default function OrcamentosExternos() {
                 </div>
               </div>
 
-              {/* Bloco 1: Inclusão Manual de Serviços (Predial / Avulso) */}
-              <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-3">
+              {/* Bloco 1: Inclusão Manual com Setor Individual */}
+              <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-3">
                 <span className="text-[10px] font-black text-amber-800 uppercase tracking-wider block">
                   🔨 Adicionar Serviço Avulso / Predial (Sem OS)
                 </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="sm:col-span-2">
+                
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <div className="sm:col-span-5">
                     <input
                       type="text"
-                      placeholder="Ex: Cobertura de dutos e fios em chapa galvanizada"
+                      placeholder="Título / Serviço (Ex: Cobertura de dutos e fios)"
                       value={novoAvulsoTitulo}
                       onChange={e => setNovoAvulsoTitulo(e.target.value)}
                       className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg font-bold outline-none focus:border-amber-500"
                     />
                   </div>
-                  <div>
+                  
+                  <div className="sm:col-span-4">
+                    <select
+                      value={novoAvulsoSetorId}
+                      onChange={e => setNovoAvulsoSetorId(e.target.value)}
+                      className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg font-bold outline-none focus:border-amber-500 truncate"
+                    >
+                      <option value="">Setor do Item (Padrão do Lote)</option>
+                      {setores.map(s => (
+                        <option key={s.id} value={s.id}>{s.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-3">
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="Valor R$ (Ex: 1224.00)"
+                      placeholder="Valor R$"
                       value={novoAvulsoValor}
                       onChange={e => setNovoAvulsoValor(e.target.value)}
-                      className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg font-bold font-mono outline-none focus:border-amber-500"
+                      className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg font-bold font-mono outline-none focus:border-amber-500 text-right"
                     />
                   </div>
                 </div>
+
                 <textarea
                   rows={2}
-                  placeholder="Detalhamento técnico (Ex: Medindo 15mts lineares, chapa galvanizada e cantoneiras...)"
+                  placeholder="Detalhamento técnico detalhado para diretoria (Ex: Medindo 15m lineares em chapa galvanizada dobrada com cantoneiras...)"
                   value={novoAvulsoDesc}
                   onChange={e => setNovoAvulsoDesc(e.target.value)}
                   className="w-full p-2 text-xs border border-amber-200 bg-white rounded-lg outline-none resize-none focus:border-amber-500"
                 />
+
                 <div className="text-right">
                   <button
                     type="button"
                     onClick={adicionarItemAvulso}
-                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase rounded-xl shadow-xs transition-all active:scale-95"
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-black text-[10px] uppercase rounded-xl shadow-xs transition-all active:scale-95"
                   >
                     + Incluir Item no Orçamento
                   </button>
@@ -484,7 +518,7 @@ export default function OrcamentosExternos() {
               {/* Bloco 2: Seleção Opcional de Ordens de Serviço */}
               <details className="border border-slate-200 rounded-2xl p-3 group">
                 <summary className="cursor-pointer text-[10px] font-black text-slate-500 uppercase flex justify-between items-center select-none">
-                  <span>Opção: Selecionar Chamados / OSs em Aberto ({itensLote.filter(i => i.chamado_id).length} vinculados)</span>
+                  <span>Opção: Vincular Chamados / OSs em Aberto ({itensLote.filter(i => i.chamado_id).length} vinculados)</span>
                   <span className="text-xs text-blue-600 font-bold group-open:rotate-180 transition-transform">▼</span>
                 </summary>
 
@@ -506,7 +540,7 @@ export default function OrcamentosExternos() {
                         <div className="min-w-0 flex-1">
                           <span className="font-black text-blue-600 font-mono">OS #{ch.id}</span>
                           <p className="font-bold text-slate-700 truncate">{ch.equipamento_nome || ch.titulo}</p>
-                          <p className="text-[9px] text-slate-400">Pat: {ch.patrimonio || 'S/P'}</p>
+                          <p className="text-[9px] text-slate-400 truncate">{ch.setor_nome || 'Setor N/A'}</p>
                         </div>
                       </div>
                     );
@@ -517,19 +551,32 @@ export default function OrcamentosExternos() {
                 </div>
               </details>
 
-              {/* Lista Consolidada de Itens */}
+              {/* Lista Consolidada de Itens que Comporão o Lote */}
               {itensLote.length > 0 && (
                 <div className="space-y-3 pt-3 border-t border-slate-200">
-                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                    Itens que Comporão o Orçamento ({itensLote.length}):
+                  <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-wider flex justify-between items-center">
+                    <span>Itens que Comporão o Orçamento ({itensLote.length}):</span>
+                    <span className="text-slate-400 font-normal">Edite valores ou detalhamentos abaixo</span>
                   </h4>
+
                   {itensLote.map(it => (
                     <div key={it.temp_id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                      <div className="flex justify-between items-center text-xs font-black text-slate-800">
-                        <span className="truncate pr-2">
-                          {it.chamado_id ? `🔧 OS #${it.chamado_id} - ${it.equipamento_nome}` : `🧱 ${it.item_titulo}`}
-                        </span>
-                        <div className="flex items-center gap-2">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                              {it.chamado_id ? `🔧 OS #${it.chamado_id}` : '🧱 PRED / AVULSO'}
+                            </span>
+                            <span className="font-black text-xs text-slate-800">
+                              {it.item_titulo}
+                            </span>
+                          </div>
+                          <p className="text-[10px] font-bold text-slate-500 mt-0.5 truncate">
+                            📍 {it.setor_nome}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <span className="text-xs font-bold text-slate-500">R$</span>
                           <input
                             required
@@ -537,29 +584,31 @@ export default function OrcamentosExternos() {
                             step="0.01"
                             value={it.valor_unitario}
                             onChange={e => atualizarItemLote(it.temp_id, 'valor_unitario', e.target.value)}
-                            className="w-24 p-1.5 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs bg-white focus:border-blue-500 outline-none"
+                            className="w-28 p-1.5 border border-slate-300 rounded-lg text-right font-mono font-bold text-xs bg-white focus:border-blue-500 outline-none"
                           />
                           <button
                             type="button"
                             onClick={() => removerItemLote(it.temp_id)}
-                            className="text-red-500 hover:text-red-700 font-bold px-1"
+                            className="text-red-500 hover:text-red-700 font-bold px-2 py-1"
                             title="Remover Item"
                           >
                             ✕
                           </button>
                         </div>
                       </div>
+
                       <textarea
                         rows={2}
-                        placeholder="Especificações do item/serviço..."
+                        placeholder="Discriminação e especificações técnicas deste serviço..."
                         value={it.descricao_proposta}
                         onChange={e => atualizarItemLote(it.temp_id, 'descricao_proposta', e.target.value)}
                         className="w-full p-2 border border-slate-200 rounded-xl text-xs bg-white resize-none outline-none focus:border-blue-500"
                       />
                     </div>
                   ))}
+
                   <div className="text-right text-sm font-black text-slate-800 pt-1">
-                    Total Geral: <strong className="text-emerald-600 font-mono">R$ {totalCalculado.toFixed(2)}</strong>
+                    Total Geral do Lote: <strong className="text-emerald-600 font-mono text-base">R$ {totalCalculado.toFixed(2)}</strong>
                   </div>
                 </div>
               )}
@@ -567,7 +616,7 @@ export default function OrcamentosExternos() {
               {/* Anexo de Arquivo */}
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
-                  Cópia do Orçamento / Anexo (PDF, Foto ou Documento)
+                  Cópia do Orçamento / Anexo (PDF, Imagem ou Documento da Proposta)
                 </label>
                 <input
                   type="file"
@@ -577,14 +626,16 @@ export default function OrcamentosExternos() {
                 />
               </div>
 
-              {/* Observações */}
+              {/* Observações / Condições Comerciais */}
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Observações / Condições de Pagamento</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Observações / Condições Comerciais e de Pagamento
+                </label>
                 <textarea
                   rows={2}
                   value={observacoes}
                   onChange={e => setObservacoes(e.target.value)}
-                  placeholder="Ex: 50% no pedido e 50% na entrega..."
+                  placeholder="Ex: Pagamento 50% de entrada e 50% na conclusão; prazo de entrega de 10 dias úteis..."
                   className="w-full p-2.5 border border-slate-200 rounded-xl text-xs resize-none outline-none focus:border-blue-500"
                 />
               </div>

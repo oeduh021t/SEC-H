@@ -3020,6 +3020,41 @@ app.post('/api/equipamentos/trocar', permitirApenas(['admin', 'coordenador', 'te
     });
 });
 
+// LISTAR EQUIPAMENTOS EM RESERVA (COMPATÍVEIS POR TIPO)
+app.get('/api/equipamentos/reservas', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const equipamentoBaseId = req.query.tipo_de_equipamento_com_base_em;
+
+    if (!equipamentoBaseId) {
+        return res.status(400).json({ error: "ID do equipamento base é obrigatório." });
+    }
+
+    // 1. Descobre o tipo_id do equipamento que está com problema
+    const queryTipo = `SELECT tipo_id, tipo_equipamento_id FROM equipamentos WHERE id = ?`;
+
+    db.query(queryTipo, [equipamentoBaseId], (errTipo, rowsTipo) => {
+        if (errTipo) return res.status(500).json({ error: errTipo.message });
+        if (rowsTipo.length === 0) return res.status(404).json({ error: "Equipamento base não encontrado." });
+
+        const tipoId = rowsTipo[0].tipo_id || rowsTipo[0].tipo_equipamento_id;
+
+        // 2. Busca ativos com status 'Reserva', do mesmo tipo e diferentes do ativo que deu defeito
+        const queryReservas = `
+            SELECT e.id, e.nome, e.patrimonio, e.modelo, e.fabricante, s.nome as setor_nome
+            FROM equipamentos e
+            LEFT JOIN setores s ON e.setor_id = s.id
+            WHERE e.status = 'Reserva'
+              AND (e.tipo_id = ? OR e.tipo_equipamento_id = ?)
+              AND e.id != ?
+            ORDER BY e.nome ASC
+        `;
+
+        db.query(queryReservas, [tipoId, tipoId, equipamentoBaseId], (errRes, reservas) => {
+            if (errRes) return res.status(500).json({ error: errRes.message });
+            res.json(reservas || []);
+        });
+    });
+});
+
 // -------------------------------------------------------------------------
 // GASES MEDICINAIS & MANIFOLD
 // -------------------------------------------------------------------------
@@ -5281,14 +5316,25 @@ app.get('/api/orcamentos-externos', (req, res) => {
     }
 
     const query = `
+        WITH RECURSIVE ArvoreSetores AS (
+            SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+            FROM setores
+            WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+            
+            UNION ALL
+            
+            SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+            FROM setores filho
+            INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+        )
         SELECT o.id, o.codigo_orcamento, o.fornecedor_id, o.setor_id, o.data_emissao, 
                o.valor_total, o.status, o.tipo_orcamento, o.observacoes, o.anexo_url, o.created_at,
                COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Avulso') AS fornecedor_nome,
-               COALESCE(s.nome, 'Geral / Manutenção') AS setor_nome,
+               COALESCE(s.caminho, 'Geral / Manutenção') AS setor_nome,
                (SELECT COUNT(*) FROM orcamentos_externos_itens oi WHERE oi.orcamento_id = o.id) AS total_itens
         FROM orcamentos_externos o
         LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
-        LEFT JOIN setores s ON o.setor_id = s.id
+        LEFT JOIN ArvoreSetores s ON o.setor_id = s.id
         ORDER BY o.id DESC
     `;
 
@@ -5309,11 +5355,22 @@ app.get('/api/orcamentos-externos/chamados-disponiveis', (req, res) => {
     }
 
     const query = `
+        WITH RECURSIVE ArvoreSetores AS (
+            SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+            FROM setores
+            WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+            
+            UNION ALL
+            
+            SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+            FROM setores filho
+            INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+        )
         SELECT c.id, c.titulo, c.equipamento_id, c.fornecedor_id, c.status, c.em_manutencao_externa,
-               e.nome AS equipamento_nome, e.patrimonio, e.num_serie, s.nome AS setor_nome
+               e.nome AS equipamento_nome, e.patrimonio, e.num_serie, s.caminho AS setor_nome
         FROM chamados c
         LEFT JOIN equipamentos e ON c.equipamento_id = e.id
-        LEFT JOIN setores s ON c.setor_id = s.id
+        LEFT JOIN ArvoreSetores s ON c.setor_id = s.id
         WHERE c.status != 'Concluído' 
           AND c.status != 'Cancelado'
         ORDER BY c.id DESC
@@ -5399,7 +5456,7 @@ app.post('/api/orcamentos-externos', uploadOrcamento.single('anexo'), (req, res)
                 );
 
                 db.query(
-                    `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico) VALUES (?, 'Sistema', ?)`,
+                    `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())`,
                     [item.chamado_id, `[ORÇAMENTO GERADO] Vinculado ao Lote ${codigo} no valor de R$ ${Number(item.valor_unitario).toFixed(2)}.`]
                 );
             }
@@ -5409,14 +5466,37 @@ app.post('/api/orcamentos-externos', uploadOrcamento.single('anexo'), (req, res)
     });
 });
 
-// 4. Detalhes completos para espelho e impressão (LEFT JOIN para suportar itens com ou sem OS)
+// 4. Detalhes completos para espelho e impressão (Enriquecido com Setor Hierárquico e Ficha do Prestador)
 app.get('/api/orcamentos-externos/:id', (req, res) => {
     const queryOrc = `
-        SELECT o.*, f.nome_fantasia AS fornecedor_nome, f.razao_social, f.cnpj, f.telefone, f.email,
-               s.nome AS setor_nome
+        WITH RECURSIVE ArvoreSetores AS (
+            SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+            FROM setores
+            WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+            
+            UNION ALL
+            
+            SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+            FROM setores filho
+            INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
+        )
+        SELECT 
+            o.*, 
+            COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Autorizado') AS fornecedor_nome, 
+            f.razao_social, 
+            f.cnpj, 
+            f.telefone, 
+            f.email,
+            f.contato AS fornecedor_contato,
+            f.especialidade AS fornecedor_especialidade,
+            COALESCE(s.caminho, 'Geral / Hospital Domingos Lourenço') AS setor_nome_completo,
+            u_criador.nome AS criado_por_nome,
+            u_aprovador.nome AS aprovado_por_nome
         FROM orcamentos_externos o
         LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
-        LEFT JOIN setores s ON o.setor_id = s.id
+        LEFT JOIN ArvoreSetores s ON o.setor_id = s.id
+        LEFT JOIN usuarios u_criador ON o.criado_por_id = u_criador.id
+        LEFT JOIN usuarios u_aprovador ON o.aprovado_por_id = u_aprovador.id
         WHERE o.id = ?
     `;
 
@@ -5428,18 +5508,33 @@ app.get('/api/orcamentos-externos/:id', (req, res) => {
         const orcamento = rows[0];
 
         const queryItens = `
-            SELECT oi.*, 
-                   COALESCE(oi.item_titulo, c.titulo, 'Serviço Avulso') AS titulo_exibicao,
-                   e.nome AS equipamento_nome, e.patrimonio, e.num_serie,
-                   COALESCE(s_item.nome, s_os.nome, s_orc.nome, 'Geral / Manutenção') AS setor_nome
+            WITH RECURSIVE ArvoreSetoresItens AS (
+                SELECT id, setor_pai_id, nome, CAST(nome AS CHAR(1000)) as caminho
+                FROM setores
+                WHERE setor_pai_id IS NULL OR setor_pai_id = 0
+                
+                UNION ALL
+                
+                SELECT filho.id, filho.setor_pai_id, filho.nome, CONCAT(pai.caminho, ' > ', filho.nome)
+                FROM setores filho
+                INNER JOIN ArvoreSetoresItens pai ON filho.setor_pai_id = pai.id
+            )
+            SELECT 
+                oi.*, 
+                COALESCE(oi.item_titulo, c.titulo, 'Serviço Predial / Infraestrutura') AS titulo_exibicao,
+                c.descricao_problema AS chamado_problema,
+                e.nome AS equipamento_nome, 
+                e.patrimonio, 
+                e.num_serie,
+                e.modelo AS equipamento_modelo,
+                COALESCE(s_item.caminho, s_os.caminho, 'Hospital Domingos Lourenço') AS item_setor_completo
             FROM orcamentos_externos_itens oi
             LEFT JOIN chamados c ON oi.chamado_id = c.id
-            LEFT JOIN equipamentos e ON oi.equipamento_id = e.id
-            LEFT JOIN setores s_os ON c.setor_id = s_os.id
-            LEFT JOIN setores s_item ON oi.setor_id = s_item.id
-            LEFT JOIN orcamentos_externos o ON oi.orcamento_id = o.id
-            LEFT JOIN setores s_orc ON o.setor_id = s_orc.id
+            LEFT JOIN equipamentos e ON COALESCE(oi.equipamento_id, c.equipamento_id) = e.id
+            LEFT JOIN ArvoreSetoresItens s_os ON c.setor_id = s_os.id
+            LEFT JOIN ArvoreSetoresItens s_item ON oi.setor_id = s_item.id
             WHERE oi.orcamento_id = ?
+            ORDER BY oi.id ASC
         `;
 
         db.query(queryItens, [req.params.id], (errItens, itens) => {
@@ -5530,9 +5625,8 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
             db.query(queryItens, [orcamentoId], (errItens, itens) => {
                 if (!errItens && itens && itens.length > 0) {
                     itens.forEach(item => {
-                        // Atualiza o chamado se houver
+                        // Atualiza o chamado se houver com status padronizado
                         if (item.chamado_id) {
-                            // 🟢 CORRIGIDO: Status unificado para 'Em Atendimento'
                             db.query(`UPDATE chamados SET status = 'Em Atendimento' WHERE id = ?`, [item.chamado_id]);
                             
                             db.query(
@@ -5541,7 +5635,7 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
                             );
                         }
 
-                        // Registra o custo/serviço no histórico do equipamento correspondente (se houver ID direto ou via OS)
+                        // Registra o custo/serviço no histórico do equipamento correspondente
                         const equipId = item.equipamento_id || item.eq_chamado;
                         const valorItem = Number(item.valor_unitario) || 0;
 
@@ -5593,7 +5687,6 @@ app.put('/api/orcamentos-externos/:id', uploadOrcamento.single('anexo'), (req, r
         return res.status(400).json({ error: 'Fornecedor e itens são obrigatórios para atualização.' });
     }
 
-    // Verifica se já está aprovado
     const queryVerifica = `SELECT status FROM orcamentos_externos WHERE id = ?`;
     db.query(queryVerifica, [orcamentoId], (errV, rowsV) => {
         if (errV || rowsV.length === 0) {
@@ -5631,13 +5724,11 @@ app.put('/api/orcamentos-externos/:id', uploadOrcamento.single('anexo'), (req, r
                 return res.status(500).json({ error: `Erro no banco: ${errUp.message}` });
             }
 
-            // Remove os itens antigos para re-inserir a lista atualizada
             db.query(`DELETE FROM orcamentos_externos_itens WHERE orcamento_id = ?`, [orcamentoId], (errDel) => {
                 if (errDel) {
                     console.error("⚠️ Erro ao limpar itens antigos para edição:", errDel.message);
                 }
 
-                // Insere os novos itens
                 itens.forEach((item) => {
                     const queryItem = `
                         INSERT INTO orcamentos_externos_itens 
@@ -5648,7 +5739,7 @@ app.put('/api/orcamentos-externos/:id', uploadOrcamento.single('anexo'), (req, r
                     db.query(queryItem, [
                         orcamentoId,
                         item.chamado_id || null,
-                        item.item_titulo || (item.chamado_id ? `OS #${item.chamado_id}` : 'Serviço Avulso'),
+                        item.item_titulo || (item.chamado_id ? `OS #${item.chamado_id} - ${item.equipamento_nome || ''}` : 'Serviço Predial / Avulso'),
                         item.setor_id || setor_id || null,
                         item.equipamento_id || null,
                         item.descricao_proposta || '',
