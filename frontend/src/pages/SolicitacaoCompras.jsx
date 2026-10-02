@@ -339,7 +339,25 @@ const SolicitacaoCompras = () => {
         anexos: Array.isArray(resAnexos) ? resAnexos : []
       });
 
-      setTimeout(() => window.print(), 350);
+      // Salva o título original da aba
+      const tituloOriginal = document.title;
+      // Define o nome padrão para salvar o PDF
+      document.title = `SEC-H - requisição nº ${id}`;
+
+      // Restaura o título original ao término da impressão
+      const restaurarTitulo = () => {
+        document.title = tituloOriginal;
+        window.removeEventListener('afterprint', restaurarTitulo);
+      };
+      window.addEventListener('afterprint', restaurarTitulo);
+
+      setTimeout(() => {
+        window.print();
+        // Fallback caso o navegador não dispare afterprint
+        setTimeout(() => {
+          document.title = tituloOriginal;
+        }, 1500);
+      }, 350);
     } catch (err) {
       alert("Erro ao preparar documento para impressão.");
     }
@@ -451,9 +469,9 @@ const SolicitacaoCompras = () => {
             left: 0 !important; 
             top: 0 !important; 
             width: 100% !important; 
-            background: white !important;
-            padding: 0 !important;
-            margin: 0 !important;
+            background: white !important; 
+            padding: 0 !important; 
+            margin: 0 !important; 
           }
           @page { 
             size: A4 portrait; 
@@ -631,7 +649,7 @@ const SolicitacaoCompras = () => {
                       )}
 
                       {s.equipamento_nome && (
-                        <div className="text-[10px] text-blue-600 font-bold mt-1">⚙️ {s.equipamento_nome}</div>
+                        <div className="text-[10px] text-blue-600 font-bold mt-1">⚙️️ {s.equipamento_nome}</div>
                       )}
                     </td>
 
@@ -886,7 +904,7 @@ const SolicitacaoCompras = () => {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
             <div className="bg-blue-600 p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center">
-              <span>{editandoId ? `✏️️ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
+              <span>{editandoId ? `✏ Editar Solicitação #${editandoId}` : '🛒 Nova Solicitação de Compra'}</span>
               <button onClick={() => setModalNova(false)} className="text-lg">✕</button>
             </div>
 
@@ -1340,7 +1358,7 @@ const SolicitacaoCompras = () => {
           <div className="grid grid-cols-2 gap-12 text-center pt-6 max-w-2xl mx-auto">
             <div className="flex flex-col items-center">
               <div className="w-64 border-t-2 border-slate-800 mb-1.5"></div>
-              <span className="text-[11px] font-black uppercase text-slate-900">Engenharia Clínica / Coordenação</span>
+              <span className="text-[11px] font-black uppercase text-slate-900"> Coordenação</span>
               <span className="text-[9px] text-slate-500">Responsável Técnico / Emissor</span>
               <span className="text-[9px] text-slate-400 mt-0.5">Data: ____/____/________</span>
             </div>
