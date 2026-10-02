@@ -72,7 +72,9 @@ const Chamados = ({ user: userProp }) => {
       prioridade: st.prioridade || 'Média',
       categoria: st.categoria || 'Engenharia Clínica',
       impacto: 'Normal',
-      ramal_contato: ''
+      ramal_contato: '',
+      isRetroativo: false,
+      data_abertura: ''
     };
   });
 
@@ -342,6 +344,11 @@ const Chamados = ({ user: userProp }) => {
     formData.append('usuario_id', user?.id || '');
     if (fotoAbertura) formData.append('foto', fotoAbertura);
 
+    // Envio da data de abertura retroativa
+    if (form.isRetroativo && form.data_abertura) {
+      formData.append('data_abertura', form.data_abertura);
+    }
+
     fetch(`${API_URL}/chamados`, {
       method: 'POST',
       headers: {
@@ -363,7 +370,9 @@ const Chamados = ({ user: userProp }) => {
         prioridade: 'Média',
         categoria: categorias[0]?.nome || 'Engenharia Clínica',
         impacto: 'Normal',
-        ramal_contato: ''
+        ramal_contato: '',
+        isRetroativo: false,
+        data_abertura: ''
       });
       carregarDados();
     }).catch(console.error);
@@ -580,7 +589,9 @@ const Chamados = ({ user: userProp }) => {
                 prioridade: 'Média',
                 categoria: categorias[0]?.nome || 'Engenharia Clínica',
                 impacto: 'Normal',
-                ramal_contato: ''
+                ramal_contato: '',
+                isRetroativo: false,
+                data_abertura: ''
               }); 
               setModalAberta(true); 
             }} 
@@ -1518,6 +1529,46 @@ const Chamados = ({ user: userProp }) => {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* OPÇÃO DE LANÇAMENTO RETROATIVO */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.isRetroativo}
+                      onChange={e => setForm({
+                        ...form,
+                        isRetroativo: e.target.checked,
+                        data_abertura: e.target.checked ? form.data_abertura : ''
+                      })}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-0 cursor-pointer"
+                    />
+                    <span>Lançamento Retroativo</span>
+                  </label>
+                  {form.isRetroativo && (
+                    <span className="text-[9px] font-black uppercase text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                      ⚠️ Evento Passado
+                    </span>
+                  )}
+                </div>
+
+                {form.isRetroativo && (
+                  <div className="pt-1">
+                    <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">
+                      Data e Hora da Ocorrência *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      required={form.isRetroativo}
+                      max={new Date().toISOString().slice(0, 16)}
+                      value={form.data_abertura}
+                      onChange={e => setForm({ ...form, data_abertura: e.target.value })}
+                      className="w-full border-2 border-amber-200 bg-white p-2 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/70">

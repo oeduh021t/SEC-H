@@ -718,7 +718,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 });
 
 app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), upload.single('foto'), (req, res) => {
-    const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao } = req.body;
+    const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao, data_abertura } = req.body;
     
     const usuario_id = req.headers['x-usuario-id'] || req.body.usuario_id || null;
     const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
@@ -731,7 +731,7 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
     const query = `
         INSERT INTO chamados 
         (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', NOW())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', IFNULL(?, NOW()))
     `;
     const values = [
         v_setor_id, 
@@ -742,7 +742,8 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
         prioridade || 'Média', 
         categoryFinal, 
         tipo_manutencao || 'Corretiva', 
-        foto_abertura
+        foto_abertura,
+        data_abertura && data_abertura.trim() !== "" ? data_abertura : null
     ];
 
     db.query(query, values, (err, result) => {
@@ -825,7 +826,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
             fornecedor_id || null, 
             nf_referencia || null, 
             custo_servico || 0, 
-            foto_conclusao,
+            foto_conclusao, 
             status, 
             id
         ];
@@ -948,6 +949,11 @@ app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', '
             e.patrimonio, 
             e.setor_id, 
             s.nome as setor_nome,
+            sp.nome as setor_pai_nome,
+            CASE 
+                WHEN sp.nome IS NOT NULL AND sp.nome != '' THEN CONCAT(sp.nome, ' > ', s.nome)
+                ELSE s.nome 
+            END AS setor_completo,
             e.data_ultima_preventiva, 
             e.periodicidade_preventiva,
             IFNULL(t.nome, 'Aparelho') as tipo_nome,
@@ -956,6 +962,7 @@ app.get('/api/preventivas', permitirApenas(['admin', 'coordenador', 'tecnico', '
             DATEDIFF(DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY), CURDATE()) as dias_restantes
         FROM equipamentos e
         LEFT JOIN setores s ON e.setor_id = s.id
+        LEFT JOIN setores sp ON s.setor_pai_id = sp.id
         LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
         WHERE (e.status IN ('Ativo', 'Em Manutenção', 'Inoperante', 'Reserva'))
           AND e.periodicidade_preventiva > 0

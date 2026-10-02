@@ -134,13 +134,20 @@ const Preventivas = () => {
         });
     };
 
+    const obterLocalizacaoCompleta = (p) => {
+        if (p.setor_completo) return p.setor_completo;
+        if (p.setor_pai_nome) return `${p.setor_pai_nome} > ${p.setor_nome}`;
+        return p.setor_nome || 'Setor não definido';
+    };
+
     const dadosFiltrados = dados.filter(p => {
         const termo = busca.toLowerCase();
+        const localizacao = obterLocalizacaoCompleta(p).toLowerCase();
 
         const matchesBusca = 
             (p.nome && p.nome.toLowerCase().includes(termo)) || 
             (p.patrimonio && p.patrimonio.toLowerCase().includes(termo)) || 
-            (p.setor_nome && p.setor_nome.toLowerCase().includes(termo)) || 
+            localizacao.includes(termo) ||
             (p.tipo_nome && p.tipo_nome.toLowerCase().includes(termo));
 
         const matchesSetor = setorSelecionado === 'todos' || String(p.setor_id) === String(setorSelecionado);
@@ -181,7 +188,7 @@ const Preventivas = () => {
         setPaginaAtual(1);
     };
 
-    // Cálculos de Paginação (se estiver em modo de impressão, desativa o slice e imprime todos)
+    // Cálculos de Paginação
     const totalPaginas = Math.ceil(dadosFiltrados.length / itensPorPagina) || 1;
     const indexInicio = (paginaAtual - 1) * itensPorPagina;
     const dadosPaginados = imprimindoTudo 
@@ -270,7 +277,7 @@ const Preventivas = () => {
                     <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Busca Global (Multi-Campo)</label>
                     <input 
                         type="text" 
-                        placeholder="🔍 Digite Nome do Equipamento, Patrimônio..." 
+                        placeholder="🔍 Digite Nome do Equipamento, Patrimônio, Prédio ou Setor..." 
                         className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-black" 
                         value={busca} 
                         onChange={e => { setBusca(e.target.value); setPaginaAtual(1); }} 
@@ -284,7 +291,10 @@ const Preventivas = () => {
                         onChange={e => { setSetorSelecionado(e.target.value); setPaginaAtual(1); }}
                     >
                         <option value="todos">⭐ Todos os Setores</option>
-                        {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                        {setores.map(s => {
+                            const nomeExibicao = s.setor_pai_nome ? `${s.setor_pai_nome} > ${s.nome}` : s.nome;
+                            return <option key={s.id} value={s.id}>{nomeExibicao}</option>;
+                        })}
                     </select>
                 </div>
                 <div className="md:col-span-3">
@@ -363,60 +373,76 @@ const Preventivas = () => {
                             <thead className="bg-slate-50/70 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 print:text-slate-700 print:bg-transparent">
                                 <tr>
                                     <th className="p-3.5">Equipamento Patrimonial</th>
-                                    <th className="p-3.5">Centro de Custo / Tipo</th>
+                                    <th className="p-3.5">Localização / Tipo</th>
                                     <th className="p-3.5">Vencimento / Ciclo</th>
                                     <th className="p-3.5">Janela Operacional</th>
                                     <th className="p-3.5 text-center hide-print">Ações</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs">
-                                {dadosPaginados.map(p => (
-                                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors text-slate-800">
-                                        <td className="p-3.5">
-                                            <div className="font-black text-slate-700 uppercase">{p.nome}</div>
-                                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">Patrimônio: {p.patrimonio || 'S/P'}</div>
-                                        </td>
-                                        <td className="p-3.5">
-                                            <div className="font-black text-blue-600 uppercase tracking-wider">{p.setor_nome || 'Setor não definido'}</div>
-                                            <div className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{p.tipo_nome}</div>
-                                        </td>
-                                        <td className="p-3.5">
-                                            <div className="font-bold text-slate-700 flex items-center gap-1">
-                                                <span>📅</span>
-                                                <span>{p.data_vencimento ? formatarDataLocal(p.data_vencimento) : '---'}</span>
-                                                <span className="text-[10px] text-slate-400 font-normal">({p.periodicidade_preventiva}d)</span>
-                                            </div>
-                                            <div className="text-[10px] text-slate-400 mt-0.5 font-medium">Última: {formatarDataLocal(p.data_ultima_preventiva)}</div>
-                                        </td>
-                                        <td className="p-3.5">
-                                            <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-block ${
-                                                p.dias_restantes < 0 ? 'bg-red-50 text-red-600 border border-red-100' : 
-                                                p.dias_restantes <= 15 ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-green-50 text-green-600 border border-green-100'
-                                            }`}>
-                                                {p.dias_restantes < 0 ? `🚨 Atrasada há ${Math.abs(p.dias_restantes)} dias` : 
-                                                 p.dias_restantes === 0 ? '⚠️ Vence Hoje' : `✅ Restam ${p.dias_restantes} dias`}
-                                            </span>
-                                        </td>
-                                        <td className="p-3.5 text-center hide-print">
-                                            <div className="flex items-center justify-center gap-1.5">
-                                                <Link 
-                                                    to={`/prontuario/${p.id}`} 
-                                                    className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl transition-all border border-blue-100 text-xs" 
-                                                    title="Ver Prontuário do Equipamento"
-                                                >
-                                                    📋
-                                                </Link>
+                                {dadosPaginados.map(p => {
+                                    const temPai = Boolean(p.setor_pai_nome);
+                                    return (
+                                        <tr key={p.id} className="hover:bg-slate-50/60 transition-colors text-slate-800">
+                                            <td className="p-3.5">
+                                                <div className="font-black text-slate-700 uppercase">{p.nome}</div>
+                                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">Patrimônio: {p.patrimonio || 'S/P'}</div>
+                                            </td>
+                                            <td className="p-3.5">
+                                                {temPai ? (
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                                            <span>🏢</span> {p.setor_pai_nome}
+                                                        </span>
+                                                        <span className="font-black text-blue-600 uppercase tracking-wide text-xs">
+                                                            {p.setor_nome || 'Setor não definido'}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="font-black text-blue-600 uppercase tracking-wider">
+                                                        {p.setor_nome || 'Setor não definido'}
+                                                    </div>
+                                                )}
+                                                <div className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{p.tipo_nome}</div>
+                                            </td>
+                                            <td className="p-3.5">
+                                                <div className="font-bold text-slate-700 flex items-center gap-1">
+                                                    <span>📅</span>
+                                                    <span>{p.data_vencimento ? formatarDataLocal(p.data_vencimento) : '---'}</span>
+                                                    <span className="text-[10px] text-slate-400 font-normal">({p.periodicidade_preventiva}d)</span>
+                                                </div>
+                                                <div className="text-[10px] text-slate-400 mt-0.5 font-medium">Última: {formatarDataLocal(p.data_ultima_preventiva)}</div>
+                                            </td>
+                                            <td className="p-3.5">
+                                                <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-block ${
+                                                    p.dias_restantes < 0 ? 'bg-red-50 text-red-600 border border-red-100' : 
+                                                    p.dias_restantes <= 15 ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-green-50 text-green-600 border border-green-100'
+                                                }`}>
+                                                    {p.dias_restantes < 0 ? `🚨 Atrasada há ${Math.abs(p.dias_restantes)} dias` : 
+                                                     p.dias_restantes === 0 ? '⚠️ Vence Hoje' : `✅ Restam ${p.dias_restantes} dias`}
+                                                </span>
+                                            </td>
+                                            <td className="p-3.5 text-center hide-print">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    <Link 
+                                                        to={`/prontuario/${p.id}`} 
+                                                        className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl transition-all border border-blue-100 text-xs" 
+                                                        title="Ver Prontuário do Equipamento"
+                                                    >
+                                                        📋
+                                                    </Link>
 
-                                                <button 
-                                                    onClick={() => { setSelecionado(p); setModalBaixa(true); }}
-                                                    className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase shadow-md transition-all active:scale-[0.95] flex items-center gap-1"
-                                                >
-                                                    <span>🔧</span> Dar Baixa
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                                    <button 
+                                                        onClick={() => { setSelecionado(p); setModalBaixa(true); }}
+                                                        className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase shadow-md transition-all active:scale-[0.95] flex items-center gap-1"
+                                                    >
+                                                        <span>🔧</span> Dar Baixa
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -471,7 +497,9 @@ const Preventivas = () => {
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                                 <p className="text-[10px] font-black text-slate-400 uppercase">Ativo Alvo</p>
                                 <p className="text-sm font-black text-slate-700 uppercase mt-0.5">{selecionado.nome}</p>
-                                <p className="text-[10px] font-mono text-slate-400 mt-0.5">Patrimônio: {selecionado.patrimonio} | Setor: {selecionado.setor_nome || 'Não definido'}</p>
+                                <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                    Patrimônio: {selecionado.patrimonio || 'S/P'} | Setor: {obterLocalizacaoCompleta(selecionado)}
+                                </p>
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">Laudo / Relatório de Execução</label>
