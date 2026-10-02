@@ -784,7 +784,7 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
     });
 });
 
-app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', 'tecnico']), upload.single('foto_conclusao'), (req, res) => {
     const { id } = req.params;
     const { 
         status, 
@@ -797,6 +797,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
         tecnico_id 
     } = req.body;
     
+    const foto_conclusao = req.file ? `/uploads/${req.file.filename}` : null;
     const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
     const v_tecnico_id = tecnico_id && tecnico_id !== "" ? Number(tecnico_id) : null;
 
@@ -812,6 +813,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
                 fornecedor_id = ?, 
                 nf_referencia = ?, 
                 custo_servico = ?,
+                foto_conclusao = COALESCE(?, foto_conclusao),
                 data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
             WHERE id = ?
         `;
@@ -823,6 +825,7 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
             fornecedor_id || null, 
             nf_referencia || null, 
             custo_servico || 0, 
+            foto_conclusao,
             status, 
             id
         ];
@@ -838,14 +841,14 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
                     conn.commit((errCommit) => {
                         if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                         conn.release();
-                        res.json({ message: "Chamado e cronologia atualizados com sucesso!" });
+                        res.json({ message: "Chamado e cronologia atualizados com sucesso!", foto_conclusao });
                     });
                 });
             } else {
                 conn.commit((errCommit) => {
                     if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                     conn.release();
-                    res.json({ message: "Chamado atualizado com sucesso!" });
+                    res.json({ message: "Chamado atualizado com sucesso!", foto_conclusao });
                 });
             }
         });
@@ -5080,7 +5083,7 @@ app.patch('/api/manutencoes-planejadas/:id/status', permitirApenas(['admin', 'co
 });
 
 // EDITAR DADOS PRINCIPAIS DO CHAMADO (SETOR, ATIVO, ASSUNTO, PRIORIDADE)
-app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador']), (req, res) => {
+app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador']), upload.single('foto'), (req, res) => {
     const { id } = req.params;
     const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, categoria, usuario_nome } = req.body;
 
@@ -5088,6 +5091,7 @@ app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador'
         return res.status(400).json({ error: "Setor, Título e Descrição são campos obrigatórios." });
     }
 
+    const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
     const v_setor = Number(setor_id);
     const v_equip = equipamento_id && equipamento_id !== "null" && equipamento_id !== "" ? Number(equipamento_id) : null;
 
@@ -5101,14 +5105,15 @@ app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador'
                 titulo = ?, 
                 descricao_problema = ?, 
                 prioridade = ?, 
-                categoria = ? 
+                categoria = ?,
+                foto_abertura = COALESCE(?, foto_abertura)
             WHERE id = ?
         `;
 
-        conn.query(queryUpdate, [v_setor, v_equip, titulo.trim(), descricao_problema, prioridade || 'Média', categoria || 'Manutenção', id], (errUp) => {
+        conn.query(queryUpdate, [v_setor, v_equip, titulo.trim(), descricao_problema, prioridade || 'Média', categoria || 'Manutenção', foto_abertura, id], (errUp) => {
             if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
 
-            const msgHist = `[✏️ DADOS DA OS EDITADOS] Setor ID: ${v_setor} | Equipamento ID: ${v_equip || 'Nenhum'} | Prioridade: ${prioridade || 'Média'}`;
+            const msgHist = `[✏️ DADOS DA OS EDITADOS] Setor ID: ${v_setor} | Equipamento ID: ${v_equip || 'Nenhum'} | Prioridade: ${prioridade || 'Média'}${foto_abertura ? ' | Foto de abertura atualizada' : ''}`;
             const queryHist = `
                 INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
                 VALUES (?, ?, ?, 'Em Atendimento', NOW())
@@ -5120,7 +5125,7 @@ app.put('/api/chamados/:id/editar-dados', permitirApenas(['admin', 'coordenador'
                 conn.commit((errCommit) => {
                     if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                     conn.release();
-                    res.json({ message: "Dados do chamado atualizados com sucesso!" });
+                    res.json({ message: "Dados do chamado atualizados com sucesso!", foto_abertura });
                 });
             });
         });

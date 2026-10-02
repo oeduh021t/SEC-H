@@ -7,6 +7,7 @@ const Chamados = ({ user: userProp }) => {
 
   const fileInputCameraRef = useRef(null);
   const fileInputGaleriaRef = useRef(null);
+  const fileInputFotoEdicaoRef = useRef(null);
   const tituloRef = useRef(null);
   const descricaoRef = useRef(null);
 
@@ -35,7 +36,16 @@ const Chamados = ({ user: userProp }) => {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [modalAberta, setModalAberta] = useState(false);
+  // Abre modal automaticamente caso venha state da tela de equipamentos ou prontuário
+  const [modalAberta, setModalAberta] = useState(() => {
+    return Boolean(
+      location.state?.abrirModal ||
+      location.state?.abrirModalCriacao ||
+      location.state?.equipamento_id ||
+      location.state?.equipamento
+    );
+  });
+
   const [modalObsAberta, setModalObsAberta] = useState(false);
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
   const [modalEditarAberta, setModalEditarAberta] = useState(false);
@@ -50,17 +60,24 @@ const Chamados = ({ user: userProp }) => {
   const [chamadoSelecionado, setChamadoSelecionado] = useState(null);
   const [fotoAbertura, setFotoAbertura] = useState(null);
 
-  const [form, setForm] = useState({
-    setor_id: '',
-    equipamento_id: '',
-    titulo: '',
-    descricao_problema: '',
-    prioridade: 'Média',
-    categoria: 'Engenharia Clínica',
-    impacto: 'Normal',
-    ramal_contato: ''
+  // Inicializa o formulário com dados passados via navegação, se existirem
+  const [form, setForm] = useState(() => {
+    const st = location.state || {};
+    const eq = st.equipamento || {};
+    return {
+      setor_id: st.setor_id || eq.setor_id || '',
+      equipamento_id: st.equipamento_id || eq.id || '',
+      titulo: st.titulo || '',
+      descricao_problema: st.descricao_problema || '',
+      prioridade: st.prioridade || 'Média',
+      categoria: st.categoria || 'Engenharia Clínica',
+      impacto: 'Normal',
+      ramal_contato: ''
+    };
   });
 
+  // Estado para Edição do Chamado (com suporte a foto de abertura)
+  const [fotoEdicao, setFotoEdicao] = useState(null);
   const [formEdicao, setFormEdicao] = useState({
     id: null,
     setor_id: '',
@@ -68,7 +85,8 @@ const Chamados = ({ user: userProp }) => {
     titulo: '',
     descricao_problema: '',
     prioridade: 'Média',
-    categoria: 'Engenharia Clínica'
+    categoria: 'Engenharia Clínica',
+    foto_abertura_atual: null
   });
 
   const [textoObs, setTextoObs] = useState('');
@@ -91,6 +109,39 @@ const Chamados = ({ user: userProp }) => {
     const timer = setInterval(() => setAgora(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // Intercepta navegações externas vindas de Prontuário / Equipamentos e preenche inputs com refs
+  useEffect(() => {
+    if (location.state) {
+      const st = location.state;
+      const eq = st.equipamento || {};
+
+      const setorId = st.setor_id || eq.setor_id || '';
+      const equipId = st.equipamento_id || eq.id || '';
+      const deveAbrir = st.abrirModal || st.abrirModalCriacao || equipId || setorId;
+
+      if (deveAbrir) {
+        setForm(prev => ({
+          ...prev,
+          setor_id: setorId || prev.setor_id,
+          equipamento_id: equipId || prev.equipamento_id,
+          prioridade: st.prioridade || prev.prioridade,
+          categoria: st.categoria || (eq.categoria_nome || prev.categoria)
+        }));
+
+        const tituloInicial = st.titulo || (eq.nome ? `Manutenção: ${eq.nome}` : '');
+        if (tituloRef.current && tituloInicial) {
+          tituloRef.current.value = tituloInicial;
+        }
+
+        if (descricaoRef.current && st.descricao_problema) {
+          descricaoRef.current.value = st.descricao_problema;
+        }
+
+        setModalAberta(true);
+      }
+    }
+  }, [location.state]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -211,6 +262,7 @@ const Chamados = ({ user: userProp }) => {
   };
 
   const abrirModalEdicao = (c) => {
+    setFotoEdicao(null);
     setFormEdicao({
       id: c.id,
       setor_id: c.setor_id || '',
@@ -218,7 +270,8 @@ const Chamados = ({ user: userProp }) => {
       titulo: c.titulo || '',
       descricao_problema: c.descricao_problema || '',
       prioridade: c.prioridade || 'Média',
-      categoria: c.categoria || 'Engenharia Clínica'
+      categoria: c.categoria || 'Engenharia Clínica',
+      foto_abertura_atual: c.foto_abertura || null
     });
     setModalEditarAberta(true);
   };
@@ -226,21 +279,31 @@ const Chamados = ({ user: userProp }) => {
   const salvarEdicaoChamado = async (e) => {
     e.preventDefault();
     try {
+      const formData = new FormData();
+      formData.append('setor_id', formEdicao.setor_id);
+      formData.append('equipamento_id', formEdicao.equipamento_id);
+      formData.append('titulo', formEdicao.titulo);
+      formData.append('descricao_problema', formEdicao.descricao_problema);
+      formData.append('prioridade', formEdicao.prioridade);
+      formData.append('categoria', formEdicao.categoria);
+      formData.append('usuario_nome', user?.nome || 'Administrador');
+      
+      if (fotoEdicao) {
+        formData.append('foto', fotoEdicao);
+      }
+
       const res = await fetch(`${API_URL}/chamados/${formEdicao.id}/editar-dados`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
           'x-usuario-nivel': obterNivelUsuario()
         },
-        body: JSON.stringify({
-          ...formEdicao,
-          usuario_nome: user?.nome || 'Administrador'
-        })
+        body: formData
       });
 
       if (res.ok) {
         alert("Chamado atualizado com sucesso! ✏️✅");
         setModalEditarAberta(false);
+        setFotoEdicao(null);
         carregarDados();
         if (modalDetalhesAberta && chamadoSelecionado?.id === formEdicao.id) {
           abrirDetalhes(formEdicao.id);
@@ -434,7 +497,7 @@ const Chamados = ({ user: userProp }) => {
     let bateEscopo = true;
     const nomeEscopoAtivo = (c.escopo_nome || '').toLowerCase();
     const isClinica = nomeEscopoAtivo.includes('clínica') || 
-                      nomeEscopoAtivo.includes('clinica') ||
+                      nomeEscopoAtivo.includes('clinica') || 
                       (!c.equipamento_id && c.categoria?.toLowerCase().includes('clínica'));
 
     if (filtroEscopo === 'clinica') bateEscopo = isClinica;
@@ -717,7 +780,7 @@ const Chamados = ({ user: userProp }) => {
                         rel="noopener noreferrer"
                         className="px-3 py-1.5 bg-slate-800 hover:bg-slate-950 text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center justify-center shadow-xs"
                       >
-                        🖨️
+                        🖨
                       </Link>
                     )}
 
@@ -878,7 +941,7 @@ const Chamados = ({ user: userProp }) => {
                       </h4>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Abertura:</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Abertura (Antes):</label>
                           {chamadoSelecionado.foto_abertura ? (
                             <img 
                               src={`${BASE_URL}${chamadoSelecionado.foto_abertura}`} 
@@ -894,7 +957,7 @@ const Chamados = ({ user: userProp }) => {
                         </div>
 
                         <div>
-                          <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Conclusão:</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Conclusão (Depois):</label>
                           {chamadoSelecionado.foto_conclusao ? (
                             <img 
                               src={`${BASE_URL}${chamadoSelecionado.foto_conclusao}`} 
@@ -911,7 +974,7 @@ const Chamados = ({ user: userProp }) => {
                       </div>
                     </div>
 
-                    {/* BLOCO DE LAUDOS E ARQUIVOS CORRIGIDO */}
+                    {/* BLOCO DE LAUDOS E ARQUIVOS */}
                     <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200/70 space-y-3">
                       <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider flex items-center justify-between border-b pb-2">
                         <span className="flex items-center gap-1.5">
@@ -929,13 +992,13 @@ const Chamados = ({ user: userProp }) => {
                           <input 
                             type="file" 
                             accept="image/*,application/pdf" 
-                            disabled={enviandoDoc}
+                            disabled={enviandoDoc} 
                             className="text-xs w-full block file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300" 
                             onChange={(e) => setDocumentoSelecionado(e.target.files[0])} 
                           />
                           <button 
                             type="submit" 
-                            disabled={enviandoDoc || !documentoSelecionado}
+                            disabled={enviandoDoc || !documentoSelecionado} 
                             className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm active:scale-95 disabled:opacity-50"
                           >
                             {enviandoDoc ? 'Enviando...' : '+ Enviar Laudo / Documento'}
@@ -969,11 +1032,11 @@ const Chamados = ({ user: userProp }) => {
                                   Ver ↗
                                 </button>
                                 <a 
-                                  href={linkCompleto}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  download
-                                  className="text-slate-600 hover:text-slate-900 font-black text-[10px] uppercase bg-slate-200/60 px-2 py-1.5 rounded-lg active:scale-95 transition-all"
+                                  href={linkCompleto} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  download 
+                                  className="text-slate-600 hover:text-slate-900 font-black text-[10px] uppercase bg-slate-200/60 px-2 py-1.5 rounded-lg active:scale-95 transition-all" 
                                   title="Baixar arquivo original"
                                 >
                                   ⬇
@@ -1072,7 +1135,7 @@ const Chamados = ({ user: userProp }) => {
                           </div>
 
                           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-center">
-                            <span className="text-[9px] font-black text-slate-400 uppercase block">Recebido no Setor</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Recebido no Setor</span>
                             {chamadoSelecionado.assinatura_setor ? (
                               <img src={chamadoSelecionado.assinatura_setor} className="h-14 mx-auto object-contain" alt="Assinatura Setor" />
                             ) : (
@@ -1097,7 +1160,7 @@ const Chamados = ({ user: userProp }) => {
                 <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
                   {isAdminOuCoord && !isConcluido && (
                     <button 
-                      onClick={() => abrirModalEdicao(chamadoSelecionado)}
+                      onClick={() => abrirModalEdicao(chamadoSelecionado)} 
                       className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1"
                     >
                       <span>✏️</span> Editar
@@ -1145,7 +1208,7 @@ const Chamados = ({ user: userProp }) => {
         );
       })()}
 
-      {/* MODAL: EDITAR CHAMADO */}
+      {/* MODAL: EDITAR CHAMADO (COM SUPORTE A EDIÇÃO DA FOTO DE ABERTURA) */}
       {modalEditarAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-slate-800">
           <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
@@ -1237,6 +1300,64 @@ const Chamados = ({ user: userProp }) => {
                   value={formEdicao.descricao_problema} 
                   onChange={e => setFormEdicao({ ...formEdicao, descricao_problema: e.target.value })} 
                 />
+              </div>
+
+              {/* CAMPO DE EDIÇÃO DA FOTO DE ABERTURA */}
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  Foto de Abertura (Evidência Inicial do Problema)
+                </label>
+                
+                <input
+                  ref={fileInputFotoEdicaoRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setFotoEdicao(e.target.files[0]);
+                    }
+                  }}
+                />
+
+                <div className="flex items-center gap-3">
+                  {fotoEdicao ? (
+                    <img
+                      src={URL.createObjectURL(fotoEdicao)}
+                      alt="Nova Foto"
+                      className="w-14 h-14 rounded-xl object-cover border-2 border-amber-400 shrink-0 shadow-sm"
+                    />
+                  ) : formEdicao.foto_abertura_atual ? (
+                    <img
+                      src={`${BASE_URL}${formEdicao.foto_abertura_atual}`}
+                      alt="Foto Atual"
+                      className="w-14 h-14 rounded-xl object-cover border border-slate-200 shrink-0 shadow-sm"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl border border-dashed border-slate-300 bg-white flex items-center justify-center text-[9px] font-bold text-slate-400 uppercase shrink-0">
+                      Sem foto
+                    </div>
+                  )}
+
+                  <div className="flex-1">
+                    <button
+                      type="button"
+                      onClick={() => fileInputFotoEdicaoRef.current?.click()}
+                      className="w-full py-2 bg-white border border-slate-200 hover:border-amber-400 rounded-xl text-xs font-black uppercase text-slate-700 shadow-xs transition-colors"
+                    >
+                      {fotoEdicao || formEdicao.foto_abertura_atual ? "Substituir Foto" : "+ Adicionar Foto"}
+                    </button>
+                    {fotoEdicao && (
+                      <button
+                        type="button"
+                        onClick={() => setFotoEdicao(null)}
+                        className="text-[10px] text-rose-500 font-bold hover:underline mt-1 block"
+                      >
+                        Desfazer alteração
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-3 pt-2">
@@ -1411,7 +1532,7 @@ const Chamados = ({ user: userProp }) => {
                     onChange={e => setForm({...form, prioridade: e.target.value})}
                   >
                     <option value="Urgente">🚨 Urgente (Meta: 2h)</option>
-                    <option value="Alta">⚠️️ Alta (Meta: 6h)</option>
+                    <option value="Alta">⚠ Alta (Meta: 6h)</option>
                     <option value="Média">🟡 Média (Meta: 24h)</option>
                     <option value="Baixa">⚪ Baixa (Meta: 48h)</option>
                   </select>
@@ -1584,10 +1705,10 @@ const Chamados = ({ user: userProp }) => {
             </span>
             <div className="flex items-center gap-2">
               <a 
-                href={visualizadorAnexo.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-black text-blue-400 hover:text-blue-300 uppercase px-2 py-1 bg-slate-800 rounded-lg"
+                href={visualizadorAnexo.url} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-xs font-black text-blue-400 hover:text-blue-300 uppercase px-2 py-1 bg-slate-800 rounded-lg" 
                 title="Abrir em nova aba do navegador"
               >
                 Abrir Externo ↗
@@ -1606,13 +1727,13 @@ const Chamados = ({ user: userProp }) => {
               <img 
                 src={visualizadorAnexo.url} 
                 alt="Documento ampliado" 
-                className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+                className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl" 
               />
             ) : (
               <iframe 
                 src={visualizadorAnexo.url} 
-                title="Visualizador de PDF"
-                className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
+                title="Visualizador de PDF" 
+                className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl" 
               />
             )}
           </div>

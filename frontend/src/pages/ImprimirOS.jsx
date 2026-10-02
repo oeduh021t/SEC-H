@@ -10,6 +10,10 @@ export function ImprimirOS() {
   const [nomes, setNomes] = useState({ tecnico: "", setor: "" });
 
   const API_URL = "/api";
+  const BASE_URL = window.location.port === "5173"
+    ? `${window.location.protocol}//${window.location.hostname}:3000`
+    : "";
+
   const padTecnico = useRef(null);
   const padSetor = useRef(null);
 
@@ -61,9 +65,15 @@ export function ImprimirOS() {
     } catch (err) { console.error(err); }
   };
 
-  // Funções Auxiliares de Formatação
+  // Funções Auxiliares de Formatação e URLs
   const formatarData = (data) => data ? new Date(data).toLocaleString('pt-BR') : "---";
   const formatarMoeda = (valor) => new Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const formatarUrlImagem = (url) => {
+    if (!url) return null;
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    return `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+  };
 
   if (loading) return <p className="p-8 text-center font-bold">Gerando Relatório...</p>;
   if (!chamado) return <p className="p-8 text-center text-red-500 font-bold">OS não encontrada.</p>;
@@ -87,12 +97,14 @@ export function ImprimirOS() {
     (chamado.setor_pai_nome ? `${chamado.setor_pai_nome} > ${chamado.setor_nome}` : chamado.setor_nome) || 
     "N/A";
 
-  const temFotos = Boolean(chamado.foto_abertura || chamado.foto_conclusao);
+  const fotoAberturaUrl = formatarUrlImagem(chamado.foto_abertura);
+  const fotoConclusaoUrl = formatarUrlImagem(chamado.foto_conclusao);
+  const temFotos = Boolean(fotoAberturaUrl || fotoConclusaoUrl);
 
   return (
     <div className="p-2 md:p-6 max-w-[210mm] mx-auto text-black bg-white">
       
-      {/* CSS DE IMPRESSÃO TRAVADO EM 1 FOLHA PREENCHIDA */}
+      {/* CSS DE IMPRESSÃO TRAVADO EM 1 FOLHA */}
       <style>{`
         @page {
           size: A4 portrait;
@@ -135,13 +147,12 @@ export function ImprimirOS() {
             display: none !important;
           }
 
-          /* Altura equilibrada para foto com boa visualização */
           .foto-evidencia-box {
-            height: 145px !important;
-            max-height: 145px !important;
+            height: 135px !important;
+            max-height: 135px !important;
           }
           .foto-evidencia-img {
-            max-height: 135px !important;
+            max-height: 125px !important;
             object-fit: contain !important;
           }
         }
@@ -231,37 +242,57 @@ export function ImprimirOS() {
           </div>
         </div>
 
-        {/* BOX 4: FOTOS AMPLIADAS */}
+        {/* BOX 4: ANTES E DEPOIS - EVIDÊNCIAS FOTOGRÁFICAS */}
         {temFotos && (
           <div className="mb-3 border border-black">
-            <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
-              {temTerceirizado ? "4." : "3."} Evidências Fotográficas
+            <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase flex justify-between items-center">
+              <span>{temTerceirizado ? "4." : "3."} Evidências Fotográficas</span>
+              <span className="text-[9px] font-bold text-slate-600">REGISTRO DE CONFORMIDADE (ANTES & DEPOIS)</span>
             </div>
             <div className="grid grid-cols-2 gap-4 p-2.5">
-              {chamado.foto_abertura && (
-                <div className="text-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Evidência na Abertura</span>
-                  <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1.5 rounded flex items-center justify-center h-36">
+              
+              {/* COLUNA ESQUERDA: ANTES */}
+              <div className="text-center">
+                <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                  1. Evidência na Abertura (Antes)
+                </span>
+                <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1 rounded flex items-center justify-center h-36">
+                  {fotoAberturaUrl ? (
                     <img 
-                      src={chamado.foto_abertura} 
-                      alt="Abertura" 
+                      src={fotoAberturaUrl} 
+                      alt="Evidência Antes" 
                       className="foto-evidencia-img max-h-32 max-w-full object-contain mx-auto" 
                     />
-                  </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-400 font-bold uppercase italic p-2">
+                      Sem registro fotográfico inicial
+                    </div>
+                  )}
                 </div>
-              )}
-              {chamado.foto_conclusao && (
-                <div className="text-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Evidência na Conclusão</span>
-                  <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1.5 rounded flex items-center justify-center h-36">
+              </div>
+
+              {/* COLUNA DIREITA: DEPOIS */}
+              <div className="text-center">
+                <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                  2. Evidência na Conclusão (Depois)
+                </span>
+                <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1 rounded flex items-center justify-center h-36">
+                  {fotoConclusaoUrl ? (
                     <img 
-                      src={chamado.foto_conclusao} 
-                      alt="Conclusão" 
+                      src={fotoConclusaoUrl} 
+                      alt="Evidência Depois" 
                       className="foto-evidencia-img max-h-32 max-w-full object-contain mx-auto" 
                     />
-                  </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-400 font-bold uppercase italic p-2">
+                      {chamado.status === "Concluído" 
+                        ? "Sem registro fotográfico na conclusão" 
+                        : "Aguardando conclusão do atendimento"}
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+
             </div>
           </div>
         )}

@@ -69,6 +69,10 @@ export function TratarChamado() {
   const [descricaoSolucao, setDescricaoSolucao] = useState("");
   const [tecnicoId, setTecnicoId] = useState("");
 
+  // 📷 Novo: Foto de Conclusão (Depois)
+  const [fotoConclusao, setFotoConclusao] = useState(null);
+  const fileInputFotoConclusaoRef = useRef(null);
+
   // Estados de Anexos
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
@@ -571,36 +575,40 @@ export function TratarChamado() {
       executorFinal = tecnicoSelecionado ? tecnicoSelecionado.nome : autorNome;
     }
 
-    const dadosParaSalvar = {
-      status,
-      tipo_atendimento: tipoAtendimento,
-      descricao_solucao: descricaoSolucao,
-      fornecedor_id: tipoAtendimento === "Externo" ? fornecedorId : null,
-      nf_referencia: tipoAtendimento === "Externo" ? nfReferencia : null,
-      custo_servico: tipoAtendimento === "Externo" ? Number(custoServico) : 0,
-      custo_pecas: totalPecas,
-      tecnico_id: tipoAtendimento === "Interno" ? (tecnicoId || usuarioLogado?.id) : null,
-      tecnico_responsavel: executorFinal,
-      registrado_por_nome: autorNome,
-      registrado_por_id: usuarioLogado?.id || null
-    };
+    const formData = new FormData();
+    formData.append("status", status);
+    formData.append("tipo_atendimento", tipoAtendimento);
+    formData.append("descricao_solucao", descricaoSolucao);
+    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? (fornecedorId || "") : "");
+    formData.append("nf_referencia", tipoAtendimento === "Externo" ? (nfReferencia || "") : "");
+    formData.append("custo_servico", tipoAtendimento === "Externo" ? (Number(custoServico) || 0) : 0);
+    formData.append("custo_pecas", totalPecas);
+    formData.append("tecnico_id", tipoAtendimento === "Interno" ? (tecnicoId || usuarioLogado?.id || "") : "");
+    formData.append("tecnico_responsavel", executorFinal);
+    formData.append("registrado_por_nome", autorNome);
+    formData.append("registrado_por_id", usuarioLogado?.id || "");
+
+    if (fotoConclusao) {
+      const fotoComprimida = await comprimirImagemSeNecessario(fotoConclusao);
+      formData.append("foto_conclusao", fotoComprimida);
+    }
 
     try {
       const res = await fetch(`${API_URL}/chamados/${id}/atualizar`, {
         method: "PUT",
         headers: { 
-          "Content-Type": "application/json",
           "x-usuario-nivel": nivelUsuario
         },
-        body: JSON.stringify(dadosParaSalvar)
+        body: formData
       });
 
       if (res.ok) {
         localStorage.removeItem(CHAVE_RASCUNHO);
         setTemRascunhoRecuperado(false);
+        setFotoConclusao(null);
 
         if (status === "Concluído") {
-          alert("Chamado concluído com sucesso! 🎉");
+          alert("Chamado concluído com sucesso com evidência fotográfica! 🎉");
           navigate("/chamados");
         } else {
           alert("Andamento registrado com sucesso! 📝");
@@ -1206,6 +1214,59 @@ export function TratarChamado() {
                 onChange={e => setDescricaoSolucao(e.target.value)}
               />
             </div>
+
+            {/* 📷 EVIDÊNCIA DE CONCLUSÃO (FOTO DO DEPOIS) */}
+            {!isConcluido && (
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  📷 Evidência Fotográfica do Atendimento / Conclusão (Foto do "Depois")
+                </label>
+                
+                <input
+                  ref={fileInputFotoConclusaoRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setFotoConclusao(e.target.files[0]);
+                    }
+                  }}
+                />
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputFotoConclusaoRef.current?.click()}
+                    className="flex-1 p-2.5 bg-white border border-slate-200 hover:border-emerald-500 rounded-xl text-xs font-black uppercase text-slate-700 shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <span>📸</span> {fotoConclusao ? "Substituir Foto da Conclusão" : "Tirar / Anexar Foto do Depois"}
+                  </button>
+                  {fotoConclusao && (
+                    <button
+                      type="button"
+                      onClick={() => setFotoConclusao(null)}
+                      className="px-3 py-2 bg-rose-50 text-rose-600 rounded-xl text-xs font-black uppercase hover:bg-rose-100"
+                      title="Remover foto"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {fotoConclusao && (
+                  <div className="flex items-center gap-2 p-2 bg-white rounded-xl border border-emerald-200">
+                    <img
+                      src={URL.createObjectURL(fotoConclusao)}
+                      alt="Preview Conclusão"
+                      className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                    />
+                    <span className="text-xs font-bold text-slate-700 truncate">{fotoConclusao.name}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {!isConcluido && (
               <button 
