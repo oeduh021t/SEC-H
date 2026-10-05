@@ -702,8 +702,9 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             if (errLogs) return res.status(500).json({ error: errLogs.message });
             chamado.historico = logs || [];
             
+            // CORREÇÃO CRÍTICA AQUI: Adicionado ci.item_id
             const queryItens = `
-                SELECT ci.quantidade, ci.valor_unitario_na_epoca AS valor_unitario, ie.nome 
+                SELECT ci.item_id, ci.quantidade, ci.valor_unitario_na_epoca AS valor_unitario, ie.nome 
                 FROM chamados_itens ci
                 JOIN itens_estoque ie ON ci.item_id = ie.id
                 WHERE ci.chamado_id = ?
@@ -931,6 +932,205 @@ app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tec
                         }
                         conn.release();
                         res.status(201).json({ message: "Item adicionado e debitado com sucesso!" });
+                    });
+                });
+            });
+        });
+    });
+});
+
+// -------------------------------------------------------------------------
+// ATUALIZAR QUANTIDADE DO ITEM NA OS (COM AJUSTE AUTOMÁTICO DE ESTOQUE)
+// -------------------------------------------------------------------------
+app.put('/api/chamados/:chamadoId/itens/:itemId', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { chamadoId, itemId } = req.params;
+    const { quantidade } = req.body;
+
+    const novaQtd = Number(quantidade);
+    const idItem = Number(itemId);
+    const idChamado = Number(chamadoId);
+
+    if (!novaQtd || novaQtd <= 0) {
+        return res.status(400).json({ error: "A quantidade deve ser superior a zero." });
+    }
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Busca o registo atual na OS
+        const sqlBuscaAtual = `SELECT quantidade FROM chamados_itens WHERE chamado_id = ? AND item_id = ? FOR UPDATE`;
+        conn.query(sqlBuscaAtual, [idChamado, idItem], (errAtual, rowsAtual) => {
+            if (errAtual || rowsAtual.length === 0) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(404).json({ error: "Registo do insumo não encontrado nesta OS." });
+                });
+            }
+
+            const qtdAnterior = Number(rowsAtual[0].quantidade);
+            const delta = novaQtd - qtdAnterior; // Positivo = retirou mais; Negativo = devolve
+
+            // 2. Bloqueia e valida o item no estoque
+            const sqlEstoque = `SELECT quantidade FROM itens_estoque WHERE id = ? FOR UPDATE`;
+            conn.query(sqlEstoque, [idItem], (errEstoque, rowsEstoque) => {
+                if (errEstoque || rowsEstoque.length === 0) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(404).json({ error: "Item de estoque não encontrado." });
+                    });
+                }
+
+                const estoqueAtual = Number(rowsEstoque[0].quantidade);
+
+                if (delta > 0 && estoqueAtual < delta) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(400).json({ error: `Saldo insuficiente em estoque. Disponível: ${estoqueAtual}` });
+                    });
+                }
+
+                // 3. Atualiza a tabela chamados_itens
+                const sqlUpdateItem = `UPDATE chamados_itens SET quantidade = ? WHERE chamado_id = ? AND item_id = ?`;
+                conn.query(sqlUpdateItem, [novaQtd, idChamado, idItem], (errUpItem) => {
+                    if (errUpItem) {
+                        return conn.rollback(() => {
+                            conn.release();
+                            res.status(500).json({ error: errUpItem.message });
+                        });
+                    }
+
+                    // 4. Compensa a diferença no estoque
+                    const sqlUpEstoque = `UPDATE itens_estoque SET quantidade = quantidade - ? WHERE id = ?`;
+                    conn.query(sqlUpEstoque, [delta, idItem], (errUpEstoque) => {
+                        if (errUpEstoque) {
+                            return conn.rollback(() => {
+                                conn.release();
+                                res.status(500).json({ error: errUpEstoque.message });
+                            });
+                        }
+
+                        conn.commit((errCommit) => {
+                            if (errCommit) {
+                                return conn.rollback(() => {
+                                    conn.release();
+                                    res.status(500).json({ error: errCommit.message });
+                                });
+                            }
+                            conn.release();
+                            res.json({ message: "Quantidade atualizada e estoque compensado com sucesso!" });
+                        });
+                    });
+                });
+            });
+        });
+    });
+});
+
+// -------------------------------------------------------------------------
+// REMOVER ITEM DA OS (COM DEVOLUÇÃO INTEGRAL AO ESTOQUE)
+// -------------------------------------------------------------------------
+app.delete('/api/chamados/:chamadoId/itens/:itemId', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { chamadoId, itemId } = req.params;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const sqlBusca = `SELECT quantidade FROM chamados_itens WHERE chamado_id = ? AND item_id = ? FOR UPDATE`;
+        conn.query(sqlBusca, [chamadoId, itemId], (errBusca, rows) => {
+            if (errBusca || rows.length === 0) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(404).json({ error: "Item não encontrado nesta OS." });
+                });
+            }
+
+            const qtd = Number(rows[0].quantidade);
+
+            // Devolve tudo ao estoque
+            const sqlDevolver = `UPDATE itens_estoque SET quantidade = quantidade + ? WHERE id = ?`;
+            conn.query(sqlDevolver, [qtd, itemId], (errDevolucao) => {
+                if (errDevolucao) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(500).json({ error: errDevolucao.message });
+                    });
+                }
+
+                // Remove do chamado
+                const sqlDelete = `DELETE FROM chamados_itens WHERE chamado_id = ? AND item_id = ?`;
+                conn.query(sqlDelete, [chamadoId, itemId], (errDel) => {
+                    if (errDel) {
+                        return conn.rollback(() => {
+                            conn.release();
+                            res.status(500).json({ error: errDel.message });
+                        });
+                    }
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) {
+                            return conn.rollback(() => {
+                                conn.release();
+                                res.status(500).json({ error: errCommit.message });
+                            });
+                        }
+                        conn.release();
+                        res.json({ message: "Item removido e devolvido ao estoque com sucesso!" });
+                    });
+                });
+            });
+        });
+    });
+});
+
+// -------------------------------------------------------------------------
+// REMOVER ITEM DA OS (DEVOLUÇÃO TOTAL AO ESTOQUE)
+// -------------------------------------------------------------------------
+app.delete('/api/chamados/:chamadoId/itens/:itemId', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { chamadoId, itemId } = req.params;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const sqlBusca = `SELECT quantidade FROM chamados_itens WHERE chamado_id = ? AND item_id = ? FOR UPDATE`;
+        conn.query(sqlBusca, [chamadoId, itemId], (errBusca, rows) => {
+            if (errBusca || rows.length === 0) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(404).json({ error: "Item não encontrado nesta OS." });
+                });
+            }
+
+            const qtd = Number(rows[0].quantidade);
+
+            // Devolve tudo ao estoque
+            const sqlDevolver = `UPDATE itens_estoque SET quantidade = quantidade + ? WHERE id = ?`;
+            conn.query(sqlDevolver, [qtd, itemId], (errDevolucao) => {
+                if (errDevolucao) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(500).json({ error: errDevolucao.message });
+                    });
+                }
+
+                // Remove do chamado
+                const sqlDelete = `DELETE FROM chamados_itens WHERE chamado_id = ? AND item_id = ?`;
+                conn.query(sqlDelete, [chamadoId, itemId], (errDel) => {
+                    if (errDel) {
+                        return conn.rollback(() => {
+                            conn.release();
+                            res.status(500).json({ error: errDel.message });
+                        });
+                    }
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) {
+                            return conn.rollback(() => {
+                                conn.release();
+                                res.status(500).json({ error: errCommit.message });
+                            });
+                        }
+                        conn.release();
+                        res.json({ message: "Item removido e devolvido ao estoque com sucesso!" });
                     });
                 });
             });

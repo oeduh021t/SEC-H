@@ -69,7 +69,7 @@ export function TratarChamado() {
   const [descricaoSolucao, setDescricaoSolucao] = useState("");
   const [tecnicoId, setTecnicoId] = useState("");
 
-  // 📷 Novo: Foto de Conclusão (Depois)
+  // 📷 Foto de Conclusão (Depois)
   const [fotoConclusao, setFotoConclusao] = useState(null);
   const fileInputFotoConclusaoRef = useRef(null);
 
@@ -443,16 +443,77 @@ export function TratarChamado() {
         "x-usuario-nivel": nivelUsuario
       },
       body: JSON.stringify(dadosPeca)
-    }).then((res) => {
+    }).then(async (res) => {
       if (res.ok) {
         alert("Peça debitada do estoque com sucesso! 📦");
         carregarTodosOsDados();
         setPecaSelecionada("");
         setQtdPeca(1);
       } else {
-        alert("Erro ao debitar estoque. Verifique a quantidade disponível.");
+        const erro = await res.json().catch(() => ({}));
+        alert(erro.error || "Erro ao debitar estoque. Verifique a quantidade disponível.");
       }
     });
+  };
+
+  // ✏️ Edição interativa de quantidade de peça
+  const handleEditarQtdPeca = async (itemId, qtdAtual) => {
+    const novaQtdStr = prompt("Informe a nova quantidade a ser utilizada no chamado:", qtdAtual);
+    if (novaQtdStr === null) return;
+
+    const novaQtd = Number(novaQtdStr);
+    if (isNaN(novaQtd) || novaQtd <= 0) {
+      return alert("Informe uma quantidade válida superior a 0.");
+    }
+
+    if (novaQtd === Number(qtdAtual)) return;
+
+    try {
+      const res = await fetch(`${API_URL}/chamados/${id}/itens/${itemId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "x-usuario-nivel": nivelUsuario
+        },
+        body: JSON.stringify({ quantidade: novaQtd })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || "Quantidade atualizada com sucesso!");
+        carregarTodosOsDados();
+      } else {
+        alert(data.error || "Erro ao atualizar quantidade.");
+      }
+    } catch (err) {
+      alert("Falha de conexão ao atualizar quantidade.");
+    }
+  };
+
+  // 🗑️ Exclusão e devolução ao estoque
+  const handleRemoverPecaOS = async (itemId, nomeItem) => {
+    if (!confirm(`Deseja realmente remover o insumo "${nomeItem}" desta OS? A quantidade total retornará ao estoque.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/chamados/${id}/itens/${itemId}`, {
+        method: "DELETE",
+        headers: {
+          "x-usuario-nivel": nivelUsuario
+        }
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || "Insumo removido e retornado ao estoque!");
+        carregarTodosOsDados();
+      } else {
+        alert(data.error || "Erro ao remover insumo.");
+      }
+    } catch (err) {
+      alert("Falha de conexão ao remover insumo.");
+    }
   };
 
   const comprimirImagemSeNecessario = async (arquivo) => {
@@ -1011,11 +1072,43 @@ export function TratarChamado() {
               </form>
             )}
 
-            <div className="space-y-1.5 max-h-36 overflow-y-auto">
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {chamado?.itens_vinculados?.map((p, i) => (
-                <div key={i} className="flex justify-between items-center text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="font-bold text-slate-700">{p.nome} <strong className="text-slate-400 text-[10px]">x{p.quantidade}</strong></span>
-                  <span className="font-mono font-bold text-slate-800">R$ {(Number(p.quantidade) * Number(p.valor_unitario)).toFixed(2)}</span>
+                <div key={i} className="flex justify-between items-center text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-100/60 transition-colors">
+                  <div className="flex-1 min-w-0 pr-2">
+                    <span className="font-bold text-slate-700 block truncate">{p.nome}</span>
+                    <span className="text-[10px] text-slate-400 font-bold">
+                      {p.quantidade} un. × R$ {Number(p.valor_unitario).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono font-bold text-slate-800">
+                      R$ {(Number(p.quantidade) * Number(p.valor_unitario)).toFixed(2)}
+                    </span>
+
+                    {/* BOTÕES DE EDIÇÃO DE QUANTIDADE E EXCLUSÃO */}
+                    {isGestao && !isConcluido && (
+                      <div className="flex items-center gap-1 border-l pl-2 border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => handleEditarQtdPeca(p.item_id, p.quantidade)}
+                          className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-black uppercase transition-all active:scale-95"
+                          title="Alterar quantidade usada"
+                        >
+                          ✏️ Qtd
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoverPecaOS(p.item_id, p.nome)}
+                          className="p-1 px-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-black uppercase transition-all active:scale-95"
+                          title="Remover e estornar ao estoque"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
               {(!chamado?.itens_vinculados || chamado.itens_vinculados.length === 0) && (
@@ -1535,7 +1628,7 @@ export function TratarChamado() {
             ) : (
               <iframe 
                 src={visualizadorAnexo.url} 
-                title="Visualizador de PDF"
+                title="Visualizador de PDF" 
                 className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
               />
             )}
