@@ -339,12 +339,9 @@ const SolicitacaoCompras = () => {
         anexos: Array.isArray(resAnexos) ? resAnexos : []
       });
 
-      // Salva o título original da aba
       const tituloOriginal = document.title;
-      // Define o nome padrão para salvar o PDF
       document.title = `SEC-H - requisição nº ${id}`;
 
-      // Restaura o título original ao término da impressão
       const restaurarTitulo = () => {
         document.title = tituloOriginal;
         window.removeEventListener('afterprint', restaurarTitulo);
@@ -353,7 +350,6 @@ const SolicitacaoCompras = () => {
 
       setTimeout(() => {
         window.print();
-        // Fallback caso o navegador não dispare afterprint
         setTimeout(() => {
           document.title = tituloOriginal;
         }, 1500);
@@ -391,7 +387,6 @@ const SolicitacaoCompras = () => {
     });
   };
 
-  // Encurta URLs longas na impressão preservando o hiperlink clicável no PDF gerado
   const formatarTextoParaImpressao = (texto) => {
     if (!texto) return '';
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -453,6 +448,11 @@ const SolicitacaoCompras = () => {
   const totalPaginas = Math.ceil(solicitacoesFiltradas.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
   const solicitacoesPaginadas = solicitacoesFiltradas.slice(indexInicio, indexInicio + itensPorPagina);
+
+  // Equipamentos filtrados pelo setor selecionado no modal (compatível com setor_id ou id_setor)
+  const equipamentosDoSetor = setorId
+    ? equipamentos.filter(eq => String(eq.setor_id || eq.id_setor || '') === String(setorId))
+    : [];
 
   if (loading) return <div className="p-10 text-center font-bold text-slate-400 uppercase text-xs animate-pulse">Carregando solicitações de compras...</div>;
 
@@ -649,7 +649,7 @@ const SolicitacaoCompras = () => {
                       )}
 
                       {s.equipamento_nome && (
-                        <div className="text-[10px] text-blue-600 font-bold mt-1">⚙️️ {s.equipamento_nome}</div>
+                        <div className="text-[10px] text-blue-600 font-bold mt-1">⚙ {s.equipamento_nome}</div>
                       )}
                     </td>
 
@@ -912,7 +912,22 @@ const SolicitacaoCompras = () => {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Setor Destino</label>
-                  <select value={setorId} onChange={e => setSetorId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
+                  <select 
+                    value={setorId} 
+                    onChange={e => {
+                      const novoSetorId = e.target.value;
+                      setSetorId(novoSetorId);
+
+                      // Se o equipamento selecionado não pertencer ao novo setor, reseta o valor
+                      if (equipamentoId) {
+                        const pertence = equipamentos.some(
+                          eq => String(eq.id) === String(equipamentoId) && String(eq.setor_id || eq.id_setor || '') === String(novoSetorId)
+                        );
+                        if (!pertence) setEquipamentoId('');
+                      }
+                    }} 
+                    className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
+                  >
                     <option value="">Selecione o Setor...</option>
                     {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                   </select>
@@ -927,10 +942,23 @@ const SolicitacaoCompras = () => {
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Equipamento (Opcional)</label>
-                  <select value={equipamentoId} onChange={e => setEquipamentoId(e.target.value)} className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500">
-                    <option value="">Nenhum ativo específico</option>
-                    {equipamentos.map(eq => <option key={eq.id} value={eq.id}>{eq.nome} (PAT: {eq.patrimonio || 'S/P'})</option>)}
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                    Equipamento {setorId ? `(${equipamentosDoSetor.length})` : '(Opcional)'}
+                  </label>
+                  <select 
+                    value={equipamentoId} 
+                    onChange={e => setEquipamentoId(e.target.value)} 
+                    disabled={!setorId}
+                    className="w-full p-2.5 border-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!setorId ? 'Selecione o Setor primeiro...' : equipamentosDoSetor.length === 0 ? 'Nenhum ativo neste setor' : 'Nenhum ativo específico'}
+                    </option>
+                    {equipamentosDoSetor.map(eq => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.nome} (PAT: {eq.patrimonio || 'S/P'})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -1261,7 +1289,7 @@ const SolicitacaoCompras = () => {
             </div>
           </div>
 
-          {/* JUSTIFICATIVA TÉCNICA (COM TRATAMENTO DE LINKS CLICÁVEIS) */}
+          {/* JUSTIFICATIVA TÉCNICA */}
           <div className="border border-slate-300 rounded-xl overflow-hidden mb-5 shadow-xs">
             <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300">
               <h2 className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
@@ -1273,7 +1301,7 @@ const SolicitacaoCompras = () => {
             </div>
           </div>
 
-          {/* TABELA DE ITENS COM TOTALIZADOR CLARO */}
+          {/* TABELA DE ITENS */}
           <div className="border border-slate-300 rounded-xl overflow-hidden mb-5 shadow-xs">
             <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300 flex justify-between items-center">
               <h2 className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
@@ -1322,7 +1350,7 @@ const SolicitacaoCompras = () => {
             </table>
           </div>
 
-          {/* ANEXOS / FOTOS NO RELATÓRIO */}
+          {/* ANEXOS / FOTOS */}
           {solicitacaoImpressao.anexos && solicitacaoImpressao.anexos.length > 0 && (
             <div className="mb-5 border border-slate-300 rounded-xl overflow-hidden">
               <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-300">
@@ -1358,7 +1386,7 @@ const SolicitacaoCompras = () => {
           <div className="grid grid-cols-2 gap-12 text-center pt-6 max-w-2xl mx-auto">
             <div className="flex flex-col items-center">
               <div className="w-64 border-t-2 border-slate-800 mb-1.5"></div>
-              <span className="text-[11px] font-black uppercase text-slate-900"> Coordenação</span>
+              <span className="text-[11px] font-black uppercase text-slate-900">Coordenação</span>
               <span className="text-[9px] text-slate-500">Responsável Técnico / Emissor</span>
               <span className="text-[9px] text-slate-400 mt-0.5">Data: ____/____/________</span>
             </div>

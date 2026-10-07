@@ -8,8 +8,14 @@ const Chamados = ({ user: userProp }) => {
   const fileInputCameraRef = useRef(null);
   const fileInputGaleriaRef = useRef(null);
   const fileInputFotoEdicaoRef = useRef(null);
+  
+  // Refs para criação (já otimizados)
   const tituloRef = useRef(null);
   const descricaoRef = useRef(null);
+
+  // Novas Refs para edição (elimina o delay ao digitar)
+  const tituloEdicaoRef = useRef(null);
+  const descricaoEdicaoRef = useRef(null);
 
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
@@ -36,7 +42,6 @@ const Chamados = ({ user: userProp }) => {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Abre modal automaticamente caso venha state da tela de equipamentos ou prontuário
   const [modalAberta, setModalAberta] = useState(() => {
     return Boolean(
       location.state?.abrirModal ||
@@ -50,25 +55,20 @@ const Chamados = ({ user: userProp }) => {
   const [modalDetalhesAberta, setModalDetalhesAberta] = useState(false);
   const [modalEditarAberta, setModalEditarAberta] = useState(false);
 
-  // Visualizador Interno de Anexos
   const [visualizadorAnexo, setVisualizadorAnexo] = useState(null);
 
-  // Filtros
   const [filtroStatus, setFiltroStatus] = useState(() => location.state?.filtroInicial || 'Todos');
   const [filtroEscopo, setFiltroEscopo] = useState('todos');
   const [busca, setBusca] = useState('');
   const [chamadoSelecionado, setChamadoSelecionado] = useState(null);
   const [fotoAbertura, setFotoAbertura] = useState(null);
 
-  // Inicializa o formulário com dados passados via navegação, se existirem
   const [form, setForm] = useState(() => {
     const st = location.state || {};
     const eq = st.equipamento || {};
     return {
       setor_id: st.setor_id || eq.setor_id || '',
       equipamento_id: st.equipamento_id || eq.id || '',
-      titulo: st.titulo || '',
-      descricao_problema: st.descricao_problema || '',
       prioridade: st.prioridade || 'Média',
       categoria: st.categoria || 'Engenharia Clínica',
       impacto: 'Normal',
@@ -78,14 +78,12 @@ const Chamados = ({ user: userProp }) => {
     };
   });
 
-  // Estado para Edição do Chamado (com suporte a foto de abertura)
+  // Estado limpo de edição (título e descrição removidos do state reativo)
   const [fotoEdicao, setFotoEdicao] = useState(null);
   const [formEdicao, setFormEdicao] = useState({
     id: null,
     setor_id: '',
     equipamento_id: '',
-    titulo: '',
-    descricao_problema: '',
     prioridade: 'Média',
     categoria: 'Engenharia Clínica',
     foto_abertura_atual: null
@@ -97,7 +95,6 @@ const Chamados = ({ user: userProp }) => {
   const [enviandoDoc, setEnviandoDoc] = useState(false);
 
   const API_URL = '/api';
-  // Resolução dinâmica do endereço do backend para que /uploads não bata no Vite (porta 5173)
   const BASE_URL = window.location.port === '5173'
     ? `${window.location.protocol}//${window.location.hostname}:3000`
     : '';
@@ -112,7 +109,6 @@ const Chamados = ({ user: userProp }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // Intercepta navegações externas vindas de Prontuário / Equipamentos e preenche inputs com refs
   useEffect(() => {
     if (location.state) {
       const st = location.state;
@@ -269,23 +265,35 @@ const Chamados = ({ user: userProp }) => {
       id: c.id,
       setor_id: c.setor_id || '',
       equipamento_id: c.equipamento_id || '',
-      titulo: c.titulo || '',
-      descricao_problema: c.descricao_problema || '',
       prioridade: c.prioridade || 'Média',
       categoria: c.categoria || 'Engenharia Clínica',
       foto_abertura_atual: c.foto_abertura || null
     });
+
     setModalEditarAberta(true);
+
+    // Timeout para aguardar o modal montar no DOM antes de atribuir os valores às refs
+    setTimeout(() => {
+      if (tituloEdicaoRef.current) {
+        tituloEdicaoRef.current.value = c.titulo || '';
+      }
+      if (descricaoEdicaoRef.current) {
+        descricaoEdicaoRef.current.value = c.descricao_problema || '';
+      }
+    }, 0);
   };
 
   const salvarEdicaoChamado = async (e) => {
     e.preventDefault();
     try {
+      const tituloValor = tituloEdicaoRef.current?.value || '';
+      const descricaoValor = descricaoEdicaoRef.current?.value || '';
+
       const formData = new FormData();
       formData.append('setor_id', formEdicao.setor_id);
       formData.append('equipamento_id', formEdicao.equipamento_id);
-      formData.append('titulo', formEdicao.titulo);
-      formData.append('descricao_problema', formEdicao.descricao_problema);
+      formData.append('titulo', tituloValor);
+      formData.append('descricao_problema', descricaoValor);
       formData.append('prioridade', formEdicao.prioridade);
       formData.append('categoria', formEdicao.categoria);
       formData.append('usuario_nome', user?.nome || 'Administrador');
@@ -344,7 +352,6 @@ const Chamados = ({ user: userProp }) => {
     formData.append('usuario_id', user?.id || '');
     if (fotoAbertura) formData.append('foto', fotoAbertura);
 
-    // Envio da data de abertura retroativa
     if (form.isRetroativo && form.data_abertura) {
       formData.append('data_abertura', form.data_abertura);
     }
@@ -365,8 +372,6 @@ const Chamados = ({ user: userProp }) => {
       setForm({
         setor_id: '',
         equipamento_id: '',
-        titulo: '',
-        descricao_problema: '',
         prioridade: 'Média',
         categoria: categorias[0]?.nome || 'Engenharia Clínica',
         impacto: 'Normal',
@@ -584,8 +589,6 @@ const Chamados = ({ user: userProp }) => {
               setForm({
                 setor_id: '',
                 equipamento_id: '',
-                titulo: '',
-                descricao_problema: '',
                 prioridade: 'Média',
                 categoria: categorias[0]?.nome || 'Engenharia Clínica',
                 impacto: 'Normal',
@@ -826,7 +829,7 @@ const Chamados = ({ user: userProp }) => {
 
         return (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white w-full max-w-6xl h-[94vh] sm:h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-200 border border-slate-100">
+            <div className="bg-white w-full max-w-6xl h-[94vh] sm:h-[92vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-100">
               
               <div className="bg-slate-900 text-white px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0">
                 <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
@@ -1219,10 +1222,10 @@ const Chamados = ({ user: userProp }) => {
         );
       })()}
 
-      {/* MODAL: EDITAR CHAMADO (COM SUPORTE A EDIÇÃO DA FOTO DE ABERTURA) */}
+      {/* MODAL: EDITAR CHAMADO (OTIMIZADO COM REFS) */}
       {modalEditarAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-slate-800">
-          <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200">
+          <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
             <div className="bg-slate-900 p-5 text-white font-black flex justify-between items-center text-base uppercase">
               <span>✏️ Editar Ordem de Serviço #{formEdicao.id}</span>
               <button type="button" onClick={() => setModalEditarAberta(false)} className="text-xl">✕</button>
@@ -1292,24 +1295,24 @@ const Chamados = ({ user: userProp }) => {
                 </select>
               </div>
 
+              {/* TÍTULO COM REF: Digitação instantânea */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assunto do Chamado *</label>
                 <input 
+                  ref={tituloEdicaoRef}
                   type="text" 
                   className="w-full border-2 border-slate-100 p-3 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-blue-500" 
                   required 
-                  value={formEdicao.titulo} 
-                  onChange={e => setFormEdicao({ ...formEdicao, titulo: e.target.value })} 
                 />
               </div>
 
+              {/* DESCRIÇÃO COM REF: Digitação instantânea */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Relato Descritivo do Problema *</label>
                 <textarea 
+                  ref={descricaoEdicaoRef}
                   className="w-full border-2 border-slate-100 p-3 rounded-xl h-28 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 resize-none" 
                   required 
-                  value={formEdicao.descricao_problema} 
-                  onChange={e => setFormEdicao({ ...formEdicao, descricao_problema: e.target.value })} 
                 />
               </div>
 
@@ -1394,7 +1397,7 @@ const Chamados = ({ user: userProp }) => {
       {/* MODAL: OBSERVAÇÃO COORDENADOR */}
       {modalObsAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-slate-800">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden">
             <div className="bg-cyan-500 p-5 text-white font-black flex justify-between items-center text-lg uppercase">
               <span>Histórico da Coordenação</span>
               <button type="button" onClick={() => setModalObsAberta(false)} className="text-2xl">✕</button>
@@ -1419,7 +1422,7 @@ const Chamados = ({ user: userProp }) => {
       {/* MODAL COMPLETO: NOVA SOLICITAÇÃO */}
       {modalAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-3 sm:p-4 text-slate-800">
-          <form onSubmit={enviarChamado} className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in duration-200 border border-slate-100">
+          <form onSubmit={enviarChamado} className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border border-slate-100">
             <div className="bg-amber-500 p-5 text-white font-black flex justify-between items-center text-base sm:text-lg uppercase tracking-tight">
               <span className="flex items-center gap-2">
                 <span>📣</span> Nova Ordem de Serviço / Chamado
@@ -1741,7 +1744,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* 📱 VISUALIZADOR INTERNO DE ANEXOS / LAUDOS / FOTOS EM TELA CHEIA */}
+      {/* 📱 VISUALIZADOR INTERNO DE ANEXOS */}
       {visualizadorAnexo && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
           <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">
