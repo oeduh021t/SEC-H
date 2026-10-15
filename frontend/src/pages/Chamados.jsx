@@ -1,6 +1,24 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 
+const formatarDataHora = (dataStr) => {
+  if (!dataStr) return '---';
+  const d = new Date(dataStr);
+  return `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+const obterSetorFormatado = (chamado, listaSetores) => {
+  if (!chamado) return 'Setor Não Definido';
+  if (chamado.setor_completo) return chamado.setor_completo;
+
+  if (chamado.setor_id && Array.isArray(listaSetores)) {
+    const setorEncontrado = listaSetores.find(s => String(s.id) === String(chamado.setor_id));
+    if (setorEncontrado?.nome) return setorEncontrado.nome;
+  }
+
+  return chamado.setor_nome || 'Setor Geral';
+};
+
 const Chamados = ({ user: userProp }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -272,7 +290,6 @@ const Chamados = ({ user: userProp }) => {
 
     setModalEditarAberta(true);
 
-    // Timeout para aguardar o modal montar no DOM antes de atribuir os valores às refs
     setTimeout(() => {
       if (tituloEdicaoRef.current) {
         tituloEdicaoRef.current.value = c.titulo || '';
@@ -517,9 +534,12 @@ const Chamados = ({ user: userProp }) => {
     if (filtroEscopo === 'clinica') bateEscopo = isClinica;
     else if (filtroEscopo === 'manutencao') bateEscopo = !isClinica;
 
+    const setorFormatado = obterSetorFormatado(c, setores);
+
     const bateBusca = c.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.id?.toString().includes(busca) ||
                       c.setor_nome?.toLowerCase().includes(busca.toLowerCase()) ||
+                      setorFormatado.toLowerCase().includes(busca.toLowerCase()) ||
                       c.equip_nome?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.equip_pat?.toLowerCase().includes(busca.toLowerCase());
 
@@ -634,6 +654,7 @@ const Chamados = ({ user: userProp }) => {
           const isConcluido = c.status === 'Concluído';
           const isAdmin = user?.nivel?.toLowerCase() === 'admin';
           const emExterna = isManutencaoExterna(c);
+          const setorFormatado = obterSetorFormatado(c, setores);
 
           return (
             <div 
@@ -653,9 +674,11 @@ const Chamados = ({ user: userProp }) => {
                         </h3>
                       </div>
                       <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold uppercase mt-0.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        <span>📍 {c.setor_nome || 'Setor Geral'}</span>
+                        <span title={setorFormatado}>
+                          📍 {setorFormatado}
+                        </span>
                         <span>•</span>
-                        <span>📅 {c.data_abertura ? new Date(c.data_abertura).toLocaleDateString('pt-BR') : '---'}</span>
+                        <span>📅 {formatarDataHora(c.data_abertura)}</span>
                         {c.categoria && (
                           <>
                             <span>•</span>
@@ -849,8 +872,14 @@ const Chamados = ({ user: userProp }) => {
                           {chamadoSelecionado.titulo}
                         </h2>
                       </div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                        📍 {chamadoSelecionado.setor_nome || 'Setor Não Definido'}
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>📍 {obterSetorFormatado(chamadoSelecionado, setores)}</span>
+                        {chamadoSelecionado.data_abertura && (
+                          <>
+                            <span>•</span>
+                            <span>🕒 Aberto em {formatarDataHora(chamadoSelecionado.data_abertura)}</span>
+                          </>
+                        )}
                       </p>
                     </div>
                   </div>

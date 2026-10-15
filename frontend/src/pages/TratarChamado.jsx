@@ -1,6 +1,11 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
+const obterSetorFormatado = (chamado) => {
+  if (!chamado) return "Geral";
+  return chamado.setor_completo || chamado.setor_nome || "Geral";
+};
+
 export function TratarChamado() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -333,7 +338,7 @@ export function TratarChamado() {
             patrimonio: chamado?.patrimonio,
             num_serie: chamado?.num_serie,
             fabricante: chamado?.fabricante,
-            setor_nome: chamado?.setor_nome
+            setor_nome: obterSetorFormatado(chamado)
           },
           fornecedor: fornSel,
           motivo: motivoSaida,
@@ -410,7 +415,7 @@ export function TratarChamado() {
         patrimonio: chamado?.patrimonio,
         num_serie: chamado?.num_serie,
         fabricante: chamado?.fabricante,
-        setor_nome: chamado?.setor_nome
+        setor_nome: obterSetorFormatado(chamado)
       },
       fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome || 'Terceirizado Homologado' },
       motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
@@ -793,7 +798,7 @@ export function TratarChamado() {
               </h1>
             </div>
             <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold uppercase mt-0.5">
-              📍 Setor: <span className="text-slate-700">{chamado?.setor_nome || "Geral"}</span> 
+              📍 Setor: <span className="text-slate-700">{obterSetorFormatado(chamado)}</span> 
               {chamado?.solicitante_nome && ` • 👤 Solicitante: ${chamado.solicitante_nome}`}
             </p>
           </div>
@@ -872,7 +877,7 @@ export function TratarChamado() {
                     patrimonio: chamado?.patrimonio,
                     num_serie: chamado?.num_serie,
                     fabricante: chamado?.fabricante,
-                    setor_nome: chamado?.setor_nome
+                    setor_nome: obterSetorFormatado(chamado)
                   },
                   fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome },
                   motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
@@ -912,7 +917,7 @@ export function TratarChamado() {
             </button>
           </div>
           <p className="text-xs text-amber-700 mb-4 font-medium leading-relaxed">
-            O ativo atual <strong>{chamado.eq_nome} (Pat: {chamado.patrimonio || 'S/P'})</strong> passará para <strong className="text-red-600">"Inoperante"</strong>. O reserva assumirá o setor <strong>{chamado.setor_nome}</strong> como <strong>"Ativo"</strong>.
+            O ativo atual <strong>{chamado.eq_nome} (Pat: {chamado.patrimonio || 'S/P'})</strong> passará para <strong className="text-red-600">"Inoperante"</strong>. O reserva assumirá o setor <strong>{obterSetorFormatado(chamado)}</strong> como <strong>"Ativo"</strong>.
           </p>
 
           <form onSubmit={handleTrocaEquipamento} className="flex gap-3 items-end flex-wrap">
@@ -1463,7 +1468,7 @@ export function TratarChamado() {
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-2xl">
                 <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 block">Vínculo Automático da OS:</span>
                 <p className="text-xs font-black text-slate-800 uppercase mt-0.5">
-                  Setor: {chamado?.setor_nome || 'Geral'} • Ativo: {chamado?.eq_nome || 'Sem ativo específico'}
+                  Setor: {obterSetorFormatado(chamado)} • Ativo: {chamado?.eq_nome || 'Sem ativo específico'}
                 </p>
               </div>
 
@@ -1521,7 +1526,7 @@ export function TratarChamado() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor Unit. Est. (R$)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor Unit. Est. (R\$)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1734,7 +1739,7 @@ export function TratarChamado() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Custo do Reparo (R$)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Custo do Reparo (R\$)</label>
                   <input
                     type="number"
                     step="0.01"

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 
 const PainelChamados = () => {
   const [chamados, setChamados] = useState([]);
+  const [setores, setSetores] = useState([]);
   const [agora, setAgora] = useState(new Date());
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [audioHabilitado, setAudioHabilitado] = useState(false);
@@ -23,6 +24,19 @@ const PainelChamados = () => {
 
   const API_URL = '/api';
 
+  // 📍 RESOLVER CAMINHO DO SETOR (ÁRVORE PAI)
+  const obterSetorCompleto = (chamado, listaSetores = setores) => {
+    if (!chamado) return 'Setor Geral';
+    if (chamado.setor_completo) return chamado.setor_completo;
+
+    if (chamado.setor_id && Array.isArray(listaSetores)) {
+      const setorEncontrado = listaSetores.find(s => String(s.id) === String(chamado.setor_id));
+      if (setorEncontrado?.nome) return setorEncontrado.nome;
+    }
+
+    return chamado.setor_nome || 'Setor Geral';
+  };
+
   // 🗣️ SÍNTESE DE VOZ
   const falarTexto = (texto) => {
     if (!('speechSynthesis' in window)) return;
@@ -41,7 +55,7 @@ const PainelChamados = () => {
   };
 
   // 🔊 ALARME SONORO + VOZ
-  const emitirAlertaCompleto = (novosChamados = []) => {
+  const emitirAlertaCompleto = (novosChamados = [], listaSetoresAtual = setores) => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const tocarBeep = (freq, start, dur) => {
@@ -63,9 +77,10 @@ const PainelChamados = () => {
       if (novosChamados.length > 0) {
         setTimeout(() => {
           novosChamados.forEach((c) => {
-            const setor = c.setor_nome || 'Setor não informado';
+            const setorCompleto = obterSetorCompleto(c, listaSetoresAtual);
+            const setorParaVoz = setorCompleto.replace(/\s*>\s*/g, ', ');
             const assunto = c.titulo || 'Sem assunto';
-            const mensagem = `Atenção: Novo chamado no setor ${setor}. Assunto: ${assunto}.`;
+            const mensagem = `Atenção: Novo chamado no setor ${setorParaVoz}. Assunto: ${assunto}.`;
             falarTexto(mensagem);
           });
         }, 700);
@@ -90,19 +105,24 @@ const PainelChamados = () => {
     }
   };
 
-  const buscarChamados = async () => {
+  const buscarDados = async () => {
     try {
-      const res = await fetch(`${API_URL}/chamados`, {
-        headers: { 'Content-Type': 'application/json', 'x-usuario-nivel': 'admin' }
-      });
-      const data = await res.json();
-      
-      const pendentes = (Array.isArray(data) ? data : []).filter(c => c.status !== 'Concluído');
+      const headers = { 'Content-Type': 'application/json', 'x-usuario-nivel': 'admin' };
+
+      const [resChamados, resSetores] = await Promise.all([
+        fetch(`${API_URL}/chamados`, { headers }).then(res => res.json()).catch(() => []),
+        fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).catch(() => [])
+      ]);
+
+      const listaSetores = Array.isArray(resSetores) ? resSetores : [];
+      setSetores(listaSetores);
+
+      const pendentes = (Array.isArray(resChamados) ? resChamados : []).filter(c => c.status !== 'Concluído');
 
       if (!primeiraCargaRef.current && audioHabilitado) {
         const novos = pendentes.filter(c => !ultimosIdsRef.current.has(c.id) && c.status === 'Aberto');
         if (novos.length > 0) {
-          emitirAlertaCompleto(novos);
+          emitirAlertaCompleto(novos, listaSetores);
         }
       }
 
@@ -115,8 +135,8 @@ const PainelChamados = () => {
   };
 
   useEffect(() => {
-    buscarChamados();
-    const intervalBusca = setInterval(buscarChamados, 10000);
+    buscarDados();
+    const intervalBusca = setInterval(buscarDados, 10000);
     const intervalRelogio = setInterval(() => setAgora(new Date()), 1000);
 
     return () => {
@@ -125,20 +145,44 @@ const PainelChamados = () => {
     };
   }, [audioHabilitado]);
 
-  // 🔄 AUTO-SCROLL SUAVE CONTÍNUO PARA MODO TV
+  // 🔄 AUTO-SCROLL SUAVE CONTÍNUO PARA MODO TV (COM RESET SEGURO)
   useEffect(() => {
     if (!autoScroll) return;
 
+    const pausadoNoFim = {
+      abertos: false,
+      andamento: false
+    };
+
     const scrollInterval = setInterval(() => {
-      [scrollContainerAbertosRef.current, scrollContainerAndamentoRef.current].forEach(container => {
-        if (!container) return;
-        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 5) {
-          container.scrollTo({ top: 0, behavior: 'smooth' });
+      const colunas = [
+        { chave: 'abertos', el: scrollContainerAbertosRef.current },
+        { chave: 'andamento', el: scrollContainerAndamentoRef.current }
+      ];
+
+      colunas.forEach(({ chave, el }) => {
+        if (!el || pausadoNoFim[chave]) return;
+
+        if (el.scrollHeight <= el.clientHeight) return;
+
+        const chegouAoFim = el.scrollTop + el.clientHeight >= el.scrollHeight - 10;
+
+        if (chegouAoFim) {
+          pausadoNoFim[chave] = true;
+
+          setTimeout(() => {
+            if (el) {
+              el.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            setTimeout(() => {
+              pausadoNoFim[chave] = false;
+            }, 1000);
+          }, 3000);
         } else {
-          container.scrollBy({ top: 1, behavior: 'auto' });
+          el.scrollTop += 1;
         }
       });
-    }, 50);
+    }, 45);
 
     return () => clearInterval(scrollInterval);
   }, [autoScroll]);
@@ -266,7 +310,7 @@ const PainelChamados = () => {
                 const novoStatus = !audioHabilitado;
                 setAudioHabilitado(novoStatus); 
                 if (novoStatus) {
-                  emitirAlertaCompleto();
+                  emitirAlertaCompleto([], setores);
                   falarTexto("Sistema de áudio e avisos por voz ativado.");
                 }
               }}
@@ -310,6 +354,7 @@ const PainelChamados = () => {
             <div ref={scrollContainerAbertosRef} className="space-y-4 overflow-y-auto flex-1 pr-2 custom-scrollbar">
               {abertos.map(c => {
                 const tempo = calcularTempoDecorrido(c.data_abertura, c.prioridade);
+                const setorExibicao = obterSetorCompleto(c, setores);
 
                 return (
                   <div 
@@ -317,8 +362,8 @@ const PainelChamados = () => {
                     className="bg-slate-900 border-l-[10px] border-red-500 border-y border-r border-slate-800 p-5 rounded-2xl shadow-xl hover:border-slate-700 transition-all"
                   >
                     <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className="text-amber-400 font-black text-xs uppercase bg-slate-950 px-3 py-1 rounded-xl border border-slate-800">
-                        📍 {c.setor_nome || 'Setor Geral'}
+                      <span className="text-amber-400 font-black text-xs uppercase bg-slate-950 px-3 py-1 rounded-xl border border-slate-800" title={setorExibicao}>
+                        📍 {setorExibicao}
                       </span>
                       
                       <div className="flex items-center gap-2">
@@ -387,12 +432,13 @@ const PainelChamados = () => {
             <div ref={scrollContainerAndamentoRef} className="space-y-4 overflow-y-auto flex-1 pr-2 custom-scrollbar">
               {emAtendimento.map(c => {
                 const tempo = calcularTempoDecorrido(c.data_abertura, c.prioridade);
+                const setorExibicao = obterSetorCompleto(c, setores);
 
                 return (
                   <div key={c.id} className="bg-slate-900 border-l-[10px] border-amber-400 border-y border-r border-slate-800 p-5 rounded-2xl shadow-xl hover:border-slate-700 transition-all">
                     <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className="text-amber-300 font-black text-xs uppercase bg-slate-950 px-3 py-1 rounded-xl border border-slate-800">
-                        📍 {c.setor_nome || 'Setor Geral'}
+                      <span className="text-amber-300 font-black text-xs uppercase bg-slate-950 px-3 py-1 rounded-xl border border-slate-800" title={setorExibicao}>
+                        📍 {setorExibicao}
                       </span>
                       
                       <div className="flex items-center gap-2">
