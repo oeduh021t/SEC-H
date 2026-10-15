@@ -1387,7 +1387,7 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
 // ROTAS DE USUÁRIOS
 // -------------------------------------------------------------------------
 app.get('/api/usuarios', permitirApenas(['admin']), (req, res) => {
-    db.query("SELECT id, nome, login, nivel FROM usuarios ORDER BY nome ASC", (err, result) => {
+    db.query("SELECT id, nome, login, nivel FROM usuarios WHERE (ativo = 1 OR ativo IS NULL) ORDER BY nome ASC", (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
@@ -1397,7 +1397,7 @@ app.post('/api/usuarios', permitirApenas(['admin']), async (req, res) => {
     const { nome, login, senha, nivel } = req.body;
     try {
         const hash = await bcrypt.hash(senha, saltRounds);
-        const query = "INSERT INTO usuarios (nome, login, senha, nivel) VALUES (?, ?, ?, ?)";
+        const query = "INSERT INTO usuarios (nome, login, senha, nivel, ativo) VALUES (?, ?, ?, ?, 1)";
         db.query(query, [nome, login, hash, nivel], (err) => {
             if (err) return res.status(400).json({ error: "Login já em uso." });
             res.json({ message: "Usuário criado!" });
@@ -1433,9 +1433,12 @@ app.put('/api/usuarios/:id', permitirApenas(['admin']), async (req, res) => {
 app.delete('/api/usuarios/:id', permitirApenas(['admin']), (req, res) => {
     const { id } = req.params;
     if (id == "1") return res.status(403).json({ error: "Não é possível excluir o administrador mestre." });
-    db.query("DELETE FROM usuarios WHERE id = ?", [id], (err) => {
-        if (err) return res.status(500).json(err);
-        res.json({ message: "Removido!" });
+
+    // Em vez de DELETE físico, desativa o usuário
+    const query = "UPDATE usuarios SET ativo = 0 WHERE id = ?";
+    db.query(query, [id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Usuário desativado com sucesso! O histórico de chamados foi preservado." });
     });
 });
 
@@ -1448,6 +1451,12 @@ app.post('/api/login', (req, res) => {
         if (results.length === 0) return res.status(401).json({ error: "Usuário não encontrado" });
 
         const user = results[0];
+
+        // Bloqueio imediato para usuário desativado
+        if (user.ativo === 0 || user.ativo === false) {
+            return res.status(403).json({ error: "Este usuário foi desativado. Contate o administrador do sistema." });
+        }
+
         const senhaCorreta = await bcrypt.compare(senha, user.senha);
 
         if (senhaCorreta) {
@@ -1465,10 +1474,16 @@ app.patch('/api/usuarios/alterar-senha', permitirApenas(['admin', 'coordenador',
         return res.status(400).json({ error: "Preencha todos os campos." });
     }
 
-    db.query("SELECT senha FROM usuarios WHERE id = ?", [id], async (err, results) => {
+    db.query("SELECT senha, ativo FROM usuarios WHERE id = ?", [id], async (err, results) => {
         if (err || results.length === 0) return res.status(500).json({ error: "Usuário não encontrado." });
 
-        const hashBanco = results[0].senha;
+        const user = results[0];
+
+        if (user.ativo === 0 || user.ativo === false) {
+            return res.status(403).json({ error: "Usuário desativado." });
+        }
+
+        const hashBanco = user.senha;
         try {
             const senhaOk = await bcrypt.compare(senhaAtual, hashBanco);
             if (!senhaOk) {
@@ -1491,6 +1506,7 @@ app.get('/api/tecnicos', permitirApenas(['admin', 'coordenador', 'tecnico']), (r
         SELECT id, nome 
         FROM usuarios 
         WHERE nivel IN ('tecnico', 'admin', 'coordenador') 
+          AND (ativo = 1 OR ativo IS NULL)
         ORDER BY nome ASC
     `;
     db.query(query, (err, result) => {
