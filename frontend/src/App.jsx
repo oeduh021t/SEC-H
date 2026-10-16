@@ -37,8 +37,12 @@ import ManutencaoPlanejada from './pages/ManutencaoPlanejada';
 import OrcamentosExternos from './pages/OrcamentosExternos';
 import ImprimirOrcamentoExterno from './pages/ImprimirOrcamentoExterno';
 
-// 🔍 NOVO: AUDITORIA E EXTRATO DE FORNECEDORES
-import AuditoriaFornecedor from './pages/AuditoriaFornecedor'; // ❌ Falta o "es" no arquivo real
+// 🔍 AUDITORIA E EXTRATO DE FORNECEDORES
+import AuditoriaFornecedor from './pages/AuditoriaFornecedor';
+
+// 🕒 NOVO: DIÁRIO DE BORDO & LINHA DO TEMPO OPERACIONAL DO PLANTÃO
+import TimelineOperacional from './pages/TimelineOperacional';
+
 function AppRoutes() {
   const { user, permissions } = useAuth();
   const [sidebarAberta, setSidebarAberta] = useState(true);
@@ -140,6 +144,16 @@ function AppRoutes() {
                   <Route path="/chamados/:id/imprimir" element={<ProtectedRoute><ImprimirOS /></ProtectedRoute>} />
                   <Route path="/chamados/:id/tratar" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><TratarChamado /></ProtectedRoute>} />
 
+                  {/* 🕒 DIÁRIO DE BORDO & LINHA DO TEMPO OPERACIONAL DO PLANTÃO */}
+                  <Route 
+                    path="/timeline" 
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}>
+                        <TimelineOperacional />
+                      </ProtectedRoute>
+                    } 
+                  />
+
                   {/* 4. MANUTENÇÃO PLANEJADA & JANELAS */}
                   <Route path="/manutencoes-planejadas" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><ManutencaoPlanejada user={user} /></ProtectedRoute>} />
 
@@ -164,7 +178,8 @@ function AppRoutes() {
                   
                   {/* 🔍 AUDITORIA E EXTRATOS DE FORNECEDORES */}
                   <Route path="/relatorios/fornecedores" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><AuditoriaFornecedor /></ProtectedRoute>} />
-<Route path="/relatorios/fornecedores/:id" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><AuditoriaFornecedor /></ProtectedRoute>} />
+                  <Route path="/relatorios/fornecedores/:id" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><AuditoriaFornecedor /></ProtectedRoute>} />
+
                   {/* 8. GERENCIAMENTO DE USUÁRIOS */}
                   <Route path="/usuarios" element={<ProtectedRoute allowedRoles={['admin']}><Usuarios /></ProtectedRoute>} />
 

@@ -857,6 +857,91 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
     });
 });
 
+// =========================================================================
+// ⚡ MODO PLANTÃO: ATENDER E CONCLUIR POR VOZ/TOQUE
+// =========================================================================
+
+// 1. ATENDER COM 1 CLIQUE (Move para Em Atendimento e grava log)
+app.put('/api/chamados/:id/status', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { status, tecnico_responsavel } = req.body;
+
+    const tecnicoNome = tecnico_responsavel || 'Plantonista Manutenção';
+    const novoStatus = status || 'Em Atendimento';
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const qUpdate = `
+            UPDATE chamados 
+            SET status = ?, 
+                tecnico_responsavel = COALESCE(?, tecnico_responsavel)
+            WHERE id = ?
+        `;
+
+        conn.query(qUpdate, [novoStatus, tecnicoNome, id], (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+            const logTexto = `[⚡ ATENDIMENTO INICIADO] O plantonista ${tecnicoNome} assumiu a ordem de serviço.`;
+            const qHist = `
+                INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
+                VALUES (?, ?, ?, ?, NOW())
+            `;
+
+            conn.query(qHist, [id, tecnicoNome, logTexto, novoStatus], (errHist) => {
+                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.json({ message: "Atendimento iniciado com sucesso!", status: novoStatus });
+                });
+            });
+        });
+    });
+});
+
+// 2. CONCLUIR COM VOZ/PARECER (Finaliza o chamado e grava parecer no histórico)
+app.put('/api/chamados/:id/concluir', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { id } = req.params;
+    const { parecer_tecnico, tecnico_responsavel } = req.body;
+
+    const tecnicoNome = tecnico_responsavel || 'Plantonista Manutenção';
+    const parecer = parecer_tecnico && parecer_tecnico.trim() !== '' 
+        ? parecer_tecnico.trim() 
+        : 'Serviço concluído pelo plantonista da manutenção.';
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const qUpdate = `
+            UPDATE chamados 
+            SET status = 'Concluído',
+                data_conclusao = IFNULL(data_conclusao, NOW())
+            WHERE id = ?
+        `;
+
+        conn.query(qUpdate, [id], (errUp) => {
+            if (errUp) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+
+            const qHist = `
+                INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
+                VALUES (?, ?, ?, 'Concluído', NOW())
+            `;
+
+            conn.query(qHist, [id, tecnicoNome, parecer], (errHist) => {
+                if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
+
+                conn.commit((errCommit) => {
+                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                    conn.release();
+                    res.json({ message: "Chamado concluído com sucesso!" });
+                });
+            });
+        });
+    });
+});
+
 app.post('/api/chamados/:id/itens', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
     const { id } = req.params;
     const { item_id, quantidade } = req.body;
@@ -6658,6 +6743,118 @@ app.get("/api/estoque/:id/historico-saidas", (req, res) => {
     console.log(`[HISTORICO SAIDAS] Item #${id} -> Registros encontrados:`, results ? results.length : 0);
     return res.json(results || []);
   });
+});
+
+// =========================================================================
+// 🕒 DIÁRIO DE BORDO / LINHA DO TEMPO OPERACIONAL DO PLANTÃO
+// =========================================================================
+app.get('/api/timeline-operacional', permitirApenas(['admin', 'coordenador', 'tecnico']), (req, res) => {
+    const { data_inicio, data_fim, tecnico, status } = req.query;
+
+    // Se não passar data, define o dia de hoje (00:00:00 até 23:59:59)
+    const hoje = new Date().toISOString().split('T')[0];
+    const inicio = data_inicio ? `${data_inicio} 00:00:00` : `${hoje} 00:00:00`;
+    const fim = data_fim ? `${data_fim} 23:59:59` : `${hoje} 23:59:59`;
+
+    // 1. Query dos Eventos Históricos / Ações Técnicas que ocorreram no período
+    let sqlEventos = `
+        SELECT 
+            'acao_tecnica' AS tipo_evento,
+            h.id AS evento_id,
+            h.chamado_id,
+            h.data_registro AS data_hora,
+            h.tecnico_nome,
+            h.status_momento AS status_resultante,
+            h.texto_historico AS descricao,
+            h.arquivo_url,
+            c.titulo AS chamado_titulo,
+            c.prioridade,
+            s.nome AS setor_nome,
+            e.nome AS equipamento_nome,
+            e.patrimonio AS equipamento_patrimonio
+        FROM chamados_historico h
+        INNER JOIN chamados c ON h.chamado_id = c.id
+        LEFT JOIN setores s ON c.setor_id = s.id
+        LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        WHERE h.data_registro BETWEEN ? AND ?
+    `;
+
+    // 2. Query de Aberturas de Chamados que ocorreram no período
+    let sqlAberturas = `
+        SELECT 
+            'abertura' AS tipo_evento,
+            c.id AS evento_id,
+            c.id AS chamado_id,
+            c.data_abertura AS data_hora,
+            COALESCE(u.nome, 'Solicitante') AS tecnico_nome,
+            'Aberto' AS status_resultante,
+            c.descricao_problema AS descricao,
+            c.foto_abertura AS arquivo_url,
+            c.titulo AS chamado_titulo,
+            c.prioridade,
+            s.nome AS setor_nome,
+            e.nome AS equipamento_nome,
+            e.patrimonio AS equipamento_patrimonio
+        FROM chamados c
+        LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
+        LEFT JOIN setores s ON c.setor_id = s.id
+        LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+        WHERE c.data_abertura BETWEEN ? AND ?
+    `;
+
+    // União das duas linhas temporais em ordem cronológica
+    const sqlTimeline = `
+        (${sqlEventos})
+        UNION ALL
+        (${sqlAberturas})
+        ORDER BY data_hora DESC
+    `;
+
+    // 3. Resumo/Cards rápidos do dia (Kpis do fechamento do dia)
+    const sqlResumo = `
+        SELECT
+            SUM(CASE WHEN data_abertura BETWEEN ? AND ? THEN 1 ELSE 0 END) AS abertos_no_periodo,
+            SUM(CASE WHEN status = 'Em Atendimento' THEN 1 ELSE 0 END) AS em_atendimento_atual,
+            SUM(CASE WHEN data_conclusao BETWEEN ? AND ? AND status = 'Concluído' THEN 1 ELSE 0 END) AS concluidos_no_periodo,
+            SUM(CASE WHEN (status = 'Aguardando Externa' OR em_manutencao_externa = 1) AND status != 'Concluído' THEN 1 ELSE 0 END) AS em_custodia_externa
+        FROM chamados
+    `;
+
+    db.query(sqlTimeline, [inicio, fim, inicio, fim], (errTime, timeline) => {
+        if (errTime) {
+            console.error("❌ Erro ao buscar timeline operacional:", errTime.message);
+            return res.status(500).json({ error: errTime.message });
+        }
+
+        db.query(sqlResumo, [inicio, fim, inicio, fim], (errRes, resumo) => {
+            if (errRes) {
+                console.error("❌ Erro ao buscar resumo operacional:", errRes.message);
+                return res.status(500).json({ error: errRes.message });
+            }
+
+            // Filtros opcionais em memória para técnico ou status caso o usuário refine
+            let resultadoFinal = timeline || [];
+            if (tecnico && tecnico.trim() !== '') {
+                resultadoFinal = resultadoFinal.filter(item => 
+                    item.tecnico_nome && item.tecnico_nome.toLowerCase().includes(tecnico.toLowerCase())
+                );
+            }
+            if (status && status !== 'todos') {
+                resultadoFinal = resultadoFinal.filter(item => item.status_resultante === status);
+            }
+
+            res.json({
+                periodo: { inicio, fim },
+                resumo: resumo[0] || {
+                    abertos_no_periodo: 0,
+                    em_atendimento_atual: 0,
+                    concluidos_no_periodo: 0,
+                    em_custodia_externa: 0
+                },
+                timeline: resultadoFinal
+            });
+        });
+    });
 });
 
 const PORT = 3000;
