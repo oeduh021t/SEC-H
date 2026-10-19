@@ -10,36 +10,30 @@ export function TratarChamado() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // Chave única para persistência no storage do navegador
   const CHAVE_RASCUNHO = `rascunho_os_${id}`;
 
-  // Dados do Usuário Logado
   const [usuarioLogado] = useState(() => {
-    const salvo = localStorage.getItem('user');
+    const salvo = localStorage.getItem("user");
     return salvo ? JSON.parse(salvo) : null;
   });
 
-  const nivelUsuario = (usuarioLogado?.nivel || '').toLowerCase().trim();
-  const isGestao = ['admin', 'coordenador'].includes(nivelUsuario);
+  const nivelUsuario = (usuarioLogado?.nivel || "").toLowerCase().trim();
+  const isGestao = ["admin", "coordenador"].includes(nivelUsuario);
 
-  // Estados de dados do Backend
   const [chamado, setChamado] = useState(null);
   const [itensEstoque, setItensEstoque] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
   const [tecnicos, setTecnicos] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 📱 Estado para Visualizador Interno de Anexos/Imagens (Mobile Friendly)
   const [visualizadorAnexo, setVisualizadorAnexo] = useState(null);
 
-  // Estados de Troca de Ativo
   const [equipamentosReserva, setEquipamentosReserva] = useState([]);
   const [equipamentoReservaSelecionado, setEquipamentoReservaSelecionado] = useState("");
   const [buscaPatrimonioReserva, setBuscaPatrimonioReserva] = useState("");
   const [exibirPainelTroca, setExibirPainelTroca] = useState(false);
   const [executandoTroca, setExecutandoTroca] = useState(false);
 
-  // 🚚 Estados de Manutenção Externa
   const [modalSaidaExterna, setModalSaidaExterna] = useState(false);
   const [fornecedorSaidaId, setFornecedorSaidaId] = useState("");
   const [motivoSaida, setMotivoSaida] = useState("");
@@ -47,7 +41,6 @@ export function TratarChamado() {
   const [enviandoSaida, setEnviandoSaida] = useState(false);
   const [guiaImpressao, setGuiaImpressao] = useState(null);
 
-  // 🛬 Estados de Retorno de Manutenção Externa
   const [modalRetornoExterno, setModalRetornoExterno] = useState(false);
   const [nfRetorno, setNfRetorno] = useState("");
   const [custoRetorno, setCustoRetorno] = useState("");
@@ -55,7 +48,6 @@ export function TratarChamado() {
   const [arquivoLaudo, setArquivoLaudo] = useState(null);
   const [enviandoRetorno, setEnviandoRetorno] = useState(false);
 
-  // 🛒 NOVO: Modal de Solicitar Compra de Peça Direto da OS
   const [modalSolicitarCompra, setModalSolicitarCompra] = useState(false);
   const [enviandoCompra, setEnviandoCompra] = useState(false);
   const [compraForm, setCompraForm] = useState({
@@ -68,32 +60,31 @@ export function TratarChamado() {
     valor_estimado: 0
   });
 
-  // Estados do Formulário de Solução
   const [tipoAtendimento, setTipoAtendimento] = useState("Interno");
   const [status, setStatus] = useState("Em Atendimento");
   const [descricaoSolucao, setDescricaoSolucao] = useState("");
   const [tecnicoId, setTecnicoId] = useState("");
 
-  // 📷 Foto de Conclusão (Depois)
+  // 📷 Foto de Conclusão e Câmera Direta no Navegador
   const [fotoConclusao, setFotoConclusao] = useState(null);
-  const fileInputFotoConclusaoRef = useRef(null);
+  const [modalCameraAberta, setModalCameraAberta] = useState(false);
+  const [carregandoCamera, setCarregandoCamera] = useState(false);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const fileInputGaleriaRef = useRef(null);
 
-  // Estados de Anexos
   const [documentoSelecionado, setDocumentoSelecionado] = useState(null);
   const [listaDocumentos, setListaDocumentos] = useState([]);
   const [enviandoDocumento, setEnviandoDocumento] = useState(false);
   const inputDocumentoRef = useRef(null);
 
-  // Estados de Peças
   const [pecaSelecionada, setPecaSelecionada] = useState("");
   const [qtdPeca, setQtdPeca] = useState(1);
 
-  // Fornecedor Externo Manual
   const [fornecedorId, setFornecedorId] = useState("");
   const [nfReferencia, setNfReferencia] = useState("");
   const [custoServico, setCustoServico] = useState(0);
 
-  // Sinalizador de rascunho recuperado
   const [temRascunhoRecuperado, setTemRascunhoRecuperado] = useState(false);
 
   const API_URL = "/api";
@@ -101,19 +92,29 @@ export function TratarChamado() {
 
   useEffect(() => {
     const handlePopState = () => {
-      if (visualizadorAnexo) setVisualizadorAnexo(null);
+      if (modalCameraAberta) fecharCameraEmbutida();
+      else if (visualizadorAnexo) setVisualizadorAnexo(null);
       else if (modalSaidaExterna) setModalSaidaExterna(false);
       else if (modalRetornoExterno) setModalRetornoExterno(false);
       else if (modalSolicitarCompra) setModalSolicitarCompra(false);
       else if (exibirPainelTroca) setExibirPainelTroca(false);
     };
 
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [visualizadorAnexo, modalSaidaExterna, modalRetornoExterno, modalSolicitarCompra, exibirPainelTroca]);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [modalCameraAberta, visualizadorAnexo, modalSaidaExterna, modalRetornoExterno, modalSolicitarCompra, exibirPainelTroca]);
 
-  const abrirVisualizadorInterno = (url, titulo = 'Visualização de Documento', tipo = 'imagem') => {
-    window.history.pushState({ visualizando: true }, '');
+  // Limpeza de hardware da câmera ao desmontar
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  const abrirVisualizadorInterno = (url, titulo = "Visualização de Documento", tipo = "imagem") => {
+    window.history.pushState({ visualizando: true }, "");
     setVisualizadorAnexo({ url, titulo, tipo });
   };
 
@@ -122,7 +123,7 @@ export function TratarChamado() {
   };
 
   const totalPecas = (Array.isArray(chamado?.itens_vinculados) ? chamado.itens_vinculados : []).reduce(
-    (acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 
+    (acc, item) => acc + Number(item.quantidade || 0) * Number(item.valor_unitario || 0),
     0
   );
   const custoTotalOS = (Number(custoServico) || 0) + (Number(chamado?.valor_servico_externo) || 0) + totalPecas;
@@ -145,16 +146,16 @@ export function TratarChamado() {
   const carregarTodosOsDados = async () => {
     try {
       const headers = {
-        'Content-Type': 'application/json',
-        'x-usuario-nivel': nivelUsuario
+        "Content-Type": "application/json",
+        "x-usuario-nivel": nivelUsuario
       };
 
       const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos] = await Promise.all([
-        fetch(`${API_URL}/chamados/${id}`, { headers }).then(res => res.ok ? res.json() : null),
-        fetch(`${API_URL}/itens-estoque`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
-        fetch(`${API_URL}/fornecedores`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
-        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then(res => res.ok ? res.json() : []).catch(() => []),
-        fetch(`${API_URL}/tecnicos`, { headers }).then(res => res.ok ? res.json() : []).catch(() => [])
+        fetch(`${API_URL}/chamados/${id}`, { headers }).then((res) => (res.ok ? res.json() : null)),
+        fetch(`${API_URL}/itens-estoque`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
+        fetch(`${API_URL}/fornecedores`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
+        fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
+        fetch(`${API_URL}/tecnicos`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => [])
       ]);
 
       if (resChamado) {
@@ -175,8 +176,8 @@ export function TratarChamado() {
           setStatus(rascunho.status || resChamado.status || "Em Atendimento");
           setFornecedorId(rascunho.fornecedorId || resChamado.fornecedor_id || "");
           setNfReferencia(rascunho.nfReferencia || resChamado.nf_referencia || "");
-          setCustoServico(rascunho.custoServico !== undefined ? rascunho.custoServico : (resChamado.custo_servico || 0));
-          setDescricaoSolucao(rascunho.descricaoSolucao !== undefined ? rascunho.descricaoSolucao : (resChamado.descricao_solucao || ""));
+          setCustoServico(rascunho.custoServico !== undefined ? rascunho.custoServico : resChamado.custo_servico || 0);
+          setDescricaoSolucao(rascunho.descricaoSolucao !== undefined ? rascunho.descricaoSolucao : resChamado.descricao_solucao || "");
           setTecnicoId(rascunho.tecnicoId || resChamado.tecnico_id || "");
           if (rascunho.descricaoSolucao && rascunho.descricaoSolucao.trim() !== "") {
             setTemRascunhoRecuperado(true);
@@ -200,7 +201,6 @@ export function TratarChamado() {
       setFornecedores(Array.isArray(resFornecedores) ? resFornecedores : []);
       setListaDocumentos(Array.isArray(resDocumentos) ? resDocumentos : []);
       setTecnicos(Array.isArray(resTecnicos) ? resTecnicos : []);
-
     } catch (err) {
       console.error("Erro ao carregar dados do atendimento:", err);
     } finally {
@@ -228,20 +228,87 @@ export function TratarChamado() {
     }
   };
 
-  useEffect(() => { 
-    carregarTodosOsDados(); 
+  useEffect(() => {
+    carregarTodosOsDados();
   }, [id]);
 
   const injetarTextoRapido = (texto) => {
     if (chamado?.status === "Concluído") return;
-    setDescricaoSolucao(prev => prev === "" ? texto : `${prev} ${texto}`);
+    setDescricaoSolucao((prev) => (prev === "" ? texto : `${prev} ${texto}`));
+  };
+
+  // 📷 MÉTODOS DE CONTROLE DA CÂMERA EMBUTIDA
+  const abrirCameraEmbutida = async () => {
+    setCarregandoCamera(true);
+    setModalCameraAberta(true);
+    window.history.pushState({ cameraAberta: true }, "");
+
+    try {
+      const constraints = {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err) {
+      console.error("Erro ao iniciar a câmera nativa:", err);
+      alert("Não foi possível acessar a câmera. Verifique se o navegador possui permissão de acesso à câmera.");
+      fecharCameraEmbutida();
+    } finally {
+      setCarregandoCamera(false);
+    }
+  };
+
+  const fecharCameraEmbutida = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setModalCameraAberta(false);
+    setCarregandoCamera(false);
+  };
+
+  const capturarFotoPeloVideo = () => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const fotoArquivo = new File([blob], `evidencia_os_${id}_${Date.now()}.jpg`, {
+          type: "image/jpeg",
+          lastModified: Date.now()
+        });
+        setFotoConclusao(fotoArquivo);
+        fecharCameraEmbutida();
+      },
+      "image/jpeg",
+      0.85
+    );
   };
 
   const handleAbrirModalCompra = () => {
     setCompraForm({
       fornecedor_id: "",
-      urgencia: chamado?.prioridade === 'Urgente' ? 'Crítica' : 'Alta',
-      motivo: `Reposição de peça avariada para a OS #${id} (${chamado?.titulo || 'Equipamento'}).`,
+      urgencia: chamado?.prioridade === "Urgente" ? "Crítica" : "Alta",
+      motivo: `Reposição de peça avariada para a OS #${id} (${chamado?.titulo || "Equipamento"}).`,
       insumo_id: "",
       descricao: "",
       quantidade: 1,
@@ -293,7 +360,7 @@ export function TratarChamado() {
         setModalSolicitarCompra(false);
         await carregarTodosOsDados();
       } else {
-        alert(`Erro: ${data.error || 'Falha ao solicitar compra.'}`);
+        alert(`Erro: ${data.error || "Falha ao solicitar compra."}`);
       }
     } catch (err) {
       alert("Erro de conexão ao solicitar compra.");
@@ -329,7 +396,7 @@ export function TratarChamado() {
       const data = await res.json();
 
       if (res.ok) {
-        const fornSel = fornecedores.find(f => Number(f.id) === Number(fornecedorSaidaId));
+        const fornSel = fornecedores.find((f) => Number(f.id) === Number(fornecedorSaidaId));
         setGuiaImpressao({
           chamadoId: id,
           equipamento: {
@@ -343,7 +410,7 @@ export function TratarChamado() {
           fornecedor: fornSel,
           motivo: motivoSaida,
           previsao: previsaoRetorno,
-          dataSaida: new Date().toLocaleDateString('pt-BR')
+          dataSaida: new Date().toLocaleDateString("pt-BR")
         });
 
         alert("Equipamento encaminhado para manutenção externa via OS! 🚚✅");
@@ -352,7 +419,7 @@ export function TratarChamado() {
         setPrevisaoRetorno("");
         await carregarTodosOsDados();
       } else {
-        alert(`Erro: ${data.error || 'Falha ao registrar saída externa.'}`);
+        alert(`Erro: ${data.error || "Falha ao registrar saída externa."}`);
       }
     } catch (err) {
       alert("Erro ao conectar com o servidor.");
@@ -366,13 +433,13 @@ export function TratarChamado() {
     setEnviandoRetorno(true);
 
     const formData = new FormData();
-    formData.append('numero_nf', nfRetorno);
-    formData.append('valor_servico', custoRetorno || 0);
-    formData.append('observacao', observacaoRetorno);
-    formData.append('tecnico_nome', usuarioLogado?.nome || "Técnico");
+    formData.append("numero_nf", nfRetorno);
+    formData.append("valor_servico", custoRetorno || 0);
+    formData.append("observacao", observacaoRetorno);
+    formData.append("tecnico_nome", usuarioLogado?.nome || "Técnico");
     if (arquivoLaudo) {
       const laudoFinal = await comprimirImagemSeNecessario(arquivoLaudo);
-      formData.append('laudo_tecnico', laudoFinal);
+      formData.append("laudo_tecnico", laudoFinal);
     }
 
     try {
@@ -395,7 +462,7 @@ export function TratarChamado() {
         setArquivoLaudo(null);
         await carregarTodosOsDados();
       } else {
-        alert(`Erro: ${data.error || 'Falha ao registrar retorno.'}`);
+        alert(`Erro: ${data.error || "Falha ao registrar retorno."}`);
       }
     } catch (err) {
       alert("Erro ao conectar com o servidor.");
@@ -405,8 +472,8 @@ export function TratarChamado() {
   };
 
   const handleReimprimirGuiaHistorico = (dataRegistroMomento) => {
-    const fornSel = fornecedores.find(f => Number(f.id) === Number(chamado?.fornecedor_externo_id));
-    
+    const fornSel = fornecedores.find((f) => Number(f.id) === Number(chamado?.fornecedor_externo_id));
+
     setGuiaImpressao({
       chamadoId: id,
       equipamento: {
@@ -417,12 +484,12 @@ export function TratarChamado() {
         fabricante: chamado?.fabricante,
         setor_nome: obterSetorFormatado(chamado)
       },
-      fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome || 'Terceirizado Homologado' },
+      fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome || "Terceirizado Homologado" },
       motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
       previsao: chamado?.data_previsao_retorno_externa,
-      dataSaida: dataRegistroMomento 
-        ? new Date(dataRegistroMomento).toLocaleDateString('pt-BR') 
-        : new Date(chamado?.data_saida_externa || Date.now()).toLocaleDateString('pt-BR')
+      dataSaida: dataRegistroMomento
+        ? new Date(dataRegistroMomento).toLocaleDateString("pt-BR")
+        : new Date(chamado?.data_saida_externa || Date.now()).toLocaleDateString("pt-BR")
     });
 
     setTimeout(() => {
@@ -437,13 +504,13 @@ export function TratarChamado() {
     const dadosPeca = {
       item_id: pecaSelecionada,
       quantidade: qtdPeca,
-      usuario_id: chamado?.usuario_id || usuarioLogado?.id || 1, 
-      equipamento_id: chamado?.equipamento_id || null 
+      usuario_id: chamado?.usuario_id || usuarioLogado?.id || 1,
+      equipamento_id: chamado?.equipamento_id || null
     };
 
     fetch(`${API_URL}/chamados/${id}/itens`, {
       method: "POST",
-      headers: { 
+      headers: {
         "Content-Type": "application/json",
         "x-usuario-nivel": nivelUsuario
       },
@@ -461,7 +528,6 @@ export function TratarChamado() {
     });
   };
 
-  // ✏️ Edição interativa de quantidade de peça
   const handleEditarQtdPeca = async (itemId, qtdAtual) => {
     const novaQtdStr = prompt("Informe a nova quantidade a ser utilizada no chamado:", qtdAtual);
     if (novaQtdStr === null) return;
@@ -495,7 +561,6 @@ export function TratarChamado() {
     }
   };
 
-  // 🗑️ Exclusão e devolução ao estoque
   const handleRemoverPecaOS = async (itemId, nomeItem) => {
     if (!confirm(`Deseja realmente remover o insumo "${nomeItem}" desta OS? A quantidade total retornará ao estoque.`)) {
       return;
@@ -522,7 +587,7 @@ export function TratarChamado() {
   };
 
   const comprimirImagemSeNecessario = async (arquivo) => {
-    if (!arquivo || !arquivo.type.startsWith('image/')) return arquivo;
+    if (!arquivo || !arquivo.type.startsWith("image/")) return arquivo;
 
     return new Promise((resolve) => {
       const leitor = new FileReader();
@@ -548,10 +613,10 @@ export function TratarChamado() {
             }
           }
 
-          const canvas = document.createElement('canvas');
+          const canvas = document.createElement("canvas");
           canvas.width = largura;
           canvas.height = altura;
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0, largura, altura);
 
           canvas.toBlob(
@@ -560,14 +625,13 @@ export function TratarChamado() {
                 resolve(arquivo);
                 return;
               }
-              const arquivoComprimido = new File(
-                [blob], 
-                arquivo.name.replace(/\.[^/.]+$/, ".jpg"), 
-                { type: 'image/jpeg', lastModified: Date.now() }
-              );
+              const arquivoComprimido = new File([blob], arquivo.name.replace(/\.[^/.]+$/, ".jpg"), {
+                type: "image/jpeg",
+                lastModified: Date.now()
+              });
               resolve(arquivoComprimido);
             },
-            'image/jpeg',
+            "image/jpeg",
             0.8
           );
         };
@@ -587,23 +651,23 @@ export function TratarChamado() {
       const arquivoFinal = await comprimirImagemSeNecessario(documentoSelecionado);
 
       const formData = new FormData();
-      formData.append('arquivo', arquivoFinal);
-      formData.append('chamado_id', id);
-      formData.append('usuario_id', usuarioLogado?.id || 1);
-      formData.append('setor_id', chamado?.setor_id || '');
-      formData.append('equipamento_id', chamado?.equipamento_id || '');
+      formData.append("arquivo", arquivoFinal);
+      formData.append("chamado_id", id);
+      formData.append("usuario_id", usuarioLogado?.id || 1);
+      formData.append("setor_id", chamado?.setor_id || "");
+      formData.append("equipamento_id", chamado?.equipamento_id || "");
 
       const res = await fetch(`${API_URL}/documentos`, {
         method: "POST",
         headers: {
-          'x-usuario-nivel': nivelUsuario
+          "x-usuario-nivel": nivelUsuario
         },
         body: formData
       });
 
       if (!res.ok) {
         const erroMsg = await res.text();
-        throw new Error(erroMsg.includes('413') ? 'Arquivo grande demais para o servidor.' : `Erro HTTP ${res.status}`);
+        throw new Error(erroMsg.includes("413") ? "Arquivo grande demais para o servidor." : `Erro HTTP ${res.status}`);
       }
 
       const data = await res.json().catch(() => ({}));
@@ -618,7 +682,7 @@ export function TratarChamado() {
       }
     } catch (err) {
       console.error("Erro ao anexar documento:", err);
-      alert(`Falha ao subir anexo: ${err.message || 'Erro de conexão'}`);
+      alert(`Falha ao subir anexo: ${err.message || "Erro de conexão"}`);
     } finally {
       setEnviandoDocumento(false);
     }
@@ -634,10 +698,10 @@ export function TratarChamado() {
 
     let executorFinal = "";
     if (tipoAtendimento === "Externo") {
-      const fornecedorSelecionado = fornecedores.find(f => Number(f.id) === Number(fornecedorId));
+      const fornecedorSelecionado = fornecedores.find((f) => Number(f.id) === Number(fornecedorId));
       executorFinal = fornecedorSelecionado ? `Terceirizado (${fornecedorSelecionado.nome_fantasia})` : "Fornecedor Externo";
     } else {
-      const tecnicoSelecionado = tecnicos.find(t => Number(t.id) === Number(tecnicoId));
+      const tecnicoSelecionado = tecnicos.find((t) => Number(t.id) === Number(tecnicoId));
       executorFinal = tecnicoSelecionado ? tecnicoSelecionado.nome : autorNome;
     }
 
@@ -645,24 +709,23 @@ export function TratarChamado() {
     formData.append("status", status);
     formData.append("tipo_atendimento", tipoAtendimento);
     formData.append("descricao_solucao", descricaoSolucao);
-    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? (fornecedorId || "") : "");
-    formData.append("nf_referencia", tipoAtendimento === "Externo" ? (nfReferencia || "") : "");
-    formData.append("custo_servico", tipoAtendimento === "Externo" ? (Number(custoServico) || 0) : 0);
+    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? fornecedorId || "" : "");
+    formData.append("nf_referencia", tipoAtendimento === "Externo" ? nfReferencia || "" : "");
+    formData.append("custo_servico", tipoAtendimento === "Externo" ? Number(custoServico) || 0 : 0);
     formData.append("custo_pecas", totalPecas);
-    formData.append("tecnico_id", tipoAtendimento === "Interno" ? (tecnicoId || usuarioLogado?.id || "") : "");
+    formData.append("tecnico_id", tipoAtendimento === "Interno" ? tecnicoId || usuarioLogado?.id || "" : "");
     formData.append("tecnico_responsavel", executorFinal);
     formData.append("registrado_por_nome", autorNome);
     formData.append("registrado_por_id", usuarioLogado?.id || "");
 
     if (fotoConclusao) {
-      const fotoComprimida = await comprimirImagemSeNecessario(fotoConclusao);
-      formData.append("foto_conclusao", fotoComprimida);
+      formData.append("foto_conclusao", fotoConclusao);
     }
 
     try {
       const res = await fetch(`${API_URL}/chamados/${id}/atualizar`, {
         method: "PUT",
-        headers: { 
+        headers: {
           "x-usuario-nivel": nivelUsuario
         },
         body: formData
@@ -704,13 +767,13 @@ export function TratarChamado() {
       equipamento_reserva_id: equipamentoReservaSelecionado,
       chamado_id: id,
       tecnico_nome: usuarioLogado?.nome || "Técnico",
-      setor_destino_id: chamado?.setor_id 
+      setor_destino_id: chamado?.setor_id
     };
 
     try {
       const res = await fetch(`${API_URL}/equipamentos/trocar`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "x-usuario-nivel": nivelUsuario
         },
@@ -722,15 +785,15 @@ export function TratarChamado() {
         setExibirPainelTroca(false);
         setEquipamentoReservaSelecionado("");
         setBuscaPatrimonioReserva("");
-        
-        const equipamentoReservaInfo = equipamentosReserva.find(eq => Number(eq.id) === Number(equipamentoReservaSelecionado));
-        const textoTroca = `[🔄 TROCA DE ATIVO] Equipamento anterior (Pat: ${chamado?.patrimonio || 'S/P'}) substituído por novo ativo (Pat: ${equipamentoReservaInfo?.patrimonio || 'Reserva'}).`;
-        setDescricaoSolucao(prev => prev === "" ? textoTroca : `${prev}\n${textoTroca}`);
-        
+
+        const equipamentoReservaInfo = equipamentosReserva.find((eq) => Number(eq.id) === Number(equipamentoReservaSelecionado));
+        const textoTroca = `[🔄 TROCA DE ATIVO] Equipamento anterior (Pat: ${chamado?.patrimonio || "S/P"}) substituído por novo ativo (Pat: ${equipamentoReservaInfo?.patrimonio || "Reserva"}).`;
+        setDescricaoSolucao((prev) => (prev === "" ? textoTroca : `${prev}\n${textoTroca}`));
+
         carregarTodosOsDados();
       } else {
         const errorData = await res.json();
-        alert(`Erro na substituição: ${errorData.message || 'Verifique as regras de estoque.'}`);
+        alert(`Erro na substituição: ${errorData.message || "Verifique as regras de estoque."}`);
       }
     } catch (err) {
       console.error(err);
@@ -740,7 +803,7 @@ export function TratarChamado() {
     }
   };
 
-  const equipamentosReservaFiltrados = (Array.isArray(equipamentosReserva) ? equipamentosReserva : []).filter(eq => {
+  const equipamentosReservaFiltrados = (Array.isArray(equipamentosReserva) ? equipamentosReserva : []).filter((eq) => {
     const termo = buscaPatrimonioReserva.toLowerCase().trim();
     if (!termo) return true;
     const patrimonioStr = String(eq.patrimonio || "").toLowerCase();
@@ -748,18 +811,18 @@ export function TratarChamado() {
     return patrimonioStr.includes(termo) || nomeStr.includes(termo);
   });
 
-  if (loading) return (
-    <div className="p-12 text-center font-black text-slate-400 uppercase text-xs animate-pulse">
-      Carregando bancada de atendimento técnico...
-    </div>
-  );
+  if (loading)
+    return (
+      <div className="p-12 text-center font-black text-slate-400 uppercase text-xs animate-pulse">
+        Carregando bancada de atendimento técnico...
+      </div>
+    );
 
   const isConcluido = chamado?.status === "Concluído";
   const isEmExterna = chamado?.status === "Aguardando Externa" || Number(chamado?.em_manutencao_externa) === 1;
 
   return (
     <div className="p-3 sm:p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
-      
       {/* 🖨️ GUIA DE REMESSA PRINT STYLES */}
       <style>{`
         @media print {
@@ -781,8 +844,8 @@ export function TratarChamado() {
       {/* 🧭 HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100">
         <div className="flex items-center gap-3 sm:gap-4">
-          <button 
-            onClick={() => navigate(-1)} 
+          <button
+            onClick={() => navigate(-1)}
             className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-black uppercase transition-all flex items-center gap-1 active:scale-95"
           >
             ← Voltar
@@ -790,23 +853,22 @@ export function TratarChamado() {
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 rounded-md">
-                OS #{id}
-              </span>
+              <span className="bg-blue-600 text-white font-black text-xs px-2.5 py-0.5 rounded-md">OS #{id}</span>
               <h1 className="text-base sm:text-xl font-black text-slate-800 uppercase tracking-tight truncate max-w-[220px] sm:max-w-lg">
                 {chamado?.titulo}
               </h1>
             </div>
             <p className="text-[10px] sm:text-[11px] text-slate-400 font-bold uppercase mt-0.5">
-              📍 Setor: <span className="text-slate-700">{obterSetorFormatado(chamado)}</span> 
+              📍 Setor: <span className="text-slate-700">{obterSetorFormatado(chamado)}</span>
               {chamado?.solicitante_nome && ` • 👤 Solicitante: ${chamado.solicitante_nome}`}
             </p>
           </div>
         </div>
-        
+
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {chamado?.equipamento_id && !isConcluido && (
-            isEmExterna ? (
+          {chamado?.equipamento_id &&
+            !isConcluido &&
+            (isEmExterna ? (
               <button
                 type="button"
                 onClick={() => setModalRetornoExterno(true)}
@@ -822,8 +884,7 @@ export function TratarChamado() {
               >
                 <span>🚚</span> Saída Externa
               </button>
-            )
-          )}
+            ))}
 
           {isGestao && chamado?.equipamento_id && !isConcluido && !isEmExterna && (
             <button
@@ -835,9 +896,9 @@ export function TratarChamado() {
             </button>
           )}
 
-          <button 
-            type="button" 
-            onClick={() => window.open(`/chamados/${id}/imprimir`, '_blank')} 
+          <button
+            type="button"
+            onClick={() => window.open(`/chamados/${id}/imprimir`, "_blank")}
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-950 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
           >
             <span>🖨️</span> Imprimir OS
@@ -853,22 +914,20 @@ export function TratarChamado() {
               🚚 Equipamento em Manutenção Externa
             </span>
             <p className="text-xs font-bold text-slate-700">
-              Fornecedor Responsável: <strong className="text-slate-900">{chamado?.fornecedor_nome || 'Terceirizado Homologado'}</strong>
+              Fornecedor Responsável: <strong className="text-slate-900">{chamado?.fornecedor_nome || "Terceirizado Homologado"}</strong>
             </p>
             <p className="text-[11px] text-slate-500 font-medium">
-              Data de Saída: {chamado?.data_saida_externa ? new Date(chamado.data_saida_externa).toLocaleDateString('pt-BR') : '---'} 
-              {chamado?.data_previsao_retorno_externa && ` • Previsão: ${new Date(chamado.data_previsao_retorno_externa).toLocaleDateString('pt-BR')}`}
+              Data de Saída: {chamado?.data_saida_externa ? new Date(chamado.data_saida_externa).toLocaleDateString("pt-BR") : "---"}
+              {chamado?.data_previsao_retorno_externa && ` • Previsão: ${new Date(chamado.data_previsao_retorno_externa).toLocaleDateString("pt-BR")}`}
             </p>
-            {chamado?.motivo_saida_externa && (
-              <p className="text-xs text-slate-600 italic mt-1">"{chamado.motivo_saida_externa}"</p>
-            )}
+            {chamado?.motivo_saida_externa && <p className="text-xs text-slate-600 italic mt-1">"{chamado.motivo_saida_externa}"</p>}
           </div>
 
           <div className="flex gap-2 shrink-0">
             <button
               type="button"
               onClick={() => {
-                const fornSel = fornecedores.find(f => Number(f.id) === Number(chamado?.fornecedor_externo_id));
+                const fornSel = fornecedores.find((f) => Number(f.id) === Number(chamado?.fornecedor_externo_id));
                 setGuiaImpressao({
                   chamadoId: id,
                   equipamento: {
@@ -882,7 +941,7 @@ export function TratarChamado() {
                   fornecedor: fornSel || { nome_fantasia: chamado?.fornecedor_nome },
                   motivo: chamado?.motivo_saida_externa || "Manutenção externa especializada",
                   previsao: chamado?.data_previsao_retorno_externa,
-                  dataSaida: new Date(chamado?.data_saida_externa || Date.now()).toLocaleDateString('pt-BR')
+                  dataSaida: new Date(chamado?.data_saida_externa || Date.now()).toLocaleDateString("pt-BR")
                 });
                 setTimeout(() => window.print(), 200);
               }}
@@ -908,28 +967,31 @@ export function TratarChamado() {
             <h3 className="text-sm font-black text-amber-800 uppercase tracking-wider flex items-center gap-2">
               <span>🔄</span> Substituição / Permuta de Equipamento
             </h3>
-            <button 
-              type="button" 
-              onClick={() => { setExibirPainelTroca(false); setBuscaPatrimonioReserva(""); }} 
+            <button
+              type="button"
+              onClick={() => {
+                setExibirPainelTroca(false);
+                setBuscaPatrimonioReserva("");
+              }}
               className="text-amber-800 hover:text-amber-950 font-black text-xs uppercase"
             >
               Fechar ✕
             </button>
           </div>
           <p className="text-xs text-amber-700 mb-4 font-medium leading-relaxed">
-            O ativo atual <strong>{chamado.eq_nome} (Pat: {chamado.patrimonio || 'S/P'})</strong> passará para <strong className="text-red-600">"Inoperante"</strong>. O reserva assumirá o setor <strong>{obterSetorFormatado(chamado)}</strong> como <strong>"Ativo"</strong>.
+            O ativo atual <strong>{chamado.eq_nome} (Pat: {chamado.patrimonio || "S/P"})</strong> passará para{" "}
+            <strong className="text-red-600">"Inoperante"</strong>. O reserva assumirá o setor <strong>{obterSetorFormatado(chamado)}</strong> como{" "}
+            <strong>"Ativo"</strong>.
           </p>
 
           <form onSubmit={handleTrocaEquipamento} className="flex gap-3 items-end flex-wrap">
             <div className="flex-1 min-w-[200px]">
-              <label className="block text-[10px] font-black text-amber-800 uppercase mb-1">
-                Filtrar Ativo Reserva
-              </label>
+              <label className="block text-[10px] font-black text-amber-800 uppercase mb-1">Filtrar Ativo Reserva</label>
               <input
                 type="text"
                 placeholder="Buscar patrimônio ou nome..."
                 value={buscaPatrimonioReserva}
-                onChange={e => setBuscaPatrimonioReserva(e.target.value)}
+                onChange={(e) => setBuscaPatrimonioReserva(e.target.value)}
                 className="w-full p-2.5 border-2 border-amber-200 bg-white rounded-xl text-xs font-bold outline-none text-slate-700"
               />
             </div>
@@ -943,12 +1005,12 @@ export function TratarChamado() {
                 required
                 className="w-full p-2.5 border-2 border-amber-200 bg-white rounded-xl text-xs font-bold outline-none text-slate-700"
                 value={equipamentoReservaSelecionado}
-                onChange={e => setEquipamentoReservaSelecionado(e.target.value)}
+                onChange={(e) => setEquipamentoReservaSelecionado(e.target.value)}
               >
                 <option value="">Selecione o equipamento...</option>
-                {equipamentosReservaFiltrados.map(eq => (
+                {equipamentosReservaFiltrados.map((eq) => (
                   <option key={eq.id} value={eq.id}>
-                    [Pat: {eq.patrimonio || 'S/P'}] {eq.nome} ({eq.setor_nome || 'Reserva'})
+                    [Pat: {eq.patrimonio || "S/P"}] {eq.nome} ({eq.setor_nome || "Reserva"})
                   </option>
                 ))}
               </select>
@@ -967,18 +1029,18 @@ export function TratarChamado() {
 
       {/* 📦 PAINEL PRINCIPAL */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
         {/* COLUNA ESQUERDA */}
         <div className="lg:col-span-5 space-y-6">
-
           {/* PROBLEMA REPORTADO */}
           <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center justify-between">
               <span>🚨 Problema Reportado</span>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full text-white ${
-                chamado?.prioridade === 'Urgente' ? 'bg-red-500' : chamado?.prioridade === 'Alta' ? 'bg-amber-500' : 'bg-slate-600'
-              }`}>
-                {chamado?.prioridade || 'Média'}
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full text-white ${
+                  chamado?.prioridade === "Urgente" ? "bg-red-500" : chamado?.prioridade === "Alta" ? "bg-amber-500" : "bg-slate-600"
+                }`}
+              >
+                {chamado?.prioridade || "Média"}
               </span>
             </h3>
 
@@ -991,9 +1053,9 @@ export function TratarChamado() {
                 <span className="text-[10px] font-black text-blue-600 uppercase block">Equipamento Vinculado:</span>
                 <p className="text-xs font-black text-slate-800 uppercase">{chamado.eq_nome}</p>
                 <div className="text-[10px] text-slate-500 font-bold flex flex-wrap gap-x-3 gap-y-1">
-                  <span>PAT: <strong>{chamado.patrimonio || 'S/P'}</strong></span>
-                  <span>S/N: <strong>{chamado.num_serie || 'N/A'}</strong></span>
-                  <span>Marca: <strong>{chamado.fabricante || 'S/M'}</strong></span>
+                  <span>PAT: <strong>{chamado.patrimonio || "S/P"}</strong></span>
+                  <span>S/N: <strong>{chamado.num_serie || "N/A"}</strong></span>
+                  <span>Marca: <strong>{chamado.fabricante || "S/M"}</strong></span>
                 </div>
               </div>
             )}
@@ -1001,10 +1063,10 @@ export function TratarChamado() {
             {chamado?.foto_abertura && (
               <div>
                 <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Evidência na Abertura:</span>
-                <img 
-                  src={`${BASE_URL}${chamado.foto_abertura}`} 
+                <img
+                  src={`${BASE_URL}${chamado.foto_abertura}`}
                   className="w-full h-36 object-cover rounded-2xl border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity shadow-sm"
-                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamado.foto_abertura}`, `Foto de Abertura - OS #${id}`, 'imagem')}
+                  onClick={() => abrirVisualizadorInterno(`${BASE_URL}${chamado.foto_abertura}`, `Foto de Abertura - OS #${id}`, "imagem")}
                   alt="Foto Abertura"
                   title="Toque para ampliar"
                 />
@@ -1015,9 +1077,7 @@ export function TratarChamado() {
           {/* CARD DE PEÇAS & SOLICITAÇÃO DIRETA DE COMPRA */}
           <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-4">
             <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                📦 Insumos & Peças
-              </h3>
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">📦 Insumos & Peças</h3>
               <div className="flex items-center gap-2">
                 {!isConcluido && (
                   <button
@@ -1029,13 +1089,11 @@ export function TratarChamado() {
                     <span>🛒</span> Solicitar Compra
                   </button>
                 )}
-                <span className="text-xs font-black text-blue-600">
-                  Total: R$ {totalPecas.toFixed(2)}
-                </span>
+                <span className="text-xs font-black text-blue-600">Total: R$ {totalPecas.toFixed(2)}</span>
               </div>
             </div>
 
-            {/* FORMULÁRIO DE INSUMOS COM GRADE FIXA EM COLUNAS */}
+            {/* FORMULÁRIO DE INSUMOS */}
             {isGestao && !isConcluido && (
               <form onSubmit={handleAdicionarPeca} className="grid grid-cols-12 gap-2 items-center">
                 <div className="col-span-8">
@@ -1043,10 +1101,10 @@ export function TratarChamado() {
                     disabled={isConcluido}
                     className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700 truncate"
                     value={pecaSelecionada}
-                    onChange={e => setPecaSelecionada(e.target.value)}
+                    onChange={(e) => setPecaSelecionada(e.target.value)}
                   >
                     <option value="">Selecione o insumo...</option>
-                    {itensEstoque.map(item => (
+                    {itensEstoque.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.nome} (Saldo: {item.quantidade})
                       </option>
@@ -1061,14 +1119,14 @@ export function TratarChamado() {
                     min="1"
                     className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-center font-bold text-xs bg-slate-50 outline-none"
                     value={qtdPeca}
-                    onChange={e => setQtdPeca(Number(e.target.value))}
+                    onChange={(e) => setQtdPeca(Number(e.target.value))}
                   />
                 </div>
 
                 <div className="col-span-2">
-                  <button 
-                    disabled={isConcluido || !pecaSelecionada} 
-                    type="submit" 
+                  <button
+                    disabled={isConcluido || !pecaSelecionada}
+                    type="submit"
                     className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black text-xs uppercase shadow-sm transition-all disabled:opacity-50 text-center"
                   >
                     +
@@ -1092,7 +1150,6 @@ export function TratarChamado() {
                       R$ {(Number(p.quantidade) * Number(p.valor_unitario)).toFixed(2)}
                     </span>
 
-                    {/* BOTÕES DE EDIÇÃO DE QUANTIDADE E EXCLUSÃO */}
                     {isGestao && !isConcluido && (
                       <div className="flex items-center gap-1 border-l pl-2 border-slate-200">
                         <button
@@ -1122,24 +1179,24 @@ export function TratarChamado() {
             </div>
           </div>
 
-          {/* CARD DE ANEXOS COM VISUALIZAÇÃO INTERNA E COMPRESSÃO MOBILE */}
+          {/* CARD DE ANEXOS */}
           <div className="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-100 space-y-3">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
               📎 Laudos & Arquivos ({listaDocumentos.length})
             </h3>
-            
+
             <form onSubmit={handleUploadDocumento} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
-              <input 
+              <input
                 ref={inputDocumentoRef}
                 disabled={isConcluido || enviandoDocumento}
-                type="file" 
+                type="file"
                 accept="image/*,application/pdf"
                 className="text-xs w-full block file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300 disabled:opacity-50"
-                onChange={e => setDocumentoSelecionado(e.target.files[0])}
+                onChange={(e) => setDocumentoSelecionado(e.target.files[0])}
               />
-              <button 
-                disabled={isConcluido || !documentoSelecionado || enviandoDocumento} 
-                type="submit" 
+              <button
+                disabled={isConcluido || !documentoSelecionado || enviandoDocumento}
+                type="submit"
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {enviandoDocumento ? (
@@ -1154,15 +1211,15 @@ export function TratarChamado() {
 
             <div className="space-y-1.5 max-h-36 overflow-y-auto">
               {listaDocumentos.map((doc) => {
-                const isPdf = doc.tipo_mimetype?.includes('pdf') || doc.nome_original?.toLowerCase().endsWith('.pdf');
+                const isPdf = doc.tipo_mimetype?.includes("pdf") || doc.nome_original?.toLowerCase().endsWith(".pdf");
                 return (
                   <div key={doc.id} className="p-2 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center text-xs">
                     <span className="font-bold text-slate-700 truncate max-w-[190px]" title={doc.nome_original}>
-                      {isPdf ? '📄' : '📷'} {doc.nome_original}
+                      {isPdf ? "📄" : "📷"} {doc.nome_original}
                     </span>
-                    <button 
+                    <button
                       type="button"
-                      onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? 'pdf' : 'imagem')}
+                      onClick={() => abrirVisualizadorInterno(`${BASE_URL}${doc.url_arquivo}`, doc.nome_original, isPdf ? "pdf" : "imagem")}
                       className="text-blue-600 font-black text-[10px] uppercase bg-white px-2.5 py-1.5 rounded-lg shadow-sm border border-slate-100 active:scale-95 transition-all"
                     >
                       Ver ↗
@@ -1170,32 +1227,21 @@ export function TratarChamado() {
                   </div>
                 );
               })}
-              {listaDocumentos.length === 0 && (
-                <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>
-              )}
+              {listaDocumentos.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-1">Nenhum laudo anexado.</p>}
             </div>
           </div>
-
         </div>
 
-        {/* COLUNA DIREITA: FORMULÁRIO DE SOLUÇÃO E HISTÓRICO */}
+        {/* COLUNA DIREITA */}
         <div className="lg:col-span-7 space-y-6">
-
           <form onSubmit={handleSalvarAtendimento} className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 space-y-5">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-2 gap-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                  📝 Diagnóstico & Parecer Técnico
-                </h3>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">📝 Diagnóstico & Parecer Técnico</h3>
                 {temRascunhoRecuperado && (
                   <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1">
                     💾 Rascunho Restaurado
-                    <button 
-                      type="button" 
-                      onClick={descartarRascunho} 
-                      className="ml-1 text-red-500 hover:text-red-700 font-black"
-                      title="Descartar rascunho recuperado"
-                    >
+                    <button type="button" onClick={descartarRascunho} className="ml-1 text-red-500 hover:text-red-700 font-black" title="Descartar rascunho">
                       ✕
                     </button>
                   </span>
@@ -1217,7 +1263,9 @@ export function TratarChamado() {
               <button
                 type="button"
                 disabled={isConcluido}
-                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${tipoAtendimento === "Interno" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400"}`}
+                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                  tipoAtendimento === "Interno" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400"
+                }`}
                 onClick={() => setTipoAtendimento("Interno")}
               >
                 Equipe Interna
@@ -1225,7 +1273,9 @@ export function TratarChamado() {
               <button
                 type="button"
                 disabled={isConcluido}
-                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${tipoAtendimento === "Externo" ? "bg-white text-red-500 shadow-sm" : "text-slate-400"}`}
+                className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                  tipoAtendimento === "Externo" ? "bg-white text-red-500 shadow-sm" : "text-slate-400"
+                }`}
                 onClick={() => setTipoAtendimento("Externo")}
               >
                 Fornecedor Terceirizado
@@ -1236,16 +1286,40 @@ export function TratarChamado() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 animate-in fade-in duration-150">
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Empresa Prestadora</label>
-                  <select disabled={isConcluido} className="w-full p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs font-bold outline-none" value={fornecedorId} onChange={e => setFornecedorId(e.target.value)}>
+                  <select
+                    disabled={isConcluido}
+                    className="w-full p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs font-bold outline-none"
+                    value={fornecedorId}
+                    onChange={(e) => setFornecedorId(e.target.value)}
+                  >
                     <option value="">Selecione o fornecedor...</option>
-                    {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome_fantasia}</option>)}
+                    {fornecedores.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.nome_fantasia}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">NF-e & Custo do Serviço</label>
                   <div className="flex gap-2">
-                    <input disabled={isConcluido} type="text" placeholder="Nº NF" className="w-1/2 p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs outline-none" value={nfReferencia} onChange={e => setNfReferencia(e.target.value)} />
-                    <input disabled={isConcluido} type="number" step="0.01" placeholder="R$ Serviço" className="w-1/2 p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs font-mono outline-none" value={custoServico} onChange={e => setCustoServico(e.target.value)} />
+                    <input
+                      disabled={isConcluido}
+                      type="text"
+                      placeholder="Nº NF"
+                      className="w-1/2 p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs outline-none"
+                      value={nfReferencia}
+                      onChange={(e) => setNfReferencia(e.target.value)}
+                    />
+                    <input
+                      disabled={isConcluido}
+                      type="number"
+                      step="0.01"
+                      placeholder="R$ Serviço"
+                      className="w-1/2 p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs font-mono outline-none"
+                      value={custoServico}
+                      onChange={(e) => setCustoServico(e.target.value)}
+                    />
                   </div>
                 </div>
               </div>
@@ -1255,7 +1329,12 @@ export function TratarChamado() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Status Operacional</label>
-                <select disabled={isConcluido} className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none focus:border-blue-500" value={status} onChange={e => setStatus(e.target.value)}>
+                <select
+                  disabled={isConcluido}
+                  className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none focus:border-blue-500"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
                   <option value="Aberto">🔴 Aberto</option>
                   <option value="Em Atendimento">🟡 Em Atendimento</option>
                   <option value="Aguardando Externa">🚚 Aguardando Externa</option>
@@ -1266,16 +1345,18 @@ export function TratarChamado() {
               {tipoAtendimento === "Interno" && (
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Técnico Designado</label>
-                  <select 
-                    disabled={isConcluido} 
+                  <select
+                    disabled={isConcluido}
                     required={tipoAtendimento === "Interno"}
-                    className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none focus:border-blue-500" 
-                    value={tecnicoId} 
-                    onChange={e => setTecnicoId(e.target.value)}
+                    className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none focus:border-blue-500"
+                    value={tecnicoId}
+                    onChange={(e) => setTecnicoId(e.target.value)}
                   >
                     <option value="">Selecione o técnico...</option>
-                    {tecnicos.map(t => (
-                      <option key={t.id} value={t.id}>{t.nome}</option>
+                    {tecnicos.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nome}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -1284,9 +1365,7 @@ export function TratarChamado() {
 
             {/* TEXTOS RÁPIDOS */}
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block tracking-wider">
-                Inserções Rápidas (1 clique):
-              </label>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block tracking-wider">Inserções Rápidas (1 clique):</label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <button type="button" disabled={isConcluido} onClick={() => injetarTextoRapido("Realizada limpeza técnica e testes.")} className="p-2 border border-slate-200 hover:bg-slate-100 rounded-xl text-[10px] font-bold text-left bg-slate-50 transition-colors">💧 Limpeza e Testes</button>
                 <button type="button" disabled={isConcluido} onClick={() => injetarTextoRapido("Substituição de componente avariado.")} className="p-2 border border-slate-200 hover:bg-slate-100 rounded-xl text-[10px] font-bold text-left bg-slate-50 transition-colors">🔄 Troca de Peça</button>
@@ -1299,9 +1378,7 @@ export function TratarChamado() {
 
             {/* RELATÓRIO DO SERVIÇO */}
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">
-                Relatório Descritivo do Serviço Executado
-              </label>
+              <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Relatório Descritivo do Serviço Executado</label>
               <textarea
                 disabled={isConcluido}
                 required
@@ -1309,26 +1386,28 @@ export function TratarChamado() {
                 className="w-full p-3.5 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-500 font-medium text-xs text-slate-700 resize-none transition-all bg-slate-50"
                 placeholder="Descreva detalhadamente o que foi realizado nesta visita..."
                 value={descricaoSolucao}
-                onChange={e => setDescricaoSolucao(e.target.value)}
+                onChange={(e) => setDescricaoSolucao(e.target.value)}
               />
             </div>
 
-            {/* 📷 EVIDÊNCIA DE CONCLUSÃO (FOTO DO DEPOIS) */}
+            {/* 📷 EVIDÊNCIA DE CONCLUSÃO (CÂMERA EMBUTIDA OU GALERIA) */}
             {!isConcluido && (
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   📷 Evidência Fotográfica do Atendimento / Conclusão (Foto do "Depois")
                 </label>
-                
+
+                {/* Input oculto apenas para carregar fotos prontas da galeria */}
                 <input
-                  ref={fileInputFotoConclusaoRef}
+                  ref={fileInputGaleriaRef}
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="hidden"
-                  onChange={e => {
-                    if (e.target.files && e.target.files[0]) {
-                      setFotoConclusao(e.target.files[0]);
+                  onChange={async (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (file) {
+                      const fotoComprimida = await comprimirImagemSeNecessario(file);
+                      setFotoConclusao(fotoComprimida);
                     }
                   }}
                 />
@@ -1336,11 +1415,21 @@ export function TratarChamado() {
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => fileInputFotoConclusaoRef.current?.click()}
-                    className="flex-1 p-2.5 bg-white border border-slate-200 hover:border-emerald-500 rounded-xl text-xs font-black uppercase text-slate-700 shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                    onClick={abrirCameraEmbutida}
+                    className="flex-[2] p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black uppercase shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5"
                   >
-                    <span>📸</span> {fotoConclusao ? "Substituir Foto da Conclusão" : "Tirar / Anexar Foto do Depois"}
+                    <span>📸</span> {fotoConclusao ? "Tirar Nova Foto (Câmera)" : "Tirar Foto com a Câmera"}
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputGaleriaRef.current?.click()}
+                    className="flex-1 p-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-black uppercase text-slate-700 shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                    title="Carregar foto salva nos arquivos"
+                  >
+                    <span>📁</span> Galeria
+                  </button>
+
                   {fotoConclusao && (
                     <button
                       type="button"
@@ -1367,8 +1456,8 @@ export function TratarChamado() {
             )}
 
             {!isConcluido && (
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="w-full py-3.5 bg-green-600 hover:bg-green-700 text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg shadow-green-100 transition-all active:scale-[0.98]"
               >
                 💾 Salvar Atualização Técnica
@@ -1378,60 +1467,53 @@ export function TratarChamado() {
 
           {/* HISTÓRICO DE ATIVIDADES */}
           <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 space-y-3">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">
-              🕒 Histórico de Atividades Desta OS
-            </h3>
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b pb-2">🕒 Histórico de Atividades Desta OS</h3>
             <div className="overflow-y-auto max-h-56 pr-1 space-y-3">
               {chamado?.historico?.map((h, i) => (
                 <div key={i} className="flex gap-3 text-xs">
-                  <div className={`w-2 rounded-full shrink-0 mt-1 ${
-                    h.texto_historico?.includes('PEÇA DISPONÍVEL') 
-                      ? 'bg-emerald-500 animate-pulse' 
-                      : h.texto_historico?.includes('COMPRA SOLICITADA')
-                      ? 'bg-blue-600'
-                      : h.tecnico_nome?.includes('Terceirizado') || h.texto_historico?.includes('MANUTENÇÃO EXTERNA') 
-                      ? 'bg-indigo-600' 
-                      : 'bg-slate-400'
-                  }`}></div>
+                  <div
+                    className={`w-2 rounded-full shrink-0 mt-1 ${
+                      h.texto_historico?.includes("PEÇA DISPONÍVEL")
+                        ? "bg-emerald-500 animate-pulse"
+                        : h.texto_historico?.includes("COMPRA SOLICITADA")
+                        ? "bg-blue-600"
+                        : h.tecnico_nome?.includes("Terceirizado") || h.texto_historico?.includes("MANUTENÇÃO EXTERNA")
+                        ? "bg-indigo-600"
+                        : "bg-slate-400"
+                    }`}
+                  ></div>
                   <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div className="flex flex-wrap justify-between items-center gap-1 mb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-800 font-black text-[11px] uppercase">
-                          🛠️ {h.tecnico_nome || "Atendimento"}
-                        </span>
-                        
+                        <span className="text-slate-800 font-black text-[11px] uppercase">🛠️ {h.tecnico_nome || "Atendimento"}</span>
                         {h.registrado_por_nome && (
                           <span className="text-[10px] text-slate-400 font-semibold lowercase">
                             (lançado por <strong className="text-slate-600">{h.registrado_por_nome}</strong>)
                           </span>
                         )}
                       </div>
-
-                      <span className="text-[10px] text-slate-400 font-bold">
-                        {new Date(h.data_registro).toLocaleString('pt-BR')}
-                      </span>
+                      <span className="text-[10px] text-slate-400 font-bold">{new Date(h.data_registro).toLocaleString("pt-BR")}</span>
                     </div>
 
-                    <p className="text-slate-600 font-medium whitespace-pre-wrap leading-relaxed">
-                      {h.texto_historico}
-                    </p>
+                    <p className="text-slate-600 font-medium whitespace-pre-wrap leading-relaxed">{h.texto_historico}</p>
 
-                    {h.url_anexo && (() => {
-                      const isPdf = h.url_anexo.toLowerCase().endsWith('.pdf');
-                      return (
-                        <div className="pt-2">
-                          <button 
-                            type="button"
-                            onClick={() => abrirVisualizadorInterno(`${BASE_URL}${h.url_anexo}`, `Laudo Técnico - OS #${id}`, isPdf ? 'pdf' : 'imagem')}
-                            className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline uppercase bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100 active:scale-95 transition-all"
-                          >
-                            {isPdf ? '📄' : '📷'} Visualizar Laudo do Fornecedor
-                          </button>
-                        </div>
-                      );
-                    })()}
+                    {h.url_anexo &&
+                      (() => {
+                        const isPdf = h.url_anexo.toLowerCase().endsWith(".pdf");
+                        return (
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => abrirVisualizadorInterno(`${BASE_URL}${h.url_anexo}`, `Laudo Técnico - OS #${id}`, isPdf ? "pdf" : "imagem")}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:underline uppercase bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100 active:scale-95 transition-all"
+                            >
+                              {isPdf ? "📄" : "📷"} Visualizar Laudo do Fornecedor
+                            </button>
+                          </div>
+                        );
+                      })()}
 
-                    {h.texto_historico?.includes('ENVIADO PARA MANUTENÇÃO EXTERNA') && (
+                    {h.texto_historico?.includes("ENVIADO PARA MANUTENÇÃO EXTERNA") && (
                       <div className="pt-2">
                         <button
                           type="button"
@@ -1450,12 +1532,66 @@ export function TratarChamado() {
               )}
             </div>
           </div>
-
         </div>
-
       </div>
 
-      {/* 🛒 MODAL: SOLICITAR COMPRA DE PEÇA VINCULADA À OS */}
+      {/* 📷 MODAL COM A CÂMERA INTEGRADA DIRETO NO NAVEGADOR (SEM SAIR DA TELA) */}
+      {modalCameraAberta && (
+        <div className="fixed inset-0 bg-slate-950/95 z-[120] flex flex-col justify-between p-4 animate-in fade-in duration-150">
+          <div className="flex justify-between items-center text-white pb-2 border-b border-slate-800">
+            <span className="text-xs font-black uppercase tracking-wider flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+              Captura de Evidência Técnica (OS #{id})
+            </span>
+            <button
+              type="button"
+              onClick={fecharCameraEmbutida}
+              className="p-2 text-slate-400 hover:text-white text-base font-black uppercase"
+            >
+              ✕ Cancelar
+            </button>
+          </div>
+
+          <div className="relative flex-1 flex items-center justify-center my-3 rounded-2xl overflow-hidden bg-black border border-slate-800">
+            {carregandoCamera && (
+              <div className="text-slate-400 text-xs font-bold uppercase animate-pulse">
+                Iniciando sensor da câmera...
+              </div>
+            )}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          <div className="flex justify-around items-center pt-2">
+            <button
+              type="button"
+              onClick={fecharCameraEmbutida}
+              className="px-5 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-black uppercase transition-all"
+            >
+              Voltar
+            </button>
+
+            <button
+              type="button"
+              onClick={capturarFotoPeloVideo}
+              disabled={carregandoCamera}
+              className="w-20 h-20 bg-white rounded-full border-4 border-emerald-500 flex items-center justify-center shadow-xl active:scale-90 transition-all text-2xl disabled:opacity-50"
+              title="Disparar foto"
+            >
+              📸
+            </button>
+
+            <div className="w-16"></div>
+          </div>
+        </div>
+      )}
+
+      {/* 🛒 MODAL: SOLICITAR COMPRA */}
       {modalSolicitarCompra && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-150">
           <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -1468,7 +1604,7 @@ export function TratarChamado() {
               <div className="p-3 bg-blue-50 border border-blue-100 rounded-2xl">
                 <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 block">Vínculo Automático da OS:</span>
                 <p className="text-xs font-black text-slate-800 uppercase mt-0.5">
-                  Setor: {obterSetorFormatado(chamado)} • Ativo: {chamado?.eq_nome || 'Sem ativo específico'}
+                  Setor: {obterSetorFormatado(chamado)} • Ativo: {chamado?.eq_nome || "Sem ativo específico"}
                 </p>
               </div>
 
@@ -1478,9 +1614,9 @@ export function TratarChamado() {
                 </label>
                 <select
                   value={compraForm.insumo_id}
-                  onChange={e => {
+                  onChange={(e) => {
                     const selId = e.target.value;
-                    const itemEnc = itensEstoque.find(it => String(it.id) === String(selId));
+                    const itemEnc = itensEstoque.find((it) => String(it.id) === String(selId));
                     setCompraForm({
                       ...compraForm,
                       insumo_id: selId,
@@ -1491,7 +1627,7 @@ export function TratarChamado() {
                   className="w-full p-2.5 border-2 border-slate-100 bg-slate-50 rounded-xl text-xs font-bold outline-none text-slate-800 focus:border-blue-500"
                 >
                   <option value="">Peça Avulsa / Digitar Manualmente</option>
-                  {itensEstoque.map(it => (
+                  {itensEstoque.map((it) => (
                     <option key={it.id} value={it.id}>
                       📦 {it.nome} (Saldo atual: {it.quantidade})
                     </option>
@@ -1508,7 +1644,7 @@ export function TratarChamado() {
                   required
                   placeholder="Ex: Atuador linear 24V para Cama Fowler Hospitalar..."
                   value={compraForm.descricao}
-                  onChange={e => setCompraForm({ ...compraForm, descricao: e.target.value })}
+                  onChange={(e) => setCompraForm({ ...compraForm, descricao: e.target.value })}
                   className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
                 />
               </div>
@@ -1521,7 +1657,7 @@ export function TratarChamado() {
                     min="1"
                     required
                     value={compraForm.quantidade}
-                    onChange={e => setCompraForm({ ...compraForm, quantidade: e.target.value })}
+                    onChange={(e) => setCompraForm({ ...compraForm, quantidade: e.target.value })}
                     className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold text-center bg-white text-slate-800 outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1532,7 +1668,7 @@ export function TratarChamado() {
                     step="0.01"
                     placeholder="0.00"
                     value={compraForm.valor_estimado}
-                    onChange={e => setCompraForm({ ...compraForm, valor_estimado: e.target.value })}
+                    onChange={(e) => setCompraForm({ ...compraForm, valor_estimado: e.target.value })}
                     className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-mono font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
                   />
                 </div>
@@ -1540,7 +1676,7 @@ export function TratarChamado() {
                   <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Urgência</label>
                   <select
                     value={compraForm.urgencia}
-                    onChange={e => setCompraForm({ ...compraForm, urgencia: e.target.value })}
+                    onChange={(e) => setCompraForm({ ...compraForm, urgencia: e.target.value })}
                     className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
                   >
                     <option value="Baixa">Baixa</option>
@@ -1557,25 +1693,25 @@ export function TratarChamado() {
                 </label>
                 <select
                   value={compraForm.fornecedor_id}
-                  onChange={e => setCompraForm({ ...compraForm, fornecedor_id: e.target.value })}
+                  onChange={(e) => setCompraForm({ ...compraForm, fornecedor_id: e.target.value })}
                   className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 text-slate-800 outline-none focus:border-blue-500"
                 >
                   <option value="">A definir / Compras cotar</option>
-                  {fornecedores.map(f => (
-                    <option key={f.id} value={f.id}>🚚 {f.nome_fantasia}</option>
+                  {fornecedores.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      🚚 {f.nome_fantasia}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
-                  Justificativa da Solicitação *
-                </label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Justificativa da Solicitação *</label>
                 <textarea
                   required
                   rows={3}
                   value={compraForm.motivo}
-                  onChange={e => setCompraForm({ ...compraForm, motivo: e.target.value })}
+                  onChange={(e) => setCompraForm({ ...compraForm, motivo: e.target.value })}
                   placeholder="Justifique a necessidade da compra para o setor ou ativo..."
                   className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-medium bg-slate-50 outline-none focus:border-blue-500 text-slate-800 resize-none"
                 />
@@ -1602,11 +1738,11 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 📱 VISUALIZADOR INTERNO DE ANEXOS / LAUDOS / FOTOS EM TELA CHEIA */}
+      {/* 📱 VISUALIZADOR INTERNO */}
       {visualizadorAnexo && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
           <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">
-            <button 
+            <button
               onClick={fecharVisualizadorInterno}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-black text-xs uppercase flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"
             >
@@ -1615,25 +1751,22 @@ export function TratarChamado() {
             <span className="text-xs font-black uppercase truncate max-w-[200px] text-slate-300">
               {visualizadorAnexo.titulo}
             </span>
-            <button 
-              onClick={fecharVisualizadorInterno}
-              className="text-xl text-slate-400 hover:text-white px-2"
-            >
+            <button onClick={fecharVisualizadorInterno} className="text-xl text-slate-400 hover:text-white px-2">
               ✕
             </button>
           </div>
 
           <div className="flex-1 overflow-auto flex items-center justify-center p-2 sm:p-4">
-            {visualizadorAnexo.tipo === 'imagem' ? (
-              <img 
-                src={visualizadorAnexo.url} 
-                alt="Documento ampliado" 
+            {visualizadorAnexo.tipo === "imagem" ? (
+              <img
+                src={visualizadorAnexo.url}
+                alt="Documento ampliado"
                 className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
               />
             ) : (
-              <iframe 
-                src={visualizadorAnexo.url} 
-                title="Visualizador de PDF" 
+              <iframe
+                src={visualizadorAnexo.url}
+                title="Visualizador de PDF"
                 className="w-full h-full rounded-2xl bg-white border-0 shadow-2xl"
               />
             )}
@@ -1654,43 +1787,51 @@ export function TratarChamado() {
               <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-100">
                 <span className="text-[10px] font-black text-indigo-700 uppercase block">Ativo a ser despachado:</span>
                 <p className="text-sm font-black text-slate-800 uppercase">{chamado?.eq_nome}</p>
-                <p className="text-[11px] text-slate-500 font-medium">Patrimônio: <strong>{chamado?.patrimonio || 'S/P'}</strong> | S/N: {chamado?.num_serie || 'N/A'}</p>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Patrimônio: <strong>{chamado?.patrimonio || "S/P"}</strong> | S/N: {chamado?.num_serie || "N/A"}
+                </p>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor / Assistência Técnica Homologada *</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Fornecedor / Assistência Técnica Homologada *
+                </label>
                 <select
                   required
                   value={fornecedorSaidaId}
-                  onChange={e => setFornecedorSaidaId(e.target.value)}
+                  onChange={(e) => setFornecedorSaidaId(e.target.value)}
                   className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-indigo-500 text-slate-800"
                 >
                   <option value="">Selecione a empresa prestadora...</option>
-                  {fornecedores.map(f => (
+                  {fornecedores.map((f) => (
                     <option key={f.id} value={f.id}>
-                      {f.nome_fantasia} {f.cnpj ? `(CNPJ: ${f.cnpj})` : ''}
+                      {f.nome_fantasia} {f.cnpj ? `(CNPJ: ${f.cnpj})` : ""}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Previsão Estimada de Retorno (Opcional)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Previsão Estimada de Retorno (Opcional)
+                </label>
                 <input
                   type="date"
                   value={previsaoRetorno}
-                  onChange={e => setPrevisaoRetorno(e.target.value)}
+                  onChange={(e) => setPrevisaoRetorno(e.target.value)}
                   className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-indigo-500 text-slate-800"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Defeito Reclamado / Peças e Acessórios Enviados *</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Defeito Reclamado / Peças e Acessórios Enviados *
+                </label>
                 <textarea
                   required
                   rows={3}
                   value={motivoSaida}
-                  onChange={e => setMotivoSaida(e.target.value)}
+                  onChange={(e) => setMotivoSaida(e.target.value)}
                   placeholder="Ex: Placa de fonte em curto. Acompanha cabo de força e sensor original..."
                   className="w-full p-3 border-2 border-slate-100 rounded-xl font-medium bg-slate-50 outline-none focus:border-indigo-500 text-slate-800 resize-none"
                 />
@@ -1734,7 +1875,7 @@ export function TratarChamado() {
                     type="text"
                     placeholder="Ex: NF-e 4589"
                     value={nfRetorno}
-                    onChange={e => setNfRetorno(e.target.value)}
+                    onChange={(e) => setNfRetorno(e.target.value)}
                     className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-emerald-500 text-slate-800"
                   />
                 </div>
@@ -1745,28 +1886,32 @@ export function TratarChamado() {
                     step="0.01"
                     placeholder="0.00"
                     value={custoRetorno}
-                    onChange={e => setCustoRetorno(e.target.value)}
+                    onChange={(e) => setCustoRetorno(e.target.value)}
                     className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono font-bold bg-slate-50 outline-none focus:border-emerald-500 text-slate-800"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Anexar Laudo Técnico da Assistência (PDF ou Foto)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Anexar Laudo Técnico da Assistência (PDF ou Foto)
+                </label>
                 <input
                   type="file"
                   accept="application/pdf,image/*"
-                  onChange={e => setArquivoLaudo(e.target.files[0])}
+                  onChange={(e) => setArquivoLaudo(e.target.files[0])}
                   className="w-full p-2 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 bg-slate-50"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Parecer dos Testes de Recebimento Interno</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Parecer dos Testes de Recebimento Interno
+                </label>
                 <textarea
                   rows={3}
                   value={observacaoRetorno}
-                  onChange={e => setObservacaoRetorno(e.target.value)}
+                  onChange={(e) => setObservacaoRetorno(e.target.value)}
                   placeholder="Descreva o serviço executado pelo fornecedor e a validação do teste funcional interno..."
                   className="w-full p-3 border-2 border-slate-100 rounded-xl font-medium bg-slate-50 outline-none focus:border-emerald-500 text-slate-800 resize-none"
                 />
@@ -1793,7 +1938,7 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 🖨️ GUIA DE REMESSA PRINT CONTAINER */}
+      {/* 🖨️ GUIA DE REMESSA CONTAINER */}
       {guiaImpressao && (
         <div id="guia-os-impressao" className="hidden print:flex flex-col justify-between h-[96vh] font-sans text-slate-900 bg-white p-2 box-border">
           <div>
@@ -1815,21 +1960,21 @@ export function TratarChamado() {
                 <h3 className="font-black uppercase text-[10px] mb-1 text-slate-800">1. Identificação do Ativo Hospitalar</h3>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   <div><strong>Equipamento:</strong> {guiaImpressao.equipamento?.nome}</div>
-                  <div><strong>Fabricante:</strong> {guiaImpressao.equipamento?.fabricante || '---'}</div>
-                  <div><strong>Modelo:</strong> {guiaImpressao.equipamento?.modelo || '---'}</div>
-                  <div><strong>Patrimônio:</strong> {guiaImpressao.equipamento?.patrimonio || 'S/P'}</div>
-                  <div><strong>Nº de Série:</strong> {guiaImpressao.equipamento?.num_serie || 'N/A'}</div>
-                  <div><strong>Setor de Origem:</strong> {guiaImpressao.equipamento?.setor_nome || 'Geral'}</div>
+                  <div><strong>Fabricante:</strong> {guiaImpressao.equipamento?.fabricante || "---"}</div>
+                  <div><strong>Modelo:</strong> {guiaImpressao.equipamento?.modelo || "---"}</div>
+                  <div><strong>Patrimônio:</strong> {guiaImpressao.equipamento?.patrimonio || "S/P"}</div>
+                  <div><strong>Nº de Série:</strong> {guiaImpressao.equipamento?.num_serie || "N/A"}</div>
+                  <div><strong>Setor de Origem:</strong> {guiaImpressao.equipamento?.setor_nome || "Geral"}</div>
                 </div>
               </div>
 
               <div className="border border-slate-300 p-2.5 rounded-xl bg-slate-50/50">
                 <h3 className="font-black uppercase text-[10px] mb-1 text-slate-800">2. Destino / Assistência Técnica</h3>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  <div><strong>Empresa:</strong> {guiaImpressao.fornecedor?.nome_fantasia || 'Terceirizado'}</div>
-                  <div><strong>CNPJ:</strong> {guiaImpressao.fornecedor?.cnpj || 'Não informado'}</div>
-                  <div><strong>Contato:</strong> {guiaImpressao.fornecedor?.telefone || '---'}</div>
-                  <div><strong>Previsão de Retorno:</strong> {guiaImpressao.previsao ? new Date(guiaImpressao.previsao).toLocaleDateString('pt-BR') : 'A definir'}</div>
+                  <div><strong>Empresa:</strong> {guiaImpressao.fornecedor?.nome_fantasia || "Terceirizado"}</div>
+                  <div><strong>CNPJ:</strong> {guiaImpressao.fornecedor?.cnpj || "Não informado"}</div>
+                  <div><strong>Contato:</strong> {guiaImpressao.fornecedor?.telefone || "---"}</div>
+                  <div><strong>Previsão de Retorno:</strong> {guiaImpressao.previsao ? new Date(guiaImpressao.previsao).toLocaleDateString("pt-BR") : "A definir"}</div>
                 </div>
               </div>
 
@@ -1860,7 +2005,6 @@ export function TratarChamado() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
