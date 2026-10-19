@@ -434,11 +434,11 @@ const enviarTelegram = async (mensagem) => {
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     try {
-        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'Markdown' });
+        // Usar HTML evita que underline (_) ou parênteses do patrimônio quebrem o envio
+        await axios.post(url, { chat_id, text: mensagem, parse_mode: 'HTML' });
         console.log("✅ Notificação enviada ao Telegram");
     } catch (err) {
-        const finalErr = err || { message: 'Erro desconhecido' };
-        console.error("❌ Erro ao enviar Telegram:", finalErr.message);
+        console.error("❌ Erro ao enviar Telegram:", err.response?.data?.description || err.message);
     }
 };
 
@@ -579,7 +579,8 @@ app.post('/api/tipos-equipamentos', permitirApenas(['admin', 'coordenador', 'tec
 app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
     const query = `
         SELECT 
-            c.*, 
+            c.*,
+            DATE_FORMAT(c.data_abertura, '%Y-%m-%dT%H:%i:%s') AS data_abertura, 
             s.nome as setor_nome, 
             e.nome as equip_nome, 
             e.patrimonio as equip_pat,
@@ -755,7 +756,7 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
 
         const novaOsId = result.insertId;
 
-        // Notificação Telegram
+        // Notificação Telegram com HTML seguro
         const queryDadosTelegram = `
             SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
                    s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
@@ -768,17 +769,21 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
         db.query(queryDadosTelegram, [novaOsId], (errTelegram, resultsTelegram) => {
             if (!errTelegram && resultsTelegram.length > 0) {
                 const dados = resultsTelegram[0];
+                const ativoInfo = dados.equip_nome 
+                    ? `${dados.equip_nome} (PAT: ${dados.equip_pat || 'S/P'})` 
+                    : 'Nenhum ativo vinculado';
+
                 const textoTelegram =
-                    `🚨 *NOVA ORDEM DE SERVIÇO* 🚨\n\n` +
-                    `🎫 *Número da OS:* #${dados.id}\n` +
-                    `📍 *Setor:* ${dados.setor_nome || 'Não Informado'}\n` +
-                    `⚙️ *Ativo:* ${dados.equip_nome ? `${dados.equip_nome} (PAT:${dados.equip_pat || 'S/P'})` : 'Nenhum ativo vinculado'}\n` +
-                    `📝 *Assunto:* ${dados.titulo}\n` +
-                    `⏰ *Hora de Abertura:* ${dados.hora_formatada}`;
+                    `🚨 <b>NOVA ORDEM DE SERVIÇO</b> 🚨\n\n` +
+                    `🎫 <b>Número da OS:</b> #${dados.id}\n` +
+                    `📍 <b>Setor:</b> ${dados.setor_nome || 'Não Informado'}\n` +
+                    `⚙️ <b>Ativo:</b> ${ativoInfo}\n` +
+                    `📝 <b>Assunto:</b> ${dados.titulo}\n` +
+                    `⏰ <b>Hora de Abertura:</b> ${dados.hora_formatada || 'Agora'}`;
 
                 enviarTelegram(textoTelegram);
             } else {
-                enviarTelegram(`🚨 *NOVA OS #${novaOsId}*\n📝 *Assunto:* ${titulo}`);
+                enviarTelegram(`🚨 <b>NOVA OS #${novaOsId}</b>\n📝 <b>Assunto:</b> ${titulo}`);
             }
         });
 
