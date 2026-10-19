@@ -86,7 +86,7 @@ function AppRoutes() {
       <Route 
         path="/painel-chamados" 
         element={
-          <ProtectedRoute allowedRoles={['admin', 'coordenador']}>
+          <ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}>
             <PainelChamados />
           </ProtectedRoute>
         } 

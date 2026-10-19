@@ -292,30 +292,32 @@ const PainelChamados = () => {
     }
   };
 
-  // ⚡ CONCLUIR COM TEXTO / VOZ / FOTO
+  // ⚡ CONCLUIR COM TEXTO / VOZ / FOTO (ROTA DE UPLOAD COM MULTER)
   const concluirChamado = async () => {
     if (!chamadoParaConcluir) return;
 
     setEnviandoConclusao(true);
     const idConcluido = chamadoParaConcluir.id;
-    const nomeTecnico = usuarioLogado.nome;
+    const nomeTecnico = usuarioLogado.nome || 'Plantonista';
     const parecerFinal = descricaoSolucao.trim() || 'Serviço executado pelo plantonista.';
 
-    // Monta FormData para permitir envio com ou sem imagem
+    // Monta FormData compatível com o endpoint que processa multer (foto_conclusao)
     const formData = new FormData();
-    formData.append('parecer_tecnico', parecerFinal);
-    formData.append('descricao_solucao', parecerFinal);
-    formData.append('tecnico_responsavel', nomeTecnico);
     formData.append('status', 'Concluído');
+    formData.append('tipo_atendimento', 'Interno');
+    formData.append('descricao_solucao', parecerFinal);
+    formData.append('parecer_tecnico', parecerFinal);
+    formData.append('tecnico_responsavel', nomeTecnico);
+    formData.append('registrado_por_nome', nomeTecnico);
+    formData.append('registrado_por_id', usuarioLogado.id || '');
 
     if (fotoConclusao) {
       const fotoFinal = await comprimirImagem(fotoConclusao);
       formData.append('foto_conclusao', fotoFinal);
     }
 
-    // Atualização otimista imediata
+    // Atualização otimista imediata na interface
     setChamados(prev => prev.filter(c => c.id !== idConcluido));
-    const chamadoFechando = chamadoParaConcluir;
     setChamadoParaConcluir(null);
     setDescricaoSolucao('');
     setFotoConclusao(null);
@@ -323,7 +325,8 @@ const PainelChamados = () => {
     falarTexto("Chamado concluído com sucesso.");
 
     try {
-      const res = await fetch(`${API_URL}/chamados/${idConcluido}/concluir`, {
+      // 1. Envia diretamente para a rota /atualizar que aceita Multer e persiste a foto
+      const res = await fetch(`${API_URL}/chamados/${idConcluido}/atualizar`, {
         method: 'PUT',
         headers: { 
           'x-usuario-nivel': usuarioLogado.nivel || 'admin',
@@ -332,12 +335,13 @@ const PainelChamados = () => {
         body: formData
       });
 
+      // 2. Fallback caso a rota /atualizar falhe
       if (!res.ok) {
-        // Fallback caso a rota /concluir espere JSON tradicional
-        await fetch(`${API_URL}/chamados/${idConcluido}/atualizar`, {
+        await fetch(`${API_URL}/chamados/${idConcluido}/concluir`, {
           method: 'PUT',
           headers: { 
-            'x-usuario-nivel': usuarioLogado.nivel || 'admin'
+            'x-usuario-nivel': usuarioLogado.nivel || 'admin',
+            'x-usuario-id': String(usuarioLogado.id || '')
           },
           body: formData
         });
