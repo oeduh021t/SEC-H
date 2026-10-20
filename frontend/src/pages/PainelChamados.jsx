@@ -20,6 +20,9 @@ const PainelChamados = () => {
   const [autoScroll, setAutoScroll] = useState(false);
   const [usuarioPausouHover, setUsuarioPausouHover] = useState(false);
 
+  // 📱 ABA ATIVA NO CELULAR ('abertos' ou 'atendimento')
+  const [abaMobile, setAbaMobile] = useState('abertos');
+
   // 👤 USUÁRIO LOGADO
   const obterUsuarioLogado = () => {
     try {
@@ -301,7 +304,6 @@ const PainelChamados = () => {
     const nomeTecnico = usuarioLogado.nome || 'Plantonista';
     const parecerFinal = descricaoSolucao.trim() || 'Serviço executado pelo plantonista.';
 
-    // Monta FormData compatível com o endpoint que processa multer (foto_conclusao)
     const formData = new FormData();
     formData.append('status', 'Concluído');
     formData.append('tipo_atendimento', 'Interno');
@@ -316,7 +318,6 @@ const PainelChamados = () => {
       formData.append('foto_conclusao', fotoFinal);
     }
 
-    // Atualização otimista imediata na interface
     setChamados(prev => prev.filter(c => c.id !== idConcluido));
     setChamadoParaConcluir(null);
     setDescricaoSolucao('');
@@ -325,7 +326,6 @@ const PainelChamados = () => {
     falarTexto("Chamado concluído com sucesso.");
 
     try {
-      // 1. Envia diretamente para a rota /atualizar que aceita Multer e persiste a foto
       const res = await fetch(`${API_URL}/chamados/${idConcluido}/atualizar`, {
         method: 'PUT',
         headers: { 
@@ -335,7 +335,6 @@ const PainelChamados = () => {
         body: formData
       });
 
-      // 2. Fallback caso a rota /atualizar falhe
       if (!res.ok) {
         await fetch(`${API_URL}/chamados/${idConcluido}/concluir`, {
           method: 'PUT',
@@ -567,7 +566,7 @@ const PainelChamados = () => {
               <span>{audioHabilitado ? '🔊 VOZ ATIVA' : '🔇 ATIVAR VOZ'}</span>
             </button>
 
-            <button
+            <button 
               onClick={() => setAutoScroll(!autoScroll)}
               className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
                 autoScroll ? 'bg-blue-600/20 text-blue-400 border-blue-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'
@@ -589,10 +588,47 @@ const PainelChamados = () => {
           </div>
         </header>
 
+        {/* 📱 SELETOR DE ABAS MOBILE (VISÍVEL SOMENTE NO CELULAR) */}
+        <div className="grid grid-cols-2 gap-2 mb-4 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setAbaMobile('abertos')}
+            className={`py-3 px-3 rounded-2xl font-black text-xs uppercase flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+              abaMobile === 'abertos'
+                ? 'bg-red-500 text-white border-red-400 shadow-lg shadow-red-500/30 ring-2 ring-red-400/50'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            <span className={`w-2.5 h-2.5 rounded-full ${abaMobile === 'abertos' ? 'bg-white animate-ping' : 'bg-red-500'} inline-block`}></span>
+            <span>Aguardando</span>
+            <span className="bg-black/40 px-2 py-0.5 rounded-full text-[11px] font-mono">
+              {abertos.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAbaMobile('atendimento')}
+            className={`py-3 px-3 rounded-2xl font-black text-xs uppercase flex items-center justify-center gap-2 border transition-all cursor-pointer ${
+              abaMobile === 'atendimento'
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/30 ring-2 ring-amber-400/50'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block"></span>
+            <span>Em Atendimento</span>
+            <span className="bg-black/30 px-2 py-0.5 rounded-full text-[11px] font-mono">
+              {emAtendimento.length}
+            </span>
+          </button>
+        </div>
+
         {/* COLUNAS PRINCIPAIS */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* COLUNA 1: ABERTOS */}
-          <section className="bg-slate-900/60 border border-red-900/40 rounded-3xl p-4 md:p-5 flex flex-col h-[70vh]">
+          <section className={`bg-slate-900/60 border border-red-900/40 rounded-3xl p-4 md:p-5 flex-col h-[75vh] ${
+            abaMobile !== 'abertos' ? 'hidden lg:flex' : 'flex'
+          }`}>
             <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-800 shrink-0">
               <h2 className="text-base font-black text-red-400 flex items-center gap-2 uppercase tracking-wider">
                 <span className="w-3 h-3 rounded-full bg-red-500 animate-ping inline-block"></span>
@@ -667,7 +703,9 @@ const PainelChamados = () => {
           </section>
 
           {/* COLUNA 2: EM ATENDIMENTO */}
-          <section className="bg-slate-900/60 border border-amber-900/40 rounded-3xl p-4 md:p-5 flex flex-col h-[70vh]">
+          <section className={`bg-slate-900/60 border border-amber-900/40 rounded-3xl p-4 md:p-5 flex-col h-[75vh] ${
+            abaMobile !== 'atendimento' ? 'hidden lg:flex' : 'flex'
+          }`}>
             <div className="flex justify-between items-center mb-3 pb-3 border-b border-slate-800 shrink-0">
               <h2 className="text-base font-black text-amber-400 flex items-center gap-2 uppercase tracking-wider">
                 <span className="w-3 h-3 rounded-full bg-amber-400 inline-block"></span>
@@ -882,7 +920,6 @@ const PainelChamados = () => {
                 📷 Foto de Evidência / Conclusão (Opcional)
               </span>
 
-              {/* Input oculto de galeria */}
               <input
                 ref={fileInputGaleriaRef}
                 type="file"
