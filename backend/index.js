@@ -2641,9 +2641,10 @@ app.post('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) =>
 });
 
 // -------------------------------------------------------------------------
-// NOTAS FISCAIS E BOLETOS
+// NOTAS FISCAIS E BOLETOS (LISTAGEM, BUSCA E CRONOGRAMAS)
 // -------------------------------------------------------------------------
 
+// 1. Listagem principal com contadores e alertas financeiros (Resolve o erro 404)
 app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const query = `
         SELECT 
@@ -2665,6 +2666,7 @@ app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, re
     });
 });
 
+// 2. Consulta de duplicatas/boletos de uma nota específica
 app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador']), (req, res) => {
     const { id } = req.params;
     const query = `SELECT * FROM boletos WHERE nota_fiscal_id = ? ORDER BY data_vencimento ASC`;
@@ -2675,12 +2677,16 @@ app.get('/api/notas-fiscais/:id/boletos', permitirApenas(['admin', 'coordenador'
     });
 });
 
-// 🚀 ROTA DE CADASTRO COMPLETO: NOTA, ESTOQUE E ENTRADAS (100% CALLBACKS)
+// 3. Cadastro completo: Nota Fiscal, Estoque, Entradas e Boletos (Transação Atômica)
 app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadDocumento.fields([
     { name: 'xml', maxCount: 1 },
     { name: 'danfe', maxCount: 1 }
 ]), (req, res) => {
-    const { numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, itens, solicitacao_compra_id } = req.body;
+    const { 
+        numero_nf, serie, chave_acesso, fornecedor_id, 
+        data_emissao, data_recebimento, valor_total, descricao, 
+        itens, boletos, solicitacao_compra_id 
+    } = req.body;
 
     const url_xml = req.files && req.files['xml'] && req.files['xml'][0] ? `/uploads/${req.files['xml'][0].filename}` : null;
     const url_danfe = req.files && req.files['danfe'] && req.files['danfe'][0] ? `/uploads/${req.files['danfe'][0].filename}` : null;
@@ -2692,6 +2698,16 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
         } catch (e) {
             console.error("Erro no JSON.parse dos itens da NF:", e);
             listaItens = [];
+        }
+    }
+
+    let listaBoletos = [];
+    if (boletos) {
+        try {
+            listaBoletos = typeof boletos === 'string' ? JSON.parse(boletos) : boletos;
+        } catch (e) {
+            console.error("Erro no JSON.parse dos boletos da NF:", e);
+            listaBoletos = [];
         }
     }
 
@@ -2726,101 +2742,129 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
 
             const notaFiscalId = resultNF.insertId;
 
-            // Função para atualizar a solicitação de compra, se houver vínculo
-            const tratarSolicitacao = (callbackFinal) => {
+            // Passo 1: Vinculação com Solicitação de Compra
+            const tratarSolicitacao = (callbackPasso1) => {
                 if (solicitacao_compra_id && solicitacao_compra_id !== "") {
                     const qUpSol = `UPDATE solicitacoes_compra SET status = 'Entregue', nota_fiscal_id = ? WHERE id = ?`;
                     conn.query(qUpSol, [notaFiscalId, Number(solicitacao_compra_id)], (errUp) => {
-                        if (errUp) console.error("⚠️ Alerta ao atualizar status da solicitacao:", errUp.message);
-                        callbackFinal();
+                        if (errUp) console.error("⚠️ Alerta ao atualizar solicitacao de compra:", errUp.message);
+                        callbackPasso1();
                     });
                 } else {
-                    callbackFinal();
+                    callbackPasso1();
                 }
             };
 
-            tratarSolicitacao(() => {
-                if (!listaItens || !Array.isArray(listaItens) || listaItens.length === 0) {
-                    return conn.commit((errCommit) => {
-                        if (errCommit) {
-                            return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                        }
-                        conn.release();
-                        return res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: notaFiscalId });
-                    });
+            // Passo 2: Gravação de Boletos em Lote (se enviados)
+            const tratarBoletos = (callbackPasso2) => {
+                if (!listaBoletos || !Array.isArray(listaBoletos) || listaBoletos.length === 0) {
+                    return callbackPasso2();
                 }
 
-                // Processador sequencial seguro por callbacks
-                let index = 0;
-                const processarProximoItemNF = () => {
-                    if (index >= listaItens.length) {
+                const queryBoleto = `
+                    INSERT INTO boletos (nota_fiscal_id, parcela, codigo_barras, linha_digitavel, valor_boleto, data_vencimento, url_boleto_pdf)
+                    VALUES ?
+                `;
+                const valoresBoletos = listaBoletos.map(b => [
+                    notaFiscalId,
+                    b.parcela || '1/1',
+                    b.codigo_barras || null,
+                    b.linha_digitavel || null,
+                    Number(b.valor_boleto || 0),
+                    b.data_vencimento,
+                    null
+                ]);
+
+                conn.query(queryBoleto, [valoresBoletos], (errBol) => {
+                    if (errBol) {
+                        console.error("⚠️ Alerta ao inserir duplicatas do lote fiscal:", errBol.message);
+                    }
+                    callbackPasso2();
+                });
+            };
+
+            // Passo 3: Processamento dos Itens de Estoque e Commit Final
+            tratarSolicitacao(() => {
+                tratarBoletos(() => {
+                    if (!listaItens || !Array.isArray(listaItens) || listaItens.length === 0) {
                         return conn.commit((errCommit) => {
                             if (errCommit) {
                                 return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                             }
                             conn.release();
-                            return res.status(201).json({ message: "Nota Fiscal, itens e estoque lançados com sucesso! 📦🧾", id: notaFiscalId });
+                            return res.status(201).json({ message: "Nota Fiscal cadastrada com sucesso!", id: notaFiscalId });
                         });
                     }
 
-                    const item = listaItens[index];
-                    const qtd = Number(item.quantidade || 0);
-                    const vUnit = Number(item.valor_unitario || 0);
+                    let index = 0;
+                    const processarProximoItemNF = () => {
+                        if (index >= listaItens.length) {
+                            return conn.commit((errCommit) => {
+                                if (errCommit) {
+                                    return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                }
+                                conn.release();
+                                return res.status(201).json({ message: "Nota Fiscal, itens, estoque e títulos lançados com sucesso! 📦🧾", id: notaFiscalId });
+                            });
+                        }
 
-                    if (qtd <= 0) {
-                        index++;
-                        return processarProximoItemNF();
-                    }
+                        const item = listaItens[index];
+                        const qtd = Number(item.quantidade || 0);
+                        const vUnit = Number(item.valor_unitario || 0);
 
-                    const registrarHistoricoEntrada = (finalItemId) => {
-                        const qEntrada = `
-                            INSERT INTO itens_estoque_entradas (item_id, nota_fiscal_id, quantidade, valor_unitario, num_nota, data_entrada)
-                            VALUES (?, ?, ?, ?, ?, NOW())
-                        `;
-                        conn.query(qEntrada, [finalItemId, notaFiscalId, qtd, vUnit, numero_nf], (errEnt) => {
-                            if (errEnt) {
-                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEnt.message }); });
-                            }
+                        if (qtd <= 0) {
                             index++;
-                            processarProximoItemNF();
-                        });
+                            return processarProximoItemNF();
+                        }
+
+                        const registrarHistoricoEntrada = (finalItemId) => {
+                            const qEntrada = `
+                                INSERT INTO itens_estoque_entradas (item_id, nota_fiscal_id, quantidade, valor_unitario, num_nota, data_entrada)
+                                VALUES (?, ?, ?, ?, ?, NOW())
+                            `;
+                            conn.query(qEntrada, [finalItemId, notaFiscalId, qtd, vUnit, numero_nf], (errEnt) => {
+                                if (errEnt) {
+                                    return conn.rollback(() => { conn.release(); res.status(500).json({ error: errEnt.message }); });
+                                }
+                                index++;
+                                processarProximoItemNF();
+                            });
+                        };
+
+                        if (item.item_id) {
+                            const qUpdate = `
+                                UPDATE itens_estoque 
+                                SET quantidade = quantidade + ?, 
+                                    valor_unitario = IF(? > 0, ?, valor_unitario),
+                                    data_atualizacao = NOW()
+                                WHERE id = ?
+                            `;
+                            conn.query(qUpdate, [qtd, vUnit, vUnit, Number(item.item_id)], (errUp) => {
+                                if (errUp) {
+                                    return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
+                                }
+                                registrarHistoricoEntrada(Number(item.item_id));
+                            });
+                        } else {
+                            const nomeInsumo = (item.nome || 'Novo Insumo').trim();
+                            const refInsumo = item.referencia && item.referencia.trim() !== '' ? item.referencia.trim() : null;
+                            const localEstoqueId = item.local_estoque_id ? Number(item.local_estoque_id) : null;
+
+                            const qInsert = `
+                                INSERT INTO itens_estoque (nome, referencia, quantidade, valor_unitario, local_estoque_id, data_cadastro, data_atualizacao)
+                                VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+                            `;
+                            conn.query(qInsert, [nomeInsumo, refInsumo, qtd, vUnit, localEstoqueId], (errIns, resIns) => {
+                                if (errIns) {
+                                    return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
+                                }
+                                registrarHistoricoEntrada(resIns.insertId);
+                            });
+                        }
                     };
 
-                    if (item.item_id) {
-                        // Item já existente no estoque -> Aumenta saldo
-                        const qUpdate = `
-                            UPDATE itens_estoque 
-                            SET quantidade = quantidade + ?, 
-                                valor_unitario = IF(? > 0, ?, valor_unitario),
-                                data_atualizacao = NOW()
-                            WHERE id = ?
-                        `;
-                        conn.query(qUpdate, [qtd, vUnit, vUnit, Number(item.item_id)], (errUp) => {
-                            if (errUp) {
-                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUp.message }); });
-                            }
-                            registrarHistoricoEntrada(Number(item.item_id));
-                        });
-                    } else {
-                        // Item novo -> Insere no catálogo do estoque
-                        const nomeInsumo = (item.nome || 'Novo Insumo').trim();
-                        const refInsumo = item.referencia && item.referencia.trim() !== '' ? item.referencia.trim() : null;
-                        const localEstoqueId = item.local_estoque_id ? Number(item.local_estoque_id) : null;
-
-                        const qInsert = `
-                            INSERT INTO itens_estoque (nome, referencia, quantidade, valor_unitario, local_estoque_id, data_cadastro, data_atualizacao)
-                            VALUES (?, ?, ?, ?, ?, NOW(), NOW())
-                        `;
-                        conn.query(qInsert, [nomeInsumo, refInsumo, qtd, vUnit, localEstoqueId], (errIns, resIns) => {
-                            if (errIns) {
-                                return conn.rollback(() => { conn.release(); res.status(500).json({ error: errIns.message }); });
-                            }
-                            registrarHistoricoEntrada(resIns.insertId);
-                        });
-                    }
-                };
-
-                processarProximoItemNF();
+                    processarProximoItemNF();
+                });
             });
         });
     });

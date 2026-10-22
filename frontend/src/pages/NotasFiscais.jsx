@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 export default function NotasFiscais() {
   const [notas, setNotas] = useState([]);
@@ -38,13 +38,15 @@ export default function NotasFiscais() {
   const [novosArquivosPos, setNovosArquivosPos] = useState({ xml: null, danfe: null });
   const [enviandoAnexos, setEnviandoAnexos] = useState(false);
 
-  // Estado de itens temporários para lançamento
+  // Itens e Duplicatas integradas para novo lançamento
   const [itensNovosNota, setItensNovosNota] = useState([]);
+  const [boletosNovosNota, setBoletosNovosNota] = useState([]);
   const [isNovoCadastroItem, setIsNovoCadastroItem] = useState(false);
   const [itemTemp, setItemTemp] = useState({ 
     item_id: '', nome: '', referencia: '', local_estoque_id: '', quantidade: '', valor_unitario: '' 
   });
 
+  // Modal de Boletos
   const [novoBoleto, setNovoBoleto] = useState({
     parcela: '1/1', codigo_barras: '', linha_digitavel: '', valor_boleto: '', data_vencimento: ''
   });
@@ -52,6 +54,7 @@ export default function NotasFiscais() {
   const [dataBaixa, setDataBaixa] = useState(new Date().toISOString().split('T')[0]);
   const [comprovanteBoleto, setComprovanteBoleto] = useState(null);
 
+  // Modal de Itens Avulsos
   const [novoItemNota, setNovoItemNota] = useState({ item_id: '', quantidade: '', valor_unitario: '' });
   const [salvandoItem, setSalvandoItem] = useState(false);
 
@@ -103,6 +106,7 @@ export default function NotasFiscais() {
     carregarDados();
   }, []);
 
+  // Leitor automático de XML com itens E duplicatas
   const handleImportarXML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -137,7 +141,10 @@ export default function NotasFiscais() {
           if (fEncontrado) idFornecedorEncontrado = fEncontrado.id;
         }
         if (!idFornecedorEncontrado && emitNome) {
-          const fEncontrado = fornecedores.find(f => f.nome_fantasia?.toLowerCase().includes(emitNome.toLowerCase().trim()) || f.razao_social?.toLowerCase().includes(emitNome.toLowerCase().trim()));
+          const fEncontrado = fornecedores.find(f => 
+            f.nome_fantasia?.toLowerCase().includes(emitNome.toLowerCase().trim()) || 
+            f.razao_social?.toLowerCase().includes(emitNome.toLowerCase().trim())
+          );
           if (fEncontrado) idFornecedorEncontrado = fEncontrado.id;
         }
 
@@ -152,6 +159,7 @@ export default function NotasFiscais() {
           descricao: `Importada via XML [Emitente: ${emitNome} - CNPJ: ${emitCNPJ}]`
         }));
 
+        // 1. Extração dos Itens da NF
         const detList = xmlDoc.querySelectorAll("det");
         const itensLidos = [];
 
@@ -191,11 +199,31 @@ export default function NotasFiscais() {
           }
         });
 
-        if (itensLidos.length > 0) {
-          setItensNovosNota(itensLidos);
+        if (itensLidos.length > 0) setItensNovosNota(itensLidos);
+
+        // 2. Extração das Duplicatas / Boletos da NF (<cobr> -> <dup>)
+        const dupList = xmlDoc.querySelectorAll("cobr > dup");
+        const boletosLidos = [];
+
+        dupList.forEach((dup, idx) => {
+          const nDup = dup.querySelector("nDup")?.textContent || `${idx + 1}/${dupList.length}`;
+          const dVenc = dup.querySelector("dVenc")?.textContent || '';
+          const vDup = dup.querySelector("vDup")?.textContent || '0';
+
+          boletosLidos.push({
+            parcela: nDup,
+            data_vencimento: dVenc,
+            valor_boleto: Number(vDup).toFixed(2),
+            codigo_barras: '',
+            linha_digitavel: ''
+          });
+        });
+
+        if (boletosLidos.length > 0) {
+          setBoletosNovosNota(boletosLidos);
         }
 
-        alert(`✅ XML lido com sucesso!\n• NF nº: ${nNF}\n• Emitente: ${emitNome}\n• Total de Itens Carregados: ${itensLidos.length}`);
+        alert(`✅ XML processado com sucesso!\n• NF nº: ${nNF}\n• Emitente: ${emitNome}\n• Itens mapeados: ${itensLidos.length}\n• Duplicatas/Parcelas identificadas: ${boletosLidos.length}`);
       } catch (err) {
         console.error("Erro ao processar XML:", err);
         alert("❌ Erro ao ler a estrutura do arquivo XML.");
@@ -348,6 +376,21 @@ export default function NotasFiscais() {
     setItensNovosNota(itensNovosNota.filter((_, i) => i !== index));
   };
 
+  const handleRemoverBoletoTemp = (index) => {
+    setBoletosNovosNota(boletosNovosNota.filter((_, i) => i !== index));
+  };
+
+  // Cálculo de conciliação do modal de nota
+  const totalItensModal = useMemo(() => {
+    return itensNovosNota.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(it.valor_unitario || 0)), 0);
+  }, [itensNovosNota]);
+
+  const totalBoletosModal = useMemo(() => {
+    return boletosNovosNota.reduce((acc, b) => acc + Number(b.valor_boleto || 0), 0);
+  }, [boletosNovosNota]);
+
+  const valorTotalNFInformado = Number(novaNota.valor_total || 0);
+
   const handleSalvarNota = async (e) => {
     e.preventDefault();
     const formData = new FormData();
@@ -359,6 +402,10 @@ export default function NotasFiscais() {
       formData.append('itens', JSON.stringify(itensNovosNota));
     }
 
+    if (boletosNovosNota.length > 0) {
+      formData.append('boletos', JSON.stringify(boletosNovosNota));
+    }
+
     try {
       const res = await fetch(`${API_URL}/notas-fiscais`, {
         method: 'POST',
@@ -366,11 +413,12 @@ export default function NotasFiscais() {
         body: formData
       });
       if (res.ok) {
-        alert('Nota Fiscal, estoque e vínculo salvos com sucesso! 📦🧾');
+        alert('Nota Fiscal, itens e cronograma financeiro salvos com sucesso! 📦🧾');
         setModalNotaAberto(false);
         setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '' });
         setArquivosNota({ xml: null, danfe: null });
         setItensNovosNota([]);
+        setBoletosNovosNota([]);
         carregarDados();
       } else {
         const err = await res.json();
@@ -573,6 +621,7 @@ export default function NotasFiscais() {
               setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '' });
               setArquivosNota({ xml: null, danfe: null });
               setItensNovosNota([]);
+              setBoletosNovosNota([]);
               setIsNovoCadastroItem(false);
               setModalNotaAberto(true);
             }}
@@ -758,7 +807,6 @@ export default function NotasFiscais() {
                     </td>
                     <td className="p-5 text-center">
                       <div className="flex justify-center items-center gap-2">
-                        {/* NOVO BOTÃO: ANEXAR ARQUIVO PÓS-CADASTRO */}
                         <button 
                           onClick={() => abrirModalAnexos(nota)}
                           className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-xl hover:bg-amber-600 hover:text-white transition-all shadow-sm border border-amber-200 text-[11px] font-black uppercase tracking-wider flex items-center gap-1"
@@ -819,12 +867,12 @@ export default function NotasFiscais() {
         )}
       </div>
 
-      {/* --- MODAL 1: CADASTRAR NOTA + IMPORTAÇÃO AUTOMÁTICA DE XML --- */}
+      {/* --- MODAL 1: CADASTRAR NOTA + IMPORTAÇÃO AUTOMÁTICA DE XML & DUPLICATAS --- */}
       {modalNotaAberto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 max-h-[92vh] flex flex-col">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 max-h-[92vh] flex flex-col">
             <div className="p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center bg-blue-600 shrink-0">
-              <span>🆕 Novo Lançamento Fiscal & Entrada de Estoque</span>
+              <span>🆕 Novo Lançamento Fiscal, Estoque & Títulos Financeiros</span>
               <button onClick={() => setModalNotaAberto(false)} className="hover:scale-110 transition-transform text-sm font-sans font-bold">✕</button>
             </div>
 
@@ -834,10 +882,10 @@ export default function NotasFiscais() {
               <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 p-4 rounded-2xl border-2 border-dashed border-blue-200 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div className="text-left">
                   <span className="text-xs font-black text-blue-700 uppercase flex items-center gap-1.5">
-                    <span>⚡</span> Auto-Preenchimento via XML
+                    <span>⚡</span> Auto-Preenchimento via XML Completo
                   </span>
                   <p className="text-[10px] text-slate-500 font-bold mt-0.5">
-                    Selecione o arquivo XML da NF-e para carregar todos os dados e peças automaticamente.
+                    Carrega automaticamente emitente, produtos, valores e o cronograma de duplicatas financeiras.
                   </p>
                 </div>
                 <div>
@@ -847,6 +895,28 @@ export default function NotasFiscais() {
                   </label>
                 </div>
               </div>
+
+              {/* BARRA DE CONFERÊNCIA CONTÁBIL (ERP REAL-TIME AUDIT) */}
+              {valorTotalNFInformado > 0 && (
+                <div className="p-4 rounded-2xl border bg-slate-50 border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 bg-white rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black text-slate-400 uppercase block">Total da Nota</span>
+                    <span className="font-mono font-black text-slate-800 text-sm">R$ {valorTotalNFInformado.toFixed(2)}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black text-slate-400 uppercase block">Total de Peças/Itens</span>
+                    <span className={`font-mono font-black text-sm ${Math.abs(valorTotalNFInformado - totalItensModal) < 0.05 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      R$ {totalItensModal.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-100">
+                    <span className="text-[9px] font-black text-slate-400 uppercase block">Total em Duplicatas</span>
+                    <span className={`font-mono font-black text-sm ${Math.abs(valorTotalNFInformado - totalBoletosModal) < 0.05 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      R$ {totalBoletosModal.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* VÍNCULO COM SOLICITAÇÃO DE COMPRA */}
               <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200">
@@ -1100,6 +1170,39 @@ export default function NotasFiscais() {
                   </div>
                 )}
               </div>
+
+              {/* BLOCO 3: DUPLICATAS / CRONOGRAMA FINANCEIRO EXTRAÍDO DO XML */}
+              {boletosNovosNota.length > 0 && (
+                <div className="border-t border-slate-100 pt-6 space-y-3">
+                  <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                    <span>🗓️</span> Cronograma de Duplicatas do XML ({boletosNovosNota.length} parcelas)
+                  </h4>
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-52 overflow-y-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-100 text-[9px] font-black text-slate-500 uppercase sticky top-0">
+                        <tr>
+                          <th className="p-3">Parcela</th>
+                          <th className="p-3">Vencimento</th>
+                          <th className="p-3 text-right">Valor Parcela</th>
+                          <th className="p-3 text-center">Ação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs">
+                        {boletosNovosNota.map((b, bIdx) => (
+                          <tr key={bIdx} className="hover:bg-slate-50">
+                            <td className="p-3 font-bold text-slate-700">Parcela {b.parcela}</td>
+                            <td className="p-3 font-mono text-slate-600">{b.data_vencimento ? new Date(b.data_vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '---'}</td>
+                            <td className="p-3 text-right font-mono font-bold text-slate-800">R$ {Number(b.valor_boleto).toFixed(2)}</td>
+                            <td className="p-3 text-center">
+                              <button type="button" onClick={() => handleRemoverBoletoTemp(bIdx)} className="text-red-500 font-bold hover:underline text-xs">✕</button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-6">
                 <button type="button" onClick={() => setModalNotaAberto(false)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600 transition-colors">Cancelar</button>
