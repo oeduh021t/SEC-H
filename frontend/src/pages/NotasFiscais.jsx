@@ -6,8 +6,11 @@ export default function NotasFiscais() {
   const [estoqueItens, setEstoqueItens] = useState([]);
   const [locaisEstoque, setLocaisEstoque] = useState([]);
   const [solicitacoesPendentes, setSolicitacoesPendentes] = useState([]);
+  const [chamadosAbertos, setChamadosAbertos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exportando, setExportando] = useState(false);
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+  const [copiadoId, setCopiadoId] = useState(null);
 
   // Filtros
   const [buscaInteligente, setBuscaInteligente] = useState('');
@@ -19,9 +22,10 @@ export default function NotasFiscais() {
   // Paginação
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = 10;
-  
+
   // Modais de Controle
   const [modalNotaAberto, setModalNotaAberto] = useState(false);
+  const [modalEditarAberto, setModalEditarAberto] = useState(false);
   const [modalBoletosAberto, setModalBoletosAberto] = useState(false);
   const [modalItensAberto, setModalItensAberto] = useState(false);
   const [modalAnexosAberto, setModalAnexosAberto] = useState(false);
@@ -32,8 +36,16 @@ export default function NotasFiscais() {
   // Estados dos Formulários
   const [novaNota, setNovaNota] = useState({
     numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '',
-    data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: ''
+    data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', 
+    solicitacao_compra_id: '', chamado_id: ''
   });
+
+  const [notaEdicao, setNotaEdicao] = useState({
+    id: '', numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '',
+    data_emissao: '', data_recebimento: '', valor_total: '', descricao: '',
+    solicitacao_compra_id: '', chamado_id: ''
+  });
+
   const [arquivosNota, setArquivosNota] = useState({ xml: null, danfe: null });
   const [novosArquivosPos, setNovosArquivosPos] = useState({ xml: null, danfe: null });
   const [enviandoAnexos, setEnviandoAnexos] = useState(false);
@@ -76,12 +88,13 @@ export default function NotasFiscais() {
         }
       };
 
-      const [resNotas, resFornecedores, resEstoque, resLocais, resSolicitacoes] = await Promise.all([
+      const [resNotas, resFornecedores, resEstoque, resLocais, resSolicitacoes, resChamados] = await Promise.all([
         fetch(`${API_URL}/notas-fiscais`, opcoesFetch),
         fetch(`${API_URL}/fornecedores`, opcoesFetch),
         fetch(`${API_URL}/estoque`, opcoesFetch),
         fetch(`${API_URL}/locais-estoque`, opcoesFetch),
-        fetch(`${API_URL}/solicitacoes-compra`, opcoesFetch)
+        fetch(`${API_URL}/solicitacoes-compra`, opcoesFetch),
+        fetch(`${API_URL}/chamados`, opcoesFetch)
       ]);
       
       const dataNotas = await resNotas.json();
@@ -89,12 +102,14 @@ export default function NotasFiscais() {
       const dataEstoque = await resEstoque.json();
       const dataLocais = await resLocais.json();
       const dataSolicitacoes = await resSolicitacoes.json();
+      const dataChamados = await resChamados.json();
       
       setNotas(Array.isArray(dataNotas) ? dataNotas : []);
       setFornecedores(Array.isArray(dataFornecedores) ? dataFornecedores : []);
       setEstoqueItens(Array.isArray(dataEstoque) ? dataEstoque : []);
       setLocaisEstoque(Array.isArray(dataLocais) ? dataLocais : []);
       setSolicitacoesPendentes(Array.isArray(dataSolicitacoes) ? dataSolicitacoes.filter(s => s.status !== 'Entregue') : []);
+      setChamadosAbertos(Array.isArray(dataChamados) ? dataChamados.filter(c => c.status !== 'Concluído' && c.status !== 'Cancelado') : []);
     } catch (err) {
       console.error('Erro ao carregar dados fiscais:', err);
     } finally {
@@ -105,6 +120,58 @@ export default function NotasFiscais() {
   useEffect(() => {
     carregarDados();
   }, []);
+
+  const copiarTexto = (texto, id) => {
+    if (!texto) return;
+    navigator.clipboard.writeText(texto);
+    setCopiadoId(id);
+    setTimeout(() => setCopiadoId(null), 2000);
+  };
+
+  const abrirModalEditar = (nota) => {
+    setNotaEdicao({
+      id: nota.id,
+      numero_nf: nota.numero_nf || '',
+      serie: nota.serie || '',
+      chave_acesso: nota.chave_acesso || '',
+      fornecedor_id: nota.fornecedor_id ? String(nota.fornecedor_id) : '',
+      data_emissao: nota.data_emissao ? nota.data_emissao.split('T')[0] : '',
+      data_recebimento: nota.data_recebimento ? nota.data_recebimento.split('T')[0] : '',
+      valor_total: nota.valor_total || '',
+      descricao: nota.descricao || '',
+      solicitacao_compra_id: nota.solicitacao_compra_id ? String(nota.solicitacao_compra_id) : '',
+      chamado_id: nota.os_vinculada_id ? String(nota.os_vinculada_id) : ''
+    });
+    setModalEditarAberto(true);
+  };
+
+  const handleSalvarEdicaoNota = async (e) => {
+    e.preventDefault();
+    setSalvandoEdicao(true);
+    try {
+      const res = await fetch(`${API_URL}/notas-fiscais/${notaEdicao.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-usuario-nivel': obterNivelUsuario()
+        },
+        body: JSON.stringify(notaEdicao)
+      });
+
+      if (res.ok) {
+        alert('Nota Fiscal e vínculos atualizados com sucesso! 📝✅');
+        setModalEditarAberto(false);
+        carregarDados();
+      } else {
+        const err = await res.json();
+        alert(`Erro: ${err.error || 'Falha ao atualizar nota.'}`);
+      }
+    } catch (err) {
+      alert('Erro de comunicação com o servidor.');
+    } finally {
+      setSalvandoEdicao(false);
+    }
+  };
 
   // Leitor automático de XML com itens E duplicatas
   const handleImportarXML = (e) => {
@@ -159,7 +226,7 @@ export default function NotasFiscais() {
           descricao: `Importada via XML [Emitente: ${emitNome} - CNPJ: ${emitCNPJ}]`
         }));
 
-        // 1. Extração dos Itens da NF
+        // Extração dos Itens da NF
         const detList = xmlDoc.querySelectorAll("det");
         const itensLidos = [];
 
@@ -201,7 +268,7 @@ export default function NotasFiscais() {
 
         if (itensLidos.length > 0) setItensNovosNota(itensLidos);
 
-        // 2. Extração das Duplicatas / Boletos da NF (<cobr> -> <dup>)
+        // Extração das Duplicatas / Boletos da NF (<cobr> -> <dup>)
         const dupList = xmlDoc.querySelectorAll("cobr > dup");
         const boletosLidos = [];
 
@@ -415,7 +482,7 @@ export default function NotasFiscais() {
       if (res.ok) {
         alert('Nota Fiscal, itens e cronograma financeiro salvos com sucesso! 📦🧾');
         setModalNotaAberto(false);
-        setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '' });
+        setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '', chamado_id: '' });
         setArquivosNota({ xml: null, danfe: null });
         setItensNovosNota([]);
         setBoletosNovosNota([]);
@@ -526,12 +593,15 @@ export default function NotasFiscais() {
     }
   };
 
+  // Filtros dinâmicos com busca por número de OS e Código de Orçamento
   const notasFiltradas = notas.filter(nota => {
     const termo = buscaInteligente.toLowerCase().trim();
     const matchBusca = !termo || 
       nota.numero_nf?.toLowerCase().includes(termo) ||
       nota.fornecedor_nome?.toLowerCase().includes(termo) ||
-      nota.chave_acesso?.toLowerCase().includes(termo);
+      nota.chave_acesso?.toLowerCase().includes(termo) ||
+      String(nota.os_vinculada_id || '').includes(termo) ||
+      nota.codigo_orcamento?.toLowerCase().includes(termo);
 
     const matchFornecedor = !fornecedorFiltro || String(nota.fornecedor_id) === String(fornecedorFiltro);
 
@@ -549,59 +619,80 @@ export default function NotasFiscais() {
     return matchBusca && matchFornecedor && matchData && matchStatus;
   });
 
+  // Métricas de Contas a Pagar
+  const totalNotas = notas.length;
   const valorTotalFiltrado = notasFiltradas.reduce((acc, n) => acc + Number(n.valor_total || 0), 0);
-  const totalAtrasados = notas.reduce((acc, n) => acc + Number(n.boletos_atrasados || 0), 0);
-  const totalBreve = notas.reduce((acc, n) => acc + Number(n.boletos_vencendo_breve || 0), 0);
+  
+  const totalAtrasadosQtd = notas.reduce((acc, n) => acc + Number(n.boletos_atrasados || 0), 0);
+  const totalBreveQtd = notas.reduce((acc, n) => acc + Number(n.boletos_vencendo_breve || 0), 0);
+  const totalSemBoletoQtd = notas.filter(n => Number(n.total_boletos || 0) === 0).length;
+
+  const valorTotalAtrasado = notas
+    .filter(n => Number(n.boletos_atrasados || 0) > 0)
+    .reduce((acc, n) => acc + Number(n.valor_total || 0), 0);
 
   const totalPaginas = Math.ceil(notasFiltradas.length / itensPorPagina) || 1;
   const indexInicio = (paginaAtual - 1) * itensPorPagina;
   const notasPaginadas = notasFiltradas.slice(indexInicio, indexInicio + itensPorPagina);
 
-  const renderizarBadgeAlerta = (nota) => {
+  const renderizarBadgeConciliacao = (nota) => {
     if (Number(nota.total_boletos) === 0) {
-      return <span className="px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold uppercase">Sem Boletos</span>;
+      return (
+        <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 w-fit">
+          <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Sem Duplicatas
+        </span>
+      );
     }
     if (Number(nota.boletos_atrasados) > 0) {
       return (
-        <span className="px-2.5 py-1 bg-red-100 text-red-700 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 animate-pulse border border-red-200">
-          🚨 {nota.boletos_atrasados} Atrasado(s)
+        <span className="px-2 py-0.5 bg-rose-50 text-rose-700 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 border border-rose-200 animate-pulse w-fit">
+          🚨 {nota.boletos_atrasados} Vencido(s)
         </span>
       );
     }
     if (Number(nota.boletos_vencendo_breve) > 0) {
       return (
-        <span className="px-2.5 py-1 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 border border-amber-200">
-          ⏰ Vencendo Breve
+        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 border border-amber-200 w-fit">
+          ⏳ Vence em Breve
         </span>
       );
     }
     if (nota.proximo_vencimento) {
       return (
-        <span className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold uppercase border border-blue-100">
+        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 border border-blue-100 w-fit">
           🗓️ Próx: {new Date(nota.proximo_vencimento).toLocaleDateString('pt-BR')}
         </span>
       );
     }
-    return <span className="px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-black uppercase">✓ Quitado</span>;
+    return (
+      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 border border-emerald-200 w-fit">
+        ✓ 100% Quitado
+      </span>
+    );
   };
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
       
-      {/* HEADER */}
+      {/* HEADER DA PÁGINA */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
         <div>
-          <h1 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-            <span className="bg-blue-500 p-2 rounded-xl text-white text-xs">🧾</span> GESTÃO DE NOTAS E BOLETOS
-          </h1>
-          <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">Faturamento, compras e controle financeiro de títulos</p>
+          <div className="flex items-center gap-2">
+            <span className="bg-blue-600 p-2 rounded-2xl text-white text-xs font-black shadow-sm">🧾</span>
+            <h1 className="text-xl font-black text-slate-800 tracking-tight uppercase">
+              Contas a Pagar & Gestão Fiscal
+            </h1>
+          </div>
+          <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wider">
+            Auditoria de Notas Fiscais, 3-Way Matching e Controle de Vencimentos
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <input
             type="text"
-            placeholder="🔍 Buscar nota, fornecedor ou chave..."
-            className="px-4 py-2.5 border-2 border-slate-100 rounded-xl w-full md:w-80 outline-none focus:border-blue-500 transition-all text-xs font-bold bg-slate-50 text-slate-800"
+            placeholder="🔍 Buscar nota, fornecedor, OS..."
+            className="px-4 py-2.5 border-2 border-slate-100 rounded-xl w-full md:w-72 outline-none focus:border-blue-500 transition-all text-xs font-bold bg-slate-50 text-slate-800"
             value={buscaInteligente}
             onChange={e => { setBuscaInteligente(e.target.value); setPaginaAtual(1); }}
           />
@@ -618,7 +709,7 @@ export default function NotasFiscais() {
 
           <button 
             onClick={() => {
-              setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '' });
+              setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '', chamado_id: '' });
               setArquivosNota({ xml: null, danfe: null });
               setItensNovosNota([]);
               setBoletosNovosNota([]);
@@ -632,49 +723,99 @@ export default function NotasFiscais() {
         </div>
       </div>
 
-      {/* CARDS DE MONITORAMENTO */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      {/* CARDS DE MONITORAMENTO DE CONTAS A PAGAR */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        
+        {/* Card 1: Boletos Atrasados */}
         <button 
           type="button"
           onClick={() => { setStatusFiltro(statusFiltro === 'atrasados' ? 'todos' : 'atrasados'); setPaginaAtual(1); }}
-          className={`p-4 rounded-2xl border transition-all text-left flex items-center justify-between ${
-            statusFiltro === 'atrasados' ? 'bg-red-600 text-white border-red-600 shadow-md' : 'bg-white border-slate-100 hover:bg-red-50/50'
+          className={`p-4 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+            statusFiltro === 'atrasados' ? 'bg-rose-600 text-white border-rose-600 shadow-md' : 'bg-white border-slate-100 hover:bg-rose-50/40'
           }`}
         >
-          <div>
-            <span className={`text-[10px] font-black uppercase tracking-widest block ${statusFiltro === 'atrasados' ? 'text-red-100' : 'text-slate-400'}`}>Boletos Vencidos</span>
-            <span className={`text-2xl font-black ${statusFiltro === 'atrasados' ? 'text-white' : 'text-red-600'}`}>{totalAtrasados} Pendentes</span>
+          <div className="flex justify-between items-start">
+            <span className={`text-[10px] font-black uppercase tracking-widest ${statusFiltro === 'atrasados' ? 'text-rose-100' : 'text-slate-400'}`}>
+              Títulos em Atraso
+            </span>
+            <span className="text-base">🚨</span>
           </div>
-          <span className="text-2xl">🚨</span>
+          <div className="mt-2">
+            <span className={`text-xl font-black font-mono block ${statusFiltro === 'atrasados' ? 'text-white' : 'text-rose-600'}`}>
+              R$ {valorTotalAtrasado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className={`text-[10px] font-bold uppercase mt-0.5 block ${statusFiltro === 'atrasados' ? 'text-rose-100' : 'text-slate-500'}`}>
+              {totalAtrasadosQtd} título(s) pendente(s) de baixa
+            </span>
+          </div>
         </button>
 
+        {/* Card 2: Vencendo nos Próximos 5 Dias */}
         <button 
           type="button"
           onClick={() => { setStatusFiltro(statusFiltro === 'vencendo' ? 'todos' : 'vencendo'); setPaginaAtual(1); }}
-          className={`p-4 rounded-2xl border transition-all text-left flex items-center justify-between ${
-            statusFiltro === 'vencendo' ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-white border-slate-100 hover:bg-amber-50/50'
+          className={`p-4 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+            statusFiltro === 'vencendo' ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-white border-slate-100 hover:bg-amber-50/40'
           }`}
         >
-          <div>
-            <span className={`text-[10px] font-black uppercase tracking-widest block ${statusFiltro === 'vencendo' ? 'text-amber-100' : 'text-slate-400'}`}>Vencem nos Próx. 5 Dias</span>
-            <span className={`text-2xl font-black ${statusFiltro === 'vencendo' ? 'text-white' : 'text-amber-600'}`}>{totalBreve} Parcela(s)</span>
+          <div className="flex justify-between items-start">
+            <span className={`text-[10px] font-black uppercase tracking-widest ${statusFiltro === 'vencendo' ? 'text-amber-100' : 'text-slate-400'}`}>
+              Vencendo em 5 Dias
+            </span>
+            <span className="text-base">⏰</span>
           </div>
-          <span className="text-2xl">⏳</span>
+          <div className="mt-2">
+            <span className={`text-xl font-black font-mono block ${statusFiltro === 'vencendo' ? 'text-white' : 'text-amber-600'}`}>
+              {totalBreveQtd} Parcela(s)
+            </span>
+            <span className={`text-[10px] font-bold uppercase mt-0.5 block ${statusFiltro === 'vencendo' ? 'text-amber-100' : 'text-slate-500'}`}>
+              Atenção para provisão de caixa
+            </span>
+          </div>
         </button>
 
+        {/* Card 3: Pendente Duplicata */}
         <button 
           type="button"
-          onClick={() => { setStatusFiltro('todos'); setFornecedorFiltro(''); setBuscaInteligente(''); setPaginaAtual(1); }}
-          className={`p-4 rounded-2xl border transition-all text-left flex items-center justify-between ${
-            statusFiltro === 'todos' && !fornecedorFiltro && !buscaInteligente ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white border-slate-100 hover:bg-slate-50'
+          onClick={() => { setStatusFiltro(statusFiltro === 'sem_boletos' ? 'todos' : 'sem_boletos'); setPaginaAtual(1); }}
+          className={`p-4 rounded-2xl border transition-all text-left flex flex-col justify-between ${
+            statusFiltro === 'sem_boletos' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white border-slate-100 hover:bg-indigo-50/40'
           }`}
         >
-          <div>
-            <span className={`text-[10px] font-black uppercase tracking-widest block ${statusFiltro === 'todos' && !fornecedorFiltro && !buscaInteligente ? 'text-slate-400' : 'text-slate-400'}`}>Notas Cadastradas</span>
-            <span className="text-2xl font-black">{notas.length} Documentos</span>
+          <div className="flex justify-between items-start">
+            <span className={`text-[10px] font-black uppercase tracking-widest ${statusFiltro === 'sem_boletos' ? 'text-indigo-100' : 'text-slate-400'}`}>
+              Pendente Duplicata
+            </span>
+            <span className="text-base">📄</span>
           </div>
-          <span className="text-2xl">📑</span>
+          <div className="mt-2">
+            <span className={`text-xl font-black font-mono block ${statusFiltro === 'sem_boletos' ? 'text-white' : 'text-indigo-600'}`}>
+              {totalSemBoletoQtd} Nota(s)
+            </span>
+            <span className={`text-[10px] font-bold uppercase mt-0.5 block ${statusFiltro === 'sem_boletos' ? 'text-indigo-100' : 'text-slate-500'}`}>
+              Sem boleto/cronograma anexado
+            </span>
+          </div>
         </button>
+
+        {/* Card 4: Volume Filtrado */}
+        <div className="p-4 rounded-2xl border bg-white border-slate-100 flex flex-col justify-between">
+          <div className="flex justify-between items-start">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Volume Filtrado
+            </span>
+            <span className="text-base">💼</span>
+          </div>
+          <div className="mt-2">
+            <span className="text-xl font-black text-slate-900 font-mono block">
+              R$ {valorTotalFiltrado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 block">
+              {notasFiltradas.length} de {totalNotas} documento(s)
+            </span>
+          </div>
+        </div>
+
       </div>
 
       {/* BARRA DE FILTROS AVANÇADOS */}
@@ -747,17 +888,17 @@ export default function NotasFiscais() {
         </div>
 
         <div className="text-right">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Total Filtrado</span>
-          <span className="text-lg font-black text-slate-800 font-mono">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Subtotal</span>
+          <span className="text-base font-black text-slate-800 font-mono">
             R$ {valorTotalFiltrado.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
       </div>
 
-      {/* LISTAGEM PRINCIPAL */}
+      {/* LISTAGEM PRINCIPAL COM AUDITORIA VISUAL */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 animate-pulse">Carregando dados financeiros...</div>
+          <div className="p-10 text-center text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 animate-pulse">Carregando carteira de títulos...</div>
         ) : notasFiltradas.length === 0 ? (
           <div className="p-10 text-center text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">Nenhuma nota fiscal localizada com os filtros aplicados.</div>
         ) : (
@@ -765,29 +906,94 @@ export default function NotasFiscais() {
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50/70 text-[10px] font-black text-slate-400 tracking-widest uppercase border-b border-slate-100">
                 <tr>
-                  <th className="p-5">Número / Série</th>
-                  <th className="p-5">Fornecedor</th>
-                  <th className="p-5">Emissão</th>
+                  <th className="p-5">Número / Série / Origem</th>
+                  <th className="p-5">Fornecedor / Razão Social</th>
+                  <th className="p-5">Datas (Emissão / Rec.)</th>
                   <th className="p-5">Valor Total</th>
-                  <th className="p-5">Status dos Boletos</th>
-                  <th className="p-5">Arquivos</th>
+                  <th className="p-5">Auditoria & Cobrança</th>
+                  <th className="p-5">Documentos</th>
                   <th className="p-5 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium">
                 {notasPaginadas.map((nota) => (
                   <tr key={nota.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="p-5 font-bold text-slate-800 text-sm">
-                      {nota.numero_nf} <span className="text-slate-400 font-normal text-xs">({nota.serie || 'Única'})</span>
+                    
+                    {/* Coluna 1: Dados Fiscais com Rastreabilidade de Origem */}
+                    <td className="p-5">
+                      <div className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                        <span>NF #{nota.numero_nf}</span>
+                        <span className="text-slate-400 font-normal text-xs">({nota.serie || 'Única'})</span>
+                      </div>
+
+                      {/* Tag de Vínculo com a Origem */}
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {nota.os_vinculada_id ? (
+                          <span 
+                            className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-md text-[9px] font-black uppercase tracking-wider border border-blue-200 flex items-center gap-1 shadow-2xs"
+                            title={nota.os_titulo ? `OS #${nota.os_vinculada_id}: ${nota.os_titulo}` : `Ordem de Serviço #${nota.os_vinculada_id}`}
+                          >
+                            🔧 OS #{nota.os_vinculada_id}
+                          </span>
+                        ) : nota.codigo_orcamento ? (
+                          <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[9px] font-black uppercase tracking-wider border border-purple-200 flex items-center gap-1 shadow-2xs">
+                            📑 {nota.codigo_orcamento}
+                          </span>
+                        ) : nota.solicitacao_compra_id ? (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md text-[9px] font-black uppercase tracking-wider border border-amber-200 flex items-center gap-1 shadow-2xs">
+                            🛒 Pedido #{nota.solicitacao_compra_id}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-slate-300 font-bold uppercase tracking-wider">
+                            Sem Vínculo
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Cópia da Chave de Acesso */}
+                      {nota.chave_acesso ? (
+                        <button
+                          type="button"
+                          onClick={() => copiarTexto(nota.chave_acesso, nota.id)}
+                          className="text-[10px] font-mono text-slate-400 hover:text-blue-600 transition-colors flex items-center gap-1 mt-1"
+                          title="Clique para copiar a chave de 44 dígitos"
+                        >
+                          <span>{copiadoId === nota.id ? '✓ Copiado!' : `Chave: ${nota.chave_acesso.slice(0, 10)}...${nota.chave_acesso.slice(-4)}`}</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-300 italic block mt-0.5">Sem chave</span>
+                      )}
                     </td>
-                    <td className="p-5 text-xs font-bold text-slate-700 uppercase">{nota.fornecedor_nome}</td>
-                    <td className="p-5 text-xs font-mono text-slate-500">{new Date(nota.data_emissao).toLocaleDateString('pt-BR')}</td>
-                    <td className="p-5 font-black text-slate-800 font-mono text-sm">
+
+                    {/* Coluna 2: Fornecedor */}
+                    <td className="p-5">
+                      <p className="text-xs font-bold text-slate-800 uppercase">{nota.fornecedor_nome}</p>
+                      {nota.descricao && (
+                        <p className="text-[10px] text-slate-400 truncate max-w-xs">{nota.descricao}</p>
+                      )}
+                    </td>
+
+                    {/* Coluna 3: Datas */}
+                    <td className="p-5">
+                      <div className="text-xs font-mono text-slate-600 font-bold">
+                        {nota.data_emissao ? new Date(nota.data_emissao).toLocaleDateString('pt-BR') : '---'}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Recebido: {nota.data_recebimento ? new Date(nota.data_recebimento).toLocaleDateString('pt-BR') : '---'}
+                      </div>
+                    </td>
+
+                    {/* Coluna 4: Valor Total */}
+                    <td className="p-5 font-black text-slate-900 font-mono text-sm">
                       R$ {Number(nota.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
+
+                    {/* Coluna 5: Auditoria & Cobrança */}
                     <td className="p-5">
-                      {renderizarBadgeAlerta(nota)}
+                      {renderizarBadgeConciliacao(nota)}
                     </td>
+
+                    {/* Coluna 6: Documentos */}
                     <td className="p-5">
                       <div className="flex items-center gap-1.5">
                         {nota.url_xml ? (
@@ -805,11 +1011,23 @@ export default function NotasFiscais() {
                         )}
                       </div>
                     </td>
+
+                    {/* Coluna 7: Ações Rápidas */}
                     <td className="p-5 text-center">
-                      <div className="flex justify-center items-center gap-2">
+                      <div className="flex justify-center items-center gap-1.5">
+                        
+                        {/* ✏️ NOVO BOTÃO: EDITAR NOTA & VÍNCULOS PÓS-CADASTRO */}
+                        <button 
+                          onClick={() => abrirModalEditar(nota)}
+                          className="px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-2xs border border-blue-200 text-[11px] font-black uppercase tracking-wider flex items-center gap-1"
+                          title="Editar dados da nota ou alterar vínculo com OS/Compra"
+                        >
+                          ✏️ Editar
+                        </button>
+
                         <button 
                           onClick={() => abrirModalAnexos(nota)}
-                          className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-xl hover:bg-amber-600 hover:text-white transition-all shadow-sm border border-amber-200 text-[11px] font-black uppercase tracking-wider flex items-center gap-1"
+                          className="px-2.5 py-1.5 bg-amber-50 text-amber-700 rounded-xl hover:bg-amber-600 hover:text-white transition-all shadow-2xs border border-amber-200 text-[11px] font-black uppercase tracking-wider flex items-center gap-1"
                           title="Anexar ou atualizar DANFE/XML da nota"
                         >
                           📎 Anexar
@@ -817,15 +1035,17 @@ export default function NotasFiscais() {
 
                         <button 
                           onClick={() => verItensNota(nota)} 
-                          className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 text-[11px] font-black uppercase tracking-wider"
+                          className="px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-2xs border border-indigo-100 text-[11px] font-black uppercase tracking-wider"
                           title="Ver insumos lançados no estoque"
                         >
                           📦 Itens
                         </button>
-                        <button onClick={() => verBoletos(nota)} className="px-3 py-1.5 bg-green-50 text-green-700 rounded-xl hover:bg-green-600 hover:text-white transition-all shadow-sm border border-green-100 text-[11px] font-black uppercase tracking-wider">
+
+                        <button onClick={() => verBoletos(nota)} className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-600 hover:text-white transition-all shadow-2xs border border-emerald-100 text-[11px] font-black uppercase tracking-wider">
                           📁 Boletos ({nota.total_boletos || 0})
                         </button>
-                        <button onClick={() => handleExcluirNota(nota.id)} className="p-1.5 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-sm border border-red-100 text-xs" title="Remover Nota">
+
+                        <button onClick={() => handleExcluirNota(nota.id)} className="p-1.5 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all shadow-2xs border border-red-100 text-xs" title="Remover Nota">
                           🗑️
                         </button>
                       </div>
@@ -918,26 +1138,53 @@ export default function NotasFiscais() {
                 </div>
               )}
 
-              {/* VÍNCULO COM SOLICITAÇÃO DE COMPRA */}
-              <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200">
-                <label className="text-[10px] font-black text-amber-800 uppercase tracking-widest block mb-1">
-                  🛒 Vincular a uma Solicitação de Compra Pendente (Opcional)
-                </label>
-                <select
-                  className="w-full p-3 border-2 border-amber-200 rounded-xl outline-none bg-white font-bold text-xs text-slate-800 focus:border-amber-500"
-                  value={novaNota.solicitacao_compra_id}
-                  onChange={e => setNovaNota({ ...novaNota, solicitacao_compra_id: e.target.value })}
-                >
-                  <option value="">Nenhuma solicitação vinculada</option>
-                  {solicitacoesPendentes.map(s => (
-                    <option key={s.id} value={s.id}>
-                      OS #{s.id} — Setor: {s.setor_nome || 'Geral'} | Motivo: {s.motivo?.substring(0, 40)}...
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[9px] text-amber-700 font-bold mt-1">
-                  💡 Ao vincular, o status da solicitação de compra será atualizado automaticamente para "Entregue".
-                </p>
+              {/* VÍNCULO COM ORIGEM: ORDEM DE SERVIÇO OU SOLICITAÇÃO DE COMPRA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                
+                {/* Vínculo 1: Ordem de Serviço / Chamado */}
+                <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-200">
+                  <label className="text-[10px] font-black text-blue-900 uppercase tracking-widest block mb-1">
+                    🔧 Vincular à Ordem de Serviço / OS (Opcional)
+                  </label>
+                  <select
+                    className="w-full p-2.5 border-2 border-blue-200 rounded-xl outline-none bg-white font-bold text-xs text-slate-800 focus:border-blue-500"
+                    value={novaNota.chamado_id}
+                    onChange={e => setNovaNota({ ...novaNota, chamado_id: e.target.value })}
+                  >
+                    <option value="">Nenhuma OS vinculada</option>
+                    {chamadosAbertos.map(c => (
+                      <option key={c.id} value={c.id}>
+                        OS #{c.id} — {c.setor_nome || 'Geral'} | {c.equip_nome ? `${c.equip_nome} - ` : ''}{c.titulo?.substring(0, 35)}...
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-blue-700 font-bold mt-1">
+                    💡 Associa o custo fiscal diretamente à OS e ao prontuário do equipamento.
+                  </p>
+                </div>
+
+                {/* Vínculo 2: Solicitação de Compra */}
+                <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200">
+                  <label className="text-[10px] font-black text-amber-900 uppercase tracking-widest block mb-1">
+                    🛒 Vincular à Solicitação de Compra (Opcional)
+                  </label>
+                  <select
+                    className="w-full p-2.5 border-2 border-amber-200 rounded-xl outline-none bg-white font-bold text-xs text-slate-800 focus:border-amber-500"
+                    value={novaNota.solicitacao_compra_id}
+                    onChange={e => setNovaNota({ ...novaNota, solicitacao_compra_id: e.target.value })}
+                  >
+                    <option value="">Nenhum pedido vinculado</option>
+                    {solicitacoesPendentes.map(s => (
+                      <option key={s.id} value={s.id}>
+                        Pedido #{s.id} — Setor: {s.setor_nome || 'Geral'} | Motivo: {s.motivo?.substring(0, 35)}...
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-amber-700 font-bold mt-1">
+                    💡 Atualiza o status do pedido de compra para "Entregue".
+                  </p>
+                </div>
+
               </div>
 
               {/* BLOCO 1: DADOS DA NOTA */}
@@ -975,7 +1222,7 @@ export default function NotasFiscais() {
                 </div>
               </div>
 
-              {/* BLOCO 2: LANÇAMENTO / CADASTRO DE ITENS NO ESTOQUE */}
+              {/* BLOCO 2: ITENS A DAR ENTRADA NO ESTOQUE */}
               <div className="border-t border-slate-100 pt-6 space-y-4">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
@@ -1171,7 +1418,7 @@ export default function NotasFiscais() {
                 )}
               </div>
 
-              {/* BLOCO 3: DUPLICATAS / CRONOGRAMA FINANCEIRO EXTRAÍDO DO XML */}
+              {/* BLOCO 3: DUPLICATAS DO XML */}
               {boletosNovosNota.length > 0 && (
                 <div className="border-t border-slate-100 pt-6 space-y-3">
                   <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-2">
@@ -1215,6 +1462,171 @@ export default function NotasFiscais() {
         </div>
       )}
 
+      {/* --- ✏️ NOVO MODAL: EDITAR DADOS & VÍNCULOS DA NOTA FISCAL (PÓS-LANÇAMENTO) --- */}
+      {modalEditarAberto && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col">
+            <div className="p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center bg-slate-900 shrink-0">
+              <span>✏️ Editar Nota Fiscal & Vínculos de Origem</span>
+              <button onClick={() => setModalEditarAberto(false)} className="hover:scale-110 transition-transform text-sm font-sans font-bold">✕</button>
+            </div>
+
+            <form onSubmit={handleSalvarEdicaoNota} className="p-6 space-y-5 overflow-y-auto max-h-[85vh]">
+              
+              {/* BLOCO DE VÍNCULOS DE ORIGEM */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                  Rastreabilidade & Centro de Custo
+                </h4>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Vínculo com OS */}
+                  <div>
+                    <label className="text-[9px] font-black text-blue-900 uppercase block mb-1">
+                      🔧 Ordem de Serviço Vinculada
+                    </label>
+                    <select
+                      className="w-full p-2.5 border-2 border-slate-200 rounded-xl outline-none bg-white font-bold text-xs text-slate-800 focus:border-blue-500"
+                      value={notaEdicao.chamado_id}
+                      onChange={e => setNotaEdicao({ ...notaEdicao, chamado_id: e.target.value })}
+                    >
+                      <option value="">Sem vínculo com OS</option>
+                      {chamadosAbertos.map(c => (
+                        <option key={c.id} value={c.id}>
+                          OS #{c.id} — {c.setor_nome || 'Geral'} | {c.titulo?.substring(0, 30)}...
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Vínculo com Compra */}
+                  <div>
+                    <label className="text-[9px] font-black text-amber-900 uppercase block mb-1">
+                      🛒 Pedido de Compra Vinculado
+                    </label>
+                    <select
+                      className="w-full p-2.5 border-2 border-slate-200 rounded-xl outline-none bg-white font-bold text-xs text-slate-800 focus:border-amber-500"
+                      value={notaEdicao.solicitacao_compra_id}
+                      onChange={e => setNotaEdicao({ ...notaEdicao, solicitacao_compra_id: e.target.value })}
+                    >
+                      <option value="">Sem vínculo com Pedido</option>
+                      {solicitacoesPendentes.map(s => (
+                        <option key={s.id} value={s.id}>
+                          Pedido #{s.id} — {s.setor_nome || 'Geral'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* DADOS CADASTRAIS DA NOTA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Número da NF *</label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.numero_nf}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, numero_nf: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Série</label>
+                  <input
+                    type="text"
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-medium bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.serie}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, serie: e.target.value })}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Chave de Acesso (44 dígitos)</label>
+                  <input
+                    type="text"
+                    maxLength={44}
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-mono font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.chave_acesso}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, chave_acesso: e.target.value })}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Fornecedor *</label>
+                  <select
+                    required
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.fornecedor_id}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, fornecedor_id: e.target.value })}
+                  >
+                    <option value="">Selecione o Fornecedor</option>
+                    {fornecedores.map(f => (
+                      <option key={f.id} value={f.id}>{f.nome_fantasia}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Data de Emissão *</label>
+                  <input
+                    type="date"
+                    required
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.data_emissao}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, data_emissao: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Data de Recebimento</label>
+                  <input
+                    type="date"
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.data_recebimento}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, data_recebimento: e.target.value })}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Valor Total (R$) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-sm font-black font-mono bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.valor_total}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, valor_total: e.target.value })}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Observações / Descrição</label>
+                  <textarea
+                    rows={2}
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs bg-white text-slate-800 outline-none focus:border-blue-500 font-medium"
+                    value={notaEdicao.descricao}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, descricao: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setModalEditarAberto(false)}
+                  className="px-5 py-2.5 text-slate-400 font-black text-xs uppercase tracking-wider hover:text-slate-600 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoEdicao}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-blue-100 disabled:opacity-50"
+                >
+                  {salvandoEdicao ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL 2: GESTÃO DE BOLETOS VINCULADOS --- */}
       {modalBoletosAberto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1245,6 +1657,8 @@ export default function NotasFiscais() {
                   </button>
                 </div>
                 <div className="col-span-4">
+                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Linha Digitável / Código de Barras (Opcional)</label>
+                  <input type="text" placeholder="Cole aqui os 47 dígitos do boleto..." className="w-full p-2 border-2 border-slate-100 rounded-xl outline-none text-xs font-mono bg-white text-slate-800 mb-2" value={novoBoleto.linha_digitavel} onChange={e => setNovoBoleto({...novoBoleto, linha_digitavel: e.target.value})} />
                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Documento PDF do Boleto</label>
                   <input type="file" accept=".pdf" className="text-xs font-mono" onChange={e => setArquivoBoleto(e.target.files[0])} />
                 </div>
@@ -1266,6 +1680,17 @@ export default function NotasFiscais() {
                             </span>
                           </div>
                           <div className="text-xs text-slate-400 font-medium">Vencimento: <span className="font-mono text-slate-500 font-bold">{new Date(b.data_vencimento).toLocaleDateString('pt-BR', { timeZone: 'UTC' })}</span></div>
+                          
+                          {(b.linha_digitavel || b.codigo_barras) && (
+                            <button
+                              type="button"
+                              onClick={() => copiarTexto(b.linha_digitavel || b.codigo_barras, b.id)}
+                              className="text-[10px] font-mono text-blue-600 hover:underline block pt-0.5"
+                            >
+                              {copiadoId === b.id ? '✓ Código Copiado!' : '📋 Copiar Linha Digitável'}
+                            </button>
+                          )}
+
                           <div className="flex gap-2 pt-1">
                             {b.url_boleto_pdf && <a href={`${API_URL.replace('/api', '')}${b.url_boleto_pdf}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-blue-500 hover:underline">📄 Ver Duplicata</a>}
                             {b.url_comprovante_pdf && <a href={`${API_URL.replace('/api', '')}${b.url_comprovante_pdf}`} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-green-600 hover:underline">🧾 Ver Recibo/Comprovante</a>}

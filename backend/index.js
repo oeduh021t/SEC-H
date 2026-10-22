@@ -2650,6 +2650,11 @@ app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, re
         SELECT 
             nf.*, 
             f.nome_fantasia as fornecedor_nome,
+            -- Rastreabilidade de Origem
+            sc.id as solicitacao_compra_id,
+            sc.chamado_id as os_vinculada_id,
+            c.titulo as os_titulo,
+            oe.codigo_orcamento,
             COUNT(b.id) as total_boletos,
             SUM(CASE WHEN b.status_pagamento != 'Pago' AND b.data_vencimento < CURDATE() THEN 1 ELSE 0 END) as boletos_atrasados,
             SUM(CASE WHEN b.status_pagamento != 'Pago' AND b.data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 5 DAY) THEN 1 ELSE 0 END) as boletos_vencendo_breve,
@@ -2657,6 +2662,9 @@ app.get('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), (req, re
         FROM notas_fiscais nf
         JOIN fornecedores f ON nf.fornecedor_id = f.id
         LEFT JOIN boletos b ON b.nota_fiscal_id = nf.id
+        LEFT JOIN solicitacoes_compra sc ON sc.nota_fiscal_id = nf.id
+        LEFT JOIN chamados c ON sc.chamado_id = c.id
+        LEFT JOIN orcamentos_externos oe ON sc.orcamento_externo_id = oe.id
         GROUP BY nf.id
         ORDER BY boletos_atrasados DESC, boletos_vencendo_breve DESC, nf.data_emissao DESC
     `;
@@ -2953,6 +2961,107 @@ app.delete('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (
     db.query(`DELETE FROM notas_fiscais WHERE id = ?`, [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ message: "Nota Fiscal e seus boletos associados foram deletados!" });
+    });
+});
+
+// ✏️ ATUALIZAR DADOS E VÍNCULOS DE NOTA FISCAL EXISTENTE (PÓS-LANÇAMENTO)
+app.put('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { 
+        numero_nf, serie, chave_acesso, fornecedor_id, 
+        data_emissao, data_recebimento, valor_total, descricao, 
+        solicitacao_compra_id, chamado_id 
+    } = req.body;
+
+    const v_fornecedor = fornecedor_id ? Number(fornecedor_id) : null;
+    const v_valor = valor_total !== undefined && valor_total !== null && valor_total !== '' ? Number(valor_total) : 0.00;
+    const v_solicitacao = solicitacao_compra_id && solicitacao_compra_id !== "" && solicitacao_compra_id !== "null" ? Number(solicitacao_compra_id) : null;
+    const v_chamado = chamado_id && chamado_id !== "" && chamado_id !== "null" ? Number(chamado_id) : null;
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Atualiza cabeçalho da nota
+        const queryUpdate = `
+            UPDATE notas_fiscais 
+            SET numero_nf = ?, 
+                serie = ?, 
+                chave_acesso = ?, 
+                fornecedor_id = ?, 
+                data_emissao = ?, 
+                data_recebimento = ?, 
+                valor_total = ?, 
+                descricao = ?
+            WHERE id = ?
+        `;
+        const valuesUpdate = [
+            numero_nf,
+            serie || null,
+            chave_acesso || null,
+            v_fornecedor,
+            data_emissao,
+            data_recebimento || null,
+            v_valor,
+            descricao || null,
+            id
+        ];
+
+        conn.query(queryUpdate, valuesUpdate, (errUp) => {
+            if (errUp) {
+                return conn.rollback(() => {
+                    conn.release();
+                    console.error("❌ Erro ao atualizar nota fiscal:", errUp.message);
+                    res.status(500).json({ error: errUp.message });
+                });
+            }
+
+            // 2. Trata desvinculação anterior de solicitação de compra para não deixar rastros órfãos
+            const queryLimpaSolicitacao = `UPDATE solicitacoes_compra SET nota_fiscal_id = NULL WHERE nota_fiscal_id = ?`;
+            conn.query(queryLimpaSolicitacao, [id], (errLimpa) => {
+                if (errLimpa) {
+                    return conn.rollback(() => { conn.release(); res.status(500).json({ error: errLimpa.message }); });
+                }
+
+                // 3. Se houver nova solicitação de compra vinculada, associa e marca como Entregue
+                const associarSolicitacao = (proximoPasso) => {
+                    if (v_solicitacao) {
+                        const queryAssocia = `UPDATE solicitacoes_compra SET nota_fiscal_id = ?, status = 'Entregue' WHERE id = ?`;
+                        conn.query(queryAssocia, [id, v_solicitacao], (errAssoc) => {
+                            if (errAssoc) console.error("⚠️ Alerta ao reassociar compra:", errAssoc.message);
+                            proximoPasso();
+                        });
+                    } else {
+                        proximoPasso();
+                    }
+                };
+
+                // 4. Se houver vínculo direto com chamado/OS, registra histórico de auditoria na OS
+                associarSolicitacao(() => {
+                    if (v_chamado) {
+                        const msgLog = `[🧾 VÍNCULO FISCAL ATUALIZADO] Nota Fiscal #${numero_nf} vinculada a esta OS. Valor: R$ ${v_valor.toFixed(2)}.`;
+                        const qHist = `
+                            INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
+                            VALUES (?, 'Sistema / Faturamento', ?, 'Em Atendimento', NOW())
+                        `;
+                        conn.query(qHist, [v_chamado, msgLog], (errHist) => {
+                            if (errHist) console.error("⚠️ Alerta ao gerar log na OS:", errHist.message);
+
+                            conn.commit((errCommit) => {
+                                if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                                conn.release();
+                                res.json({ message: "Nota Fiscal e vínculos atualizados com sucesso! 📝✅" });
+                            });
+                        });
+                    } else {
+                        conn.commit((errCommit) => {
+                            if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+                            conn.release();
+                            res.json({ message: "Nota Fiscal e vínculos atualizados com sucesso! 📝✅" });
+                        });
+                    }
+                });
+            });
+        });
     });
 });
 
@@ -5906,7 +6015,7 @@ app.get('/api/orcamentos-externos/:id', (req, res) => {
     });
 });
 
-// 5. Aprovar Orçamento, Contabilizar Gasto Predial e Rastrear no Histórico do Ativo
+// 5. Aprovação com Separação Contábil Estrita (Evita Furo de Duplicação)
 app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
     const nivel = (req.headers['x-usuario-nivel'] || '').toLowerCase().trim();
     if (!['admin', 'coordenador'].includes(nivel)) {
@@ -5920,7 +6029,7 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
     const queryBusca = `
         SELECT o.*, 
                COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Avulso') AS fornecedor_nome,
-               COALESCE(s.nome, 'Manutenção Predial') AS setor_nome
+               COALESCE(s.nome, 'Manutenção Geral') AS setor_nome
         FROM orcamentos_externos o
         LEFT JOIN fornecedores f ON o.fornecedor_id = f.id
         LEFT JOIN setores s ON o.setor_id = s.id
@@ -5948,37 +6057,11 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
         `;
 
         db.query(queryUpdate, [usuarioId, justificativa || 'Aprovado para execução imediata', orcamentoId], (errUp) => {
-            if (errUp) {
-                console.error("❌ Erro ao atualizar status do orçamento:", errUp.message);
-                return res.status(500).json({ error: `Erro no banco: ${errUp.message}` });
-            }
+            if (errUp) return res.status(500).json({ error: `Erro no banco: ${errUp.message}` });
 
-            // 1. Lança automaticamente no centro de custos / despesas prediais
-            const queryDespesa = `
-                INSERT INTO despesas_prediais 
-                (orcamento_id, setor_id, fornecedor_id, codigo_referencia, categoria, descricao, valor_total, forma_pagamento, data_competencia, status_pagamento, aprovado_por_id)
-                VALUES (?, ?, ?, ?, 'Manutenção Predial / Obras', ?, ?, ?, CURDATE(), 'Pendente', ?)
-            `;
-
-            const descricaoDespesa = `Obra/Serviço: ${orc.fornecedor_nome} (Lote ${orc.codigo_orcamento})`;
-
-            db.query(queryDespesa, [
-                orcamentoId,
-                orc.setor_id || null,
-                orc.fornecedor_id,
-                orc.codigo_orcamento,
-                descricaoDespesa,
-                orc.valor_total,
-                forma_pagamento || orc.observacoes || 'Conforme Proposta Comercial',
-                usuarioId
-            ], (errDesp) => {
-                if (errDesp) console.error("⚠️ Alerta ao gerar despesa predial:", errDesp.message);
-            });
-
-            // 2. Processa os itens para avançar OSs e registrar custo no histórico do equipamento
+            // 1. Busca os itens para verificar o que é máquina (OS) e o que é obra pura (Avulso)
             const queryItens = `
-                SELECT oi.chamado_id, oi.equipamento_id, oi.valor_unitario, oi.item_titulo, 
-                       c.equipamento_id as eq_chamado 
+                SELECT oi.*, c.equipamento_id as eq_chamado 
                 FROM orcamentos_externos_itens oi
                 LEFT JOIN chamados c ON oi.chamado_id = c.id
                 WHERE oi.orcamento_id = ?
@@ -5986,10 +6069,37 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
 
             db.query(queryItens, [orcamentoId], (errItens, itens) => {
                 if (!errItens && itens && itens.length > 0) {
+                    
+                    // SOMA APENAS O QUE FOR ESTRUTURAL/PREDIAL (SEM OS E SEM ATIVO)
+                    const itensPrediaisPuros = itens.filter(i => !i.chamado_id && !i.equipamento_id);
+                    const totalPredialReal = itensPrediaisPuros.reduce((acc, it) => acc + Number(it.valor_unitario || 0), 0);
+
+                    // Só insere em despesas_prediais se houver valor predial real
+                    if (totalPredialReal > 0) {
+                        const queryDespesa = `
+                            INSERT INTO despesas_prediais 
+                            (orcamento_id, setor_id, fornecedor_id, codigo_referencia, categoria, descricao, valor_total, forma_pagamento, data_competencia, status_pagamento, aprovado_por_id)
+                            VALUES (?, ?, ?, ?, 'Manutenção Predial / Obras', ?, ?, ?, CURDATE(), 'Pendente', ?)
+                        `;
+                        const desc = `Serviço Estrutural/Predial: ${orc.fornecedor_nome} (Lote ${orc.codigo_orcamento})`;
+
+                        db.query(queryDespesa, [
+                            orcamentoId,
+                            orc.setor_id || null,
+                            orc.fornecedor_id,
+                            orc.codigo_orcamento,
+                            desc,
+                            totalPredialReal,
+                            forma_pagamento || orc.observacoes || 'Conforme Proposta Comercial',
+                            usuarioId
+                        ]);
+                    }
+
+                    // 2. Atualiza os chamados e o histórico de cada equipamento
                     itens.forEach(item => {
-                        // Atualiza o chamado se houver com status padronizado
                         if (item.chamado_id) {
-                            db.query(`UPDATE chamados SET status = 'Em Atendimento' WHERE id = ?`, [item.chamado_id]);
+                            db.query(`UPDATE chamados SET custo_servico = ?, fornecedor_id = ?, status = 'Em Atendimento' WHERE id = ?`, 
+                                [Number(item.valor_unitario) || 0, orc.fornecedor_id, item.chamado_id]);
                             
                             db.query(
                                 `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, 'Sistema', ?, 'Em Atendimento', NOW())`,
@@ -5997,22 +6107,17 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
                             );
                         }
 
-                        // Registra o custo/serviço no histórico do equipamento correspondente
                         const equipId = item.equipamento_id || item.eq_chamado;
                         const valorItem = Number(item.valor_unitario) || 0;
 
                         if (equipId) {
-                            const descLog = `Orçamento Aprovado: ${orc.codigo_orcamento} | ${item.item_titulo || 'Manutenção Externa'} - Fornecedor: ${orc.fornecedor_nome} (R$ ${valorItem.toFixed(2)})`;
-                            
+                            const descLog = `Orçamento Aprovado: ${orc.codigo_orcamento} | ${item.item_titulo || 'Manutenção'} - Prestador: ${orc.fornecedor_nome} (R$ ${valorItem.toFixed(2)})`;
                             const queryHistoricoAtivo = `
                                 INSERT INTO equipamentos_historico 
                                 (equipamento_id, descricao_log, tecnico_nome, status_anterior, status_novo, data_movimentacao)
                                 VALUES (?, ?, 'Sistema', 'Em Manutenção', 'Aprovado Orçamento', NOW())
                             `;
-
-                            db.query(queryHistoricoAtivo, [equipId, descLog], (errHist) => {
-                                if (errHist) console.error("⚠️ Erro ao inserir no histórico do equipamento:", errHist.message);
-                            });
+                            db.query(queryHistoricoAtivo, [equipId, descLog]);
                         }
                     });
                 }
@@ -6020,7 +6125,7 @@ app.patch('/api/orcamentos-externos/:id/aprovar', (req, res) => {
 
             return res.json({ 
                 success: true, 
-                message: `Orçamento ${orc.codigo_orcamento} aprovado, registrado nas despesas prediais e vinculado ao histórico dos ativos! 💰🏢` 
+                message: `Orçamento ${orc.codigo_orcamento} aprovado com conformidade contábil (sem duplicação)! 💰✅` 
             });
         });
     });
