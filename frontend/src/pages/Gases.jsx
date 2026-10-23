@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 
 const Gases = () => {
     const [gases, setGases] = useState([]);
     const [setores, setSetores] = useState([]);
+    const [fornecedores, setFornecedores] = useState([]);
     const [historico, setHistorico] = useState([]);
     const [manifold, setManifold] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -19,18 +20,19 @@ const Gases = () => {
     // Formulários
     const [formNovoGas, setFormNovoGas] = useState({ tipo_gas: '', capacidade_cilindro: '', estoque_minimo: 5 });
     
-    // Formulário de Compra Corrigido com NF e Fornecedor separados
+    // Formulário de Compra com Fornecedor Homologado
     const [formCompra, setFormCompra] = useState({ 
         tipo_gas_id: '', 
         quantidade_cilindros: '', 
         valor_unitario_cilindro: '', 
         numero_nf: '',
+        fornecedor_id: '',
         fornecedor_nome: '',
         observacao: '' 
     });
     const [comprovanteCompra, setComprovanteCompra] = useState(null);
     
-    // Formulário de Envio Setorial Simplificado por Quantidade
+    // Formulário de Envio Setorial
     const [formEnvio, setFormEnvio] = useState({ 
         tipo_gas_id: '', 
         quantidade_cilindros: 1, 
@@ -38,7 +40,12 @@ const Gases = () => {
         observacao: '' 
     });
     
-    const [obsVirada, setObsVirada] = useState('');
+    // Formulário de Virada com Campos de Pressão
+    const [dadosVirada, setDadosVirada] = useState({
+        pressao_rede_bar: '4.5',
+        pressao_cilindros_bar: '150',
+        observacao: ''
+    });
 
     const API_URL = '/api';
     const BASE_URL = '';
@@ -56,17 +63,19 @@ const Gases = () => {
         setLoading(true);
         try {
             const headers = { 'x-usuario-nivel': nivel };
-            const [resGases, resHist, resManifold, resSetores] = await Promise.all([
+            const [resGases, resHist, resManifold, resSetores, resForn] = await Promise.all([
                 fetch(`${API_URL}/gases`, { headers }).then(r => r.json()),
                 fetch(`${API_URL}/gases/historico`, { headers }).then(r => r.json()),
                 fetch(`${API_URL}/gases/manifold`, { headers }).then(r => r.json()),
-                fetch(`${API_URL}/setores`, { headers }).then(r => r.json())
+                fetch(`${API_URL}/setores`, { headers }).then(r => r.json()),
+                fetch(`${API_URL}/fornecedores`, { headers }).then(r => r.json())
             ]);
 
             setGases(Array.isArray(resGases) ? resGases : []);
             setHistorico(Array.isArray(resHist) ? resHist : []);
             setManifold(resManifold);
             setSetores(Array.isArray(resSetores) ? resSetores : []);
+            setFornecedores(Array.isArray(resForn) ? resForn : []);
         } catch (err) {
             console.error("Erro ao carregar central de gases:", err);
         } finally {
@@ -78,24 +87,66 @@ const Gases = () => {
         carregarDados();
     }, []);
 
-    // ⏱️ CÁLCULO DINÂMICO DE TEMPO DE CONSUMO DO RAMAL EM USO
+    // ⏱️ CÁLCULO DINÂMICO DE TEMPO DE CONSUMO
     const calcularTempoEmUso = (dataUltimaViradaStr) => {
-        if (!dataUltimaViradaStr) return 'Recém instalado';
+        if (!dataUltimaViradaStr) return { texto: 'Recém instalado', minutosTotais: 0, horasDecimais: 0 };
         const inicio = new Date(dataUltimaViradaStr);
         const diffMs = Math.max(0, agora - inicio);
         const minutosTotais = Math.floor(diffMs / (1000 * 60));
+        const horasDecimais = Number((minutosTotais / 60).toFixed(1));
         const dias = Math.floor(minutosTotais / 1440);
         const horas = Math.floor((minutosTotais % 1440) / 60);
         const minutos = minutosTotais % 60;
 
-        if (dias > 0) return `${dias}d ${horas}h ${minutos}m em operação`;
-        if (horas > 0) return `${horas}h ${minutos}m em operação`;
-        return `${minutos} minutos em operação`;
+        let texto = `${minutos} minutos`;
+        if (dias > 0) texto = `${dias}d ${horas}h ${minutos}m`;
+        else if (horas > 0) texto = `${horas}h ${minutos}m`;
+
+        return { texto, minutosTotais, horasDecimais };
     };
+
+    const statusTempoRamal = useMemo(() => {
+        return calcularTempoEmUso(manifold?.data_ultima_virada);
+    }, [manifold?.data_ultima_virada, agora]);
+
+    // Média de horas de duração das últimas viradas
+    const historicoViradas = useMemo(() => {
+        return historico.filter(h => h.tempo_duracao_horas && Number(h.tempo_duracao_horas) > 0);
+    }, [historico]);
+
+    const mediaHorasVirada = useMemo(() => {
+        if (historicoViradas.length === 0) return null;
+        return Number((historicoViradas.reduce((acc, h) => acc + Number(h.tempo_duracao_horas), 0) / historicoViradas.length).toFixed(1));
+    }, [historicoViradas]);
+
+    // 🔮 CÁLCULO PREDITIVO DE PRÓXIMA VIRADA
+    const predicaoVirada = useMemo(() => {
+        if (!mediaHorasVirada || !manifold?.data_ultima_virada) return null;
+        
+        const horasDecorridas = statusTempoRamal.horasDecimais;
+        const horasRestantes = Math.max(0, Number((mediaHorasVirada - horasDecorridas).toFixed(1)));
+        const percentualConsumido = Math.min(100, Math.round((horasDecorridas / mediaHorasVirada) * 100));
+
+        const dataEstimada = new Date(new Date(manifold.data_ultima_virada).getTime() + (mediaHorasVirada * 60 * 60 * 1000));
+        const alertaCritico = horasRestantes <= 4;
+
+        return {
+            horasRestantes,
+            percentualConsumido,
+            dataEstimada,
+            alertaCritico
+        };
+    }, [mediaHorasVirada, manifold?.data_ultima_virada, statusTempoRamal.horasDecimais]);
 
     // Handlers
     const handleViradaManifold = async (e) => {
         e.preventDefault();
+        
+        const obsFormatada = [
+            `Pressão de Rede: ${dadosVirada.pressao_rede_bar} bar | Pressão Cilindros: ${dadosVirada.pressao_cilindros_bar} bar`,
+            dadosVirada.observacao ? `Obs: ${dadosVirada.observacao.trim()}` : ''
+        ].filter(Boolean).join(' | ');
+
         try {
             const res = await fetch(`${API_URL}/gases/manifold/virada`, {
                 method: 'POST',
@@ -103,14 +154,14 @@ const Gases = () => {
                 body: JSON.stringify({
                     ramal_que_esvaziou: manifold?.ramal_ativo || 'A',
                     tecnico_nome: user.nome,
-                    observacao: obsVirada
+                    observacao: obsFormatada
                 })
             });
             const data = await res.json();
             if (res.ok) {
                 alert(`✅ ${data.message}`);
                 setModalViradaManifold(false);
-                setObsVirada('');
+                setDadosVirada({ pressao_rede_bar: '4.5', pressao_cilindros_bar: '150', observacao: '' });
                 carregarDados();
             } else {
                 alert(`❌ Erro: ${data.error}`);
@@ -123,17 +174,22 @@ const Gases = () => {
     const handleRegistrarCompra = async (e) => {
         e.preventDefault();
         
-        // Trata a observação para incluir NF e Fornecedor se digitados
-        let obsFinal = formCompra.observacao || '';
-        if (formCompra.numero_nf || formCompra.fornecedor_nome) {
-            const detalhes = [
-                formCompra.numero_nf ? `NF: ${formCompra.numero_nf}` : '',
-                formCompra.fornecedor_nome ? `Forn: ${formCompra.fornecedor_nome}` : ''
-            ].filter(Boolean).join(' | ');
-            obsFinal = obsFinal ? `${detalhes} - ${obsFinal}` : detalhes;
+        // Localiza fornecedor se selecionado pelo select
+        let nomeFornFinal = formCompra.fornecedor_nome;
+        if (formCompra.fornecedor_id) {
+            const fSel = fornecedores.find(f => String(f.id) === String(formCompra.fornecedor_id));
+            if (fSel) nomeFornFinal = fSel.nome_fantasia || fSel.razao_social;
         }
 
-        // Garante que o valor venha com ponto em vez de vírgula
+        let obsFinal = formCompra.observacao || '';
+        if (formCompra.numero_nf || nomeFornFinal) {
+            const detalhes = [
+                formCompra.numero_nf ? `NF: ${formCompra.numero_nf}` : '',
+                nomeFornFinal ? `Forn: ${nomeFornFinal}` : ''
+            ].filter(Boolean).join(' | ');
+            obsFinal = obsFinal ? `${detalhes} | ${obsFinal}` : detalhes;
+        }
+
         const valorLimpo = String(formCompra.valor_unitario_cilindro || '0').replace(',', '.');
 
         const formData = new FormData();
@@ -151,13 +207,14 @@ const Gases = () => {
                 body: formData
             });
             if (res.ok) {
-                alert("Compra e comprovante registrados com sucesso! 🛒📄");
+                alert("Entrada de cilindros e comprovante registados com sucesso! 🛒📄");
                 setModalCompra(false);
                 setFormCompra({ 
                     tipo_gas_id: '', 
                     quantidade_cilindros: '', 
                     valor_unitario_cilindro: '', 
                     numero_nf: '',
+                    fornecedor_id: '',
                     fornecedor_nome: '',
                     observacao: '' 
                 });
@@ -203,7 +260,7 @@ const Gases = () => {
                 body: JSON.stringify(formNovoGas)
             });
             if (res.ok) {
-                alert("Novo gás adicionado com sucesso!");
+                alert("Novo gás medicinal adicionado com sucesso!");
                 setModalNovoGas(false);
                 setFormNovoGas({ tipo_gas: '', capacidade_cilindro: '', estoque_minimo: 5 });
                 carregarDados();
@@ -245,17 +302,41 @@ const Gases = () => {
         .filter(h => h.tipo_movimentacao === 'Saida')
         .reduce((acc, curr) => acc + Number(curr.quantidade_cilindros || 0), 0);
 
-    // Média de horas de duração das últimas viradas
-    const historicoViradas = historico.filter(h => h.tempo_duracao_horas && Number(h.tempo_duracao_horas) > 0);
-    const mediaHorasVirada = historicoViradas.length > 0 
-        ? (historicoViradas.reduce((acc, h) => acc + Number(h.tempo_duracao_horas), 0) / historicoViradas.length).toFixed(1)
-        : null;
-
     return (
         <div className="p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
             
+            {/* 🖨️ MOTOR DE IMPRESSÃO ISOLADO DO LIVRO DE REGISTO */}
+            <style>{`
+                @media print {
+                    body * {
+                        visibility: hidden !important;
+                        background: transparent !important;
+                    }
+                    .gases-print-container, 
+                    .gases-print-container * {
+                        visibility: visible !important;
+                    }
+                    .gases-print-container {
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
+                        margin: 0 !important;
+                        padding: 20px !important;
+                        background: white !important;
+                    }
+                    .no-print {
+                        display: none !important;
+                    }
+                    .gases-card-print {
+                        break-inside: avoid !important;
+                        page-break-inside: avoid !important;
+                    }
+                }
+            `}</style>
+
             {/* CABEÇALHO */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 gap-4">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 gap-4 no-print">
                 <div className="flex items-center gap-3">
                     <span className="text-2xl bg-sky-100 text-sky-600 p-3 rounded-2xl">🧪</span>
                     <div>
@@ -285,22 +366,32 @@ const Gases = () => {
                         <span>🛒</span> Entrada / Comprovante
                     </button>
                     <button 
-                        onClick={handleExportarExcel}
+                        onClick={handleExportarExcel} 
                         disabled={exportando}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
                     >
                         <span>📊</span> {exportando ? '...' : 'Excel'}
                     </button>
+                    <button 
+                        onClick={() => {
+                            setAbaAtiva('historico');
+                            setTimeout(() => window.print(), 250);
+                        }} 
+                        className="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                        title="Imprimir Livro de Rastreabilidade para Auditoria / Anvisa"
+                    >
+                        <span>🖨️</span> Imprimir Livro
+                    </button>
                 </div>
             </div>
 
             {/* CARDS DE INDICADORES RÁPIDOS */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 no-print">
                 <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between">
                     <div>
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Tempo do Ramal Ativo</span>
                         <p className="text-base font-black text-emerald-600 mt-0.5">
-                            ⏱️ {calcularTempoEmUso(manifold?.data_ultima_virada)}
+                            ⏱️ {statusTempoRamal.texto}
                         </p>
                     </div>
                     <span className="text-2xl">⏳</span>
@@ -337,8 +428,48 @@ const Gases = () => {
                 </div>
             </div>
 
+            {/* 🔮 ALERTA PREDITIVO DE PRÓXIMA VIRADA (SAFETY GUARD) */}
+            {predicaoVirada && (
+                <div className={`mb-6 p-5 rounded-3xl border transition-all shadow-sm no-print ${
+                    predicaoVirada.alertaCritico 
+                        ? 'bg-rose-50 border-rose-200 text-rose-900 animate-pulse' 
+                        : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 text-blue-900'
+                }`}>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                        <div className="space-y-1">
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full inline-block ${
+                                predicaoVirada.alertaCritico ? 'bg-rose-200 text-rose-800' : 'bg-blue-200 text-blue-800'
+                            }`}>
+                                {predicaoVirada.alertaCritico ? '🚨 Alerta: Previsão de Virada Iminente' : '🔮 Previsão Inteligente de Consumo'}
+                            </span>
+                            <h4 className="text-sm font-black uppercase tracking-tight">
+                                Estimativa de Esgotamento do Ramal {manifold?.ramal_ativo}: ~{predicaoVirada.horasRestantes} horas restantes
+                            </h4>
+                            <p className="text-xs font-medium opacity-80">
+                                Próxima virada provável em: <strong>{predicaoVirada.dataEstimada.toLocaleString('pt-BR')}</strong> (baseada no consumo histórico de ~{mediaHorasVirada}h por carga)
+                            </p>
+                        </div>
+
+                        <div className="w-full md:w-64 bg-white/70 p-3 rounded-2xl border border-white">
+                            <div className="flex justify-between text-[10px] font-black uppercase mb-1">
+                                <span>Carga Consumida</span>
+                                <span>{predicaoVirada.percentualConsumido}%</span>
+                            </div>
+                            <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div 
+                                    className={`h-full transition-all duration-500 rounded-full ${
+                                        predicaoVirada.alertaCritico ? 'bg-rose-600' : 'bg-blue-600'
+                                    }`}
+                                    style={{ width: `${predicaoVirada.percentualConsumido}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ABAS */}
-            <div className="flex border-b border-slate-200 mb-6 gap-6">
+            <div className="flex border-b border-slate-200 mb-6 gap-6 no-print">
                 <button 
                     onClick={() => setAbaAtiva('manifold')}
                     className={`pb-3 font-black text-xs uppercase tracking-widest transition-all ${abaAtiva === 'manifold' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-400'}`}
@@ -361,7 +492,7 @@ const Gases = () => {
 
             {/* ABA 1: MANIFOLD */}
             {abaAtiva === 'manifold' && (
-                <div className="space-y-6">
+                <div className="space-y-6 no-print">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         
                         {/* RAMAL A */}
@@ -398,7 +529,7 @@ const Gases = () => {
                                 <span>Status: <strong>{manifold?.ramal_ativo === 'A' ? 'Gás fluindo na rede hospitalar' : 'Pronto para assumir na virada'}</strong></span>
                                 {manifold?.ramal_ativo === 'A' && (
                                     <span className="font-bold text-emerald-700 font-mono text-[11px] bg-emerald-100/60 px-2 py-0.5 rounded">
-                                        ⏱️ {calcularTempoEmUso(manifold?.data_ultima_virada)}
+                                        ⏱️ {statusTempoRamal.texto} em operação
                                     </span>
                                 )}
                             </div>
@@ -438,7 +569,7 @@ const Gases = () => {
                                 <span>Status: <strong>{manifold?.ramal_ativo === 'B' ? 'Gás fluindo na rede hospitalar' : 'Pronto para assumir na virada'}</strong></span>
                                 {manifold?.ramal_ativo === 'B' && (
                                     <span className="font-bold text-emerald-700 font-mono text-[11px] bg-emerald-100/60 px-2 py-0.5 rounded">
-                                        ⏱️ {calcularTempoEmUso(manifold?.data_ultima_virada)}
+                                        ⏱️ {statusTempoRamal.texto} em operação
                                     </span>
                                 )}
                             </div>
@@ -467,7 +598,7 @@ const Gases = () => {
 
             {/* ABA 2: ESTOQUE */}
             {abaAtiva === 'estoque' && (
-                <div className="space-y-4">
+                <div className="space-y-4 no-print">
                     <div className="flex justify-end">
                         <button onClick={() => setModalNovoGas(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm">
                             + Cadastrar Novo Gás
@@ -509,155 +640,170 @@ const Gases = () => {
                 </div>
             )}
 
-            {/* ABA 3: HISTÓRICO E RASTREABILIDADE REFINADO */}
-{abaAtiva === 'historico' && (
-    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-            <div>
-                <h3 className="text-sm font-black uppercase text-slate-800 tracking-wide flex items-center gap-2">
-                    <span>📑</span> Livro de Registro & Rastreabilidade de Movimentações
-                </h3>
-                <p className="text-[11px] text-slate-400 font-bold uppercase">
-                    Auditoria de viradas de manifold, transferências setoriais e notas de entrada
-                </p>
-            </div>
-            <span className="text-xs font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-xl">
-                {historico.length} {historico.length === 1 ? 'registro' : 'registros'}
-            </span>
-        </div>
+            {/* ABA 3: HISTÓRICO E RASTREABILIDADE (ALVO DA IMPRESSÃO / AUDITORIA) */}
+            {abaAtiva === 'historico' && (
+                <div className="gases-print-container space-y-6">
+                    
+                    {/* CABEÇALHO PARA IMPRESSÃO HOSPITALAR */}
+                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 print:border-b-2 print:border-slate-800 print:rounded-none print:shadow-none print:p-0 print:pb-3">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                            <div>
+                                <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight print:text-lg">
+                                    SEC-H — LIVRO DE REGISTO & RASTREIO DE GASES MEDICINAIS
+                                </h1>
+                                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-0.5 print:text-[10px]">
+                                    Hospital Domingos Lourenço • Engenharia Clínica & Central de Oxigênio
+                                </p>
+                            </div>
+                            <div className="text-left sm:text-right">
+                                <span className="text-xs font-mono font-bold text-blue-600 block print:text-[10px] print:text-slate-800">
+                                    Data de Emissão: {new Date().toLocaleDateString('pt-BR')}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400 block uppercase print:text-[8px]">
+                                    {historico.length} {historico.length === 1 ? 'movimentação' : 'movimentações registadas'}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
 
-        <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50/70 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                    <tr>
-                        <th className="p-4">Data/Hora</th>
-                        <th className="p-4">Operação</th>
-                        <th className="p-4">Gás</th>
-                        <th className="p-4 text-center">Qtd.</th>
-                        <th className="p-4">Destino / Origem</th>
-                        <th className="p-4 text-center">Duração da Carga</th>
-                        <th className="p-4">Responsável</th>
-                        <th className="p-4">Detalhes / Observações</th>
-                        <th className="p-4 text-center">Comprovante</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
-                    {historico.map(hist => {
-                        const isVirada = hist.observacao?.toUpperCase().includes('VIRADA') || hist.observacao?.toUpperCase().includes('MANIFOLD');
-                        const isEntrada = hist.tipo_movimentacao === 'Entrada';
-                        const horas = Number(hist.tempo_duracao_horas || 0);
+                    {/* TABELA DO LIVRO */}
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden print:border-none print:shadow-none">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-50/70 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 print:bg-white print:text-slate-800">
+                                    <tr>
+                                        <th className="p-4 print:p-2">Data/Hora</th>
+                                        <th className="p-4 print:p-2">Operação</th>
+                                        <th className="p-4 print:p-2">Gás</th>
+                                        <th className="p-4 text-center print:p-2">Qtd.</th>
+                                        <th className="p-4 print:p-2">Destino / Origem</th>
+                                        <th className="p-4 text-center print:p-2">Duração Carga</th>
+                                        <th className="p-4 print:p-2">Responsável</th>
+                                        <th className="p-4 print:p-2">Detalhes / Observações</th>
+                                        <th className="p-4 text-center no-print">Anexo</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700 print:divide-slate-200">
+                                    {historico.map(hist => {
+                                        const isVirada = hist.observacao?.toUpperCase().includes('VIRADA') || hist.observacao?.toUpperCase().includes('MANIFOLD');
+                                        const isEntrada = hist.tipo_movimentacao === 'Entrada';
+                                        const horas = Number(hist.tempo_duracao_horas || 0);
 
-                        // Formata horas em Dias + Horas
-                        const formatarDuracao = (h) => {
-                            if (!h || h <= 0) return null;
-                            const dias = Math.floor(h / 24);
-                            const restoHoras = Math.round(h % 24);
-                            if (dias > 0) return `${dias}d ${restoHoras}h`;
-                            return `${h}h`;
-                        };
+                                        const formatarDuracao = (h) => {
+                                            if (!h || h <= 0) return null;
+                                            const dias = Math.floor(h / 24);
+                                            const restoHoras = Math.round(h % 24);
+                                            if (dias > 0) return `${dias}d ${restoHoras}h`;
+                                            return `${h}h`;
+                                        };
 
-                        return (
-                            <tr key={hist.id} className="hover:bg-slate-50/70 transition-colors">
-                                {/* Data e Hora */}
-                                <td className="p-4 font-mono text-slate-500 text-[11px] whitespace-nowrap">
-                                    📅 {new Date(hist.data_movimentacao).toLocaleDateString('pt-BR')}<br />
-                                    <span className="text-[10px] text-slate-400">⏰ {new Date(hist.data_movimentacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                </td>
+                                        return (
+                                            <tr key={hist.id} className="hover:bg-slate-50/70 transition-colors gases-card-print print:text-[10px]">
+                                                {/* Data e Hora */}
+                                                <td className="p-4 font-mono text-slate-500 text-[11px] whitespace-nowrap print:p-2 print:text-[9px]">
+                                                    {new Date(hist.data_movimentacao).toLocaleDateString('pt-BR')}<br />
+                                                    <span className="text-[10px] text-slate-400 print:text-[8px]">{new Date(hist.data_movimentacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                </td>
 
-                                {/* Tipo de Operação */}
-                                <td className="p-4 whitespace-nowrap">
-                                    {isVirada ? (
-                                        <span className="px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200">
-                                            🔄 Virada Manifold
-                                        </span>
-                                    ) : isEntrada ? (
-                                        <span className="px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 border border-blue-200">
-                                            📥 Entrada / NF
-                                        </span>
-                                    ) : (
-                                        <span className="px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200">
-                                            📤 Saída / Setor
-                                        </span>
+                                                {/* Tipo de Operação */}
+                                                <td className="p-4 whitespace-nowrap print:p-2">
+                                                    {isVirada ? (
+                                                        <span className="px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-700 border border-purple-200 print:border-none print:p-0 print:text-purple-900">
+                                                            🔄 Virada Manifold
+                                                        </span>
+                                                    ) : isEntrada ? (
+                                                        <span className="px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider bg-blue-100 text-blue-700 border border-blue-200 print:border-none print:p-0 print:text-blue-900">
+                                                            📥 Entrada / NF
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2.5 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 print:border-none print:p-0 print:text-amber-900">
+                                                            📤 Saída / Setor
+                                                        </span>
+                                                    )}
+                                                </td>
+
+                                                {/* Nome do Gás */}
+                                                <td className="p-4 font-black uppercase text-slate-800 whitespace-nowrap print:p-2">
+                                                    {hist.tipo_gas}
+                                                </td>
+
+                                                {/* Quantidade */}
+                                                <td className="p-4 text-center whitespace-nowrap print:p-2 font-mono font-bold">
+                                                    {hist.quantidade_cilindros} un.
+                                                </td>
+
+                                                {/* Destino / Setor */}
+                                                <td className="p-4 font-bold text-slate-700 uppercase whitespace-nowrap print:p-2 print:text-[9px]">
+                                                    {isVirada ? 'Manifold Principal' : hist.setor_nome || (isEntrada ? 'Doca / Recebimento' : 'Central de Gases')}
+                                                </td>
+
+                                                {/* Duração da Carga */}
+                                                <td className="p-4 text-center whitespace-nowrap print:p-2 font-mono font-bold">
+                                                    {horas > 0 ? `⏱️ ${formatarDuracao(horas)}` : '—'}
+                                                </td>
+
+                                                {/* Técnico Responsável */}
+                                                <td className="p-4 font-bold text-slate-600 whitespace-nowrap print:p-2 print:text-[9px]">
+                                                    {hist.tecnico_responsavel}
+                                                </td>
+
+                                                {/* Observações / Detalhes */}
+                                                <td className="p-4 text-slate-600 max-w-xs print:p-2 print:text-[9px]">
+                                                    <p className="line-clamp-2 print:line-clamp-none text-[11px] print:text-[9px] leading-relaxed">
+                                                        {hist.observacao || 'Sem observações adicionais.'}
+                                                    </p>
+                                                </td>
+
+                                                {/* Comprovante (Oculto no Papel) */}
+                                                <td className="p-4 text-center whitespace-nowrap no-print">
+                                                    {hist.url_comprovante ? (
+                                                        <a 
+                                                            href={`${BASE_URL}${hist.url_comprovante}`} 
+                                                            target="_blank" 
+                                                            rel="noreferrer" 
+                                                            className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-[10px] font-black uppercase transition-all border border-blue-200 inline-flex items-center gap-1 shadow-xs"
+                                                        >
+                                                            <span>📄</span> Ver Anexo
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-slate-300 text-xs">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+
+                                    {historico.length === 0 && (
+                                        <tr>
+                                            <td colSpan="9" className="text-center py-12 text-slate-400 font-bold uppercase text-xs">
+                                                Nenhum registo de movimentação encontrado até o momento.
+                                            </td>
+                                        </tr>
                                     )}
-                                </td>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
 
-                                {/* Nome do Gás */}
-                                <td className="p-4 font-black uppercase text-slate-800 whitespace-nowrap">
-                                    {hist.tipo_gas}
-                                </td>
+                    {/* RODAPÉ DE AUDITORIA & ASSINATURA TÉCNICA */}
+                    <div className="hidden print:block mt-12 pt-6 border-t border-slate-300 text-center text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                        <div className="flex justify-between items-center mb-8 px-12 pt-8">
+                            <div className="text-center w-64 border-t border-slate-800 pt-1">
+                                <p className="text-[10px] font-black text-slate-900">PLANTONISTA / ENGENHARIA CLÍNICA</p>
+                                <p className="text-[8px] text-slate-500">Assinatura do Responsável</p>
+                            </div>
+                            <div className="text-center w-64 border-t border-slate-800 pt-1">
+                                <p className="text-[10px] font-black text-slate-900">SUPERVISÃO TÉCNICA HOSPITALAR</p>
+                                <p className="text-[8px] text-slate-500">Conferência / Ciente</p>
+                            </div>
+                        </div>
+                        Registo emitido pelo sistema SEC-H Engenharia Clínica em {new Date().toLocaleString('pt-BR')} • Livro Oficial de Gases Medicinais
+                    </div>
 
-                                {/* Quantidade */}
-                                <td className="p-4 text-center whitespace-nowrap">
-                                    <span className="font-black text-slate-800 text-xs bg-slate-100 px-2 py-1 rounded-lg">
-                                        {hist.quantidade_cilindros} un.
-                                    </span>
-                                </td>
+                </div>
+            )}
 
-                                {/* Destino / Setor */}
-                                <td className="p-4 font-bold text-slate-700 uppercase whitespace-nowrap">
-                                    {isVirada ? (
-                                        <span className="text-emerald-700 flex items-center gap-1">🚰 Manifold Principal</span>
-                                    ) : (
-                                        hist.setor_nome || (isEntrada ? 'Doca / Almoxarifado' : 'Central de Gases')
-                                    )}
-                                </td>
-
-                                {/* Duração da Carga (Especial para Viradas) */}
-                                <td className="p-4 text-center whitespace-nowrap">
-                                    {horas > 0 ? (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 font-mono font-black text-[11px] border border-emerald-200">
-                                            ⏱️ {formatarDuracao(horas)}
-                                        </span>
-                                    ) : (
-                                        <span className="text-slate-300 font-mono text-[11px]">—</span>
-                                    )}
-                                </td>
-
-                                {/* Técnico Responsável */}
-                                <td className="p-4 font-bold text-slate-600 whitespace-nowrap">
-                                    👤 {hist.tecnico_responsavel}
-                                </td>
-
-                                {/* Observações / Detalhes */}
-                                <td className="p-4 text-slate-600 max-w-xs">
-                                    <p className="line-clamp-2 text-[11px] leading-relaxed" title={hist.observacao}>
-                                        {hist.observacao || 'Sem observações adicionais.'}
-                                    </p>
-                                </td>
-
-                                {/* Comprovante */}
-                                <td className="p-4 text-center whitespace-nowrap">
-                                    {hist.url_comprovante ? (
-                                        <a 
-                                            href={`${BASE_URL}${hist.url_comprovante}`} 
-                                            target="_blank" 
-                                            rel="noreferrer" 
-                                            className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-[10px] font-black uppercase transition-all border border-blue-200 inline-flex items-center gap-1 shadow-xs"
-                                        >
-                                            <span>📄</span> Ver Anexo
-                                        </a>
-                                    ) : (
-                                        <span className="text-slate-300 text-xs">—</span>
-                                    )}
-                                </td>
-                            </tr>
-                        );
-                    })}
-
-                    {historico.length === 0 && (
-                        <tr>
-                            <td colSpan="9" className="text-center py-12 text-slate-400 font-bold uppercase text-xs">
-                                Nenhum registro de movimentação encontrado até o momento.
-                            </td>
-                        </tr>
-                    )}
-                </tbody>
-            </table>
-        </div>
-    </div>
-)}
-
-            {/* --- MODAL 1: VIRADA DO MANIFOLD (12 CILINDROS) --- */}
+            {/* --- MODAL 1: VIRADA DO MANIFOLD (COM CAMPOS DE PRESSÃO) --- */}
             {modalViradaManifold && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -668,19 +814,47 @@ const Gases = () => {
                         <form onSubmit={handleViradaManifold} className="p-6 space-y-4">
                             <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1">
                                 <p className="font-black uppercase">Procedimento Operacional:</p>
-                                <p>• O <strong>Ramal {manifold?.ramal_ativo}</strong> está esgotado.</p>
-                                <p>• O <strong>Ramal {manifold?.ramal_ativo === 'A' ? 'B' : 'A'}</strong> assumirá o fornecimento hospitalar.</p>
-                                <p>• Serão deduzidos <strong>12 cilindros de Oxigênio</strong> do estoque para recarregar o ramal vazio.</p>
+                                <p>O <strong>Ramal {manifold?.ramal_ativo}</strong> está esgotado.</p>
+                                <p>O <strong>Ramal {manifold?.ramal_ativo === 'A' ? 'B' : 'A'}</strong> assumirá o fornecimento hospitalar.</p>
+                                <p>Serão deduzidos <strong>12 cilindros de Oxigênio</strong> do estoque para recarregar o ramal vazio.</p>
+                            </div>
+
+                            {/* Campos Estruturados de Pressão de Rede e Cilindros */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Pressão de Rede (bar) *</label>
+                                    <input 
+                                        type="text"
+                                        required
+                                        placeholder="Ex: 4.5"
+                                        className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold font-mono bg-slate-50 outline-none focus:bg-white text-slate-800 text-center"
+                                        value={dadosVirada.pressao_rede_bar}
+                                        onChange={e => setDadosVirada({ ...dadosVirada, pressao_rede_bar: e.target.value })}
+                                    />
+                                    <span className="text-[9px] text-slate-400 mt-0.5 block">Alvo normativo: 4,0 a 5,0 bar</span>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Pressão Cilindros Cheios (bar) *</label>
+                                    <input 
+                                        type="text"
+                                        required
+                                        placeholder="Ex: 150"
+                                        className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold font-mono bg-slate-50 outline-none focus:bg-white text-slate-800 text-center"
+                                        value={dadosVirada.pressao_cilindros_bar}
+                                        onChange={e => setDadosVirada({ ...dadosVirada, pressao_cilindros_bar: e.target.value })}
+                                    />
+                                    <span className="text-[9px] text-slate-400 mt-0.5 block">Mínimo entrada: 150 bar</span>
+                                </div>
                             </div>
 
                             <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Observações da Virada / Pressão</label>
+                                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Observações da Virada / Ocorrências</label>
                                 <textarea 
                                     className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none resize-none focus:bg-white text-slate-800"
-                                    rows="3"
-                                    placeholder="Ex: Virada automática efetuada. Pressão estabilizada em 4.5 bar."
-                                    value={obsVirada}
-                                    onChange={e => setObsVirada(e.target.value)}
+                                    rows="2"
+                                    placeholder="Ex: Válvula reguladora operando sem fugas sonoras."
+                                    value={dadosVirada.observacao}
+                                    onChange={e => setDadosVirada({ ...dadosVirada, observacao: e.target.value })}
                                 />
                             </div>
 
@@ -762,7 +936,7 @@ const Gases = () => {
                 </div>
             )}
 
-            {/* --- MODAL 3: ENTRADA / COMPRA COM CANHOTO (ATUALIZADO) --- */}
+            {/* --- MODAL 3: ENTRADA / COMPRA COM SELEÇÃO DE FORNECEDOR --- */}
             {modalCompra && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -821,14 +995,24 @@ const Gases = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor / Distribuidor</label>
-                                    <input 
-                                        type="text"
-                                        placeholder="Ex: White Martins, Air Liquide"
+                                    <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Fornecedor Homologado</label>
+                                    <select
                                         className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none text-slate-800"
-                                        value={formCompra.fornecedor_nome}
-                                        onChange={e => setFormCompra({ ...formCompra, fornecedor_nome: e.target.value })}
-                                    />
+                                        value={formCompra.fornecedor_id}
+                                        onChange={e => {
+                                            const forn = fornecedores.find(f => String(f.id) === String(e.target.value));
+                                            setFormCompra({ 
+                                                ...formCompra, 
+                                                fornecedor_id: e.target.value,
+                                                fornecedor_nome: forn ? (forn.nome_fantasia || forn.razao_social) : ''
+                                            });
+                                        }}
+                                    >
+                                        <option value="">Selecione o Fornecedor...</option>
+                                        {fornecedores.map(f => (
+                                            <option key={f.id} value={f.id}>{f.nome_fantasia || f.razao_social}</option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
 

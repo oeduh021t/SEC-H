@@ -78,9 +78,9 @@ export function ImprimirOS() {
   if (loading) return <p className="p-8 text-center font-bold">Gerando Relatório...</p>;
   if (!chamado) return <p className="p-8 text-center text-red-500 font-bold">OS não encontrada.</p>;
 
-  // Cálculo de Peças e Totais
-  const totalPecas = chamado.itens_vinculados?.reduce((acc, item) => acc + (item.quantidade * item.valor_unitario), 0) || 0;
-  const custoServico = Number(chamado.custo_servico) || 0;
+  // Cálculo de Peças e Totais (Considera custo_servico e valor_servico_externo)
+  const totalPecas = chamado.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0) || 0;
+  const custoServico = Number(chamado.custo_servico || chamado.valor_servico_externo || 0);
   const totalGeral = totalPecas + custoServico;
 
   // Extração da Solução Técnica
@@ -89,8 +89,8 @@ export function ImprimirOS() {
   );
   const solucaoTecnica = logConclusao?.texto_historico?.trim() || chamado.descricao_solucao?.trim();
 
-  // Flag de Fornecedor Terceirizado
-  const temTerceirizado = Boolean(chamado.empresa_terceirizada || chamado.fornecedor_id);
+  // Flag de Fornecedor Terceirizado (Ativa se tiver empresa, fornecedor_id ou custo externo)
+  const temTerceirizado = Boolean(chamado.empresa_terceirizada || chamado.fornecedor_id || custoServico > 0);
 
   // Exibição do Setor Hierárquico
   const setorExibicao = chamado.setor_completo || 
@@ -210,15 +210,17 @@ export function ImprimirOS() {
         {temTerceirizado && (
           <div className="mb-3 border border-black">
             <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase flex justify-between">
-              <span>2. Prestação de Serviço Terceirizado</span>
-              <span className="font-bold text-[9px]">FORNECEDOR HOMOLOGADO</span>
+              <span>2. Prestação de Serviço Terceirizado / Orçamento</span>
+              <span className="font-bold text-[9px]">
+                {chamado.orcamento_codigo ? `LOTE ${chamado.orcamento_codigo}` : "FORNECEDOR HOMOLOGADO"}
+              </span>
             </div>
             <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 p-2.5 text-xs">
-              <p className="col-span-2"><strong>Empresa Prestadora:</strong> {chamado.empresa_terceirizada || "N/A"}</p>
-              <p><strong>NF / Doc:</strong> {chamado.nf_referencia || "Não informada"}</p>
-              <p><strong>Representante / Técnico:</strong> {chamado.tecnico_externo_nome || "Não informado"}</p>
-              <p><strong>Mão de Obra / Serviço:</strong> {formatarMoeda(custoServico)}</p>
-              <p><strong>Atendimento:</strong> {chamado.tipo_atendimento || "Interno"}</p>
+              <p className="col-span-2"><strong>Empresa Prestadora:</strong> {chamado.empresa_terceirizada || "Prestador Autorizado"}</p>
+              <p><strong>NF / Doc:</strong> {chamado.nf_referencia || chamado.numero_nf_retorno || (chamado.orcamento_codigo ? `Orçamento ${chamado.orcamento_codigo}` : "Não informada")}</p>
+              <p><strong>Representante / Técnico:</strong> {chamado.tecnico_externo_nome || "Conforme Proposta"}</p>
+              <p><strong>Mão de Obra / Serviço:</strong> <span className="font-bold text-slate-900">{formatarMoeda(custoServico)}</span></p>
+              <p><strong>Atendimento:</strong> {chamado.tipo_atendimento || "Externo"}</p>
             </div>
           </div>
         )}
@@ -297,46 +299,68 @@ export function ImprimirOS() {
           </div>
         )}
 
-        {/* BOX 5: TABELA DE PEÇAS / INSUMOS */}
+        {/* BOX 5: TABELA DE PEÇAS / INSUMOS E SERVIÇOS */}
         <div className="mb-3 border border-black">
           <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
-            {temTerceirizado ? (temFotos ? "5." : "4.") : (temFotos ? "4." : "3.")} Peças e Insumos Aplicados
+            {temTerceirizado ? (temFotos ? "5." : "4.") : (temFotos ? "4." : "3.")} Peças, Insumos e Serviços Aplicados
           </div>
           <table className="w-full text-xs text-left">
             <thead>
               <tr className="border-b border-black bg-slate-50">
-                <th className="p-1.5">Item / Insumo</th>
-                <th className="p-1.5 text-center">Qtd</th>
+                <th className="p-1.5">Item / Insumo / Descrição</th>
+                <th className="p-1.5 text-center">Tipo / Qtd</th>
                 <th className="p-1.5 text-right">Unitário</th>
                 <th className="p-1.5 text-right">Subtotal</th>
               </tr>
             </thead>
             <tbody>
-              {chamado.itens_vinculados?.length > 0 ? (
-                chamado.itens_vinculados.map((it, idx) => (
-                  <tr key={idx} className="border-b border-slate-200">
-                    <td className="p-1.5 font-medium">{it.nome}</td>
-                    <td className="p-1.5 text-center">{it.quantidade}</td>
-                    <td className="p-1.5 text-right">{formatarMoeda(it.valor_unitario)}</td>
-                    <td className="p-1.5 text-right">{formatarMoeda(it.quantidade * it.valor_unitario)}</td>
-                  </tr>
-                ))
-              ) : (
+              {/* 1. Insumos do Almoxarifado */}
+              {chamado.itens_vinculados?.map((it, idx) => (
+                <tr key={`item-${idx}`} className="border-b border-slate-200">
+                  <td className="p-1.5 font-medium">{it.nome}</td>
+                  <td className="p-1.5 text-center">{it.quantidade} un.</td>
+                  <td className="p-1.5 text-right font-mono">{formatarMoeda(it.valor_unitario)}</td>
+                  <td className="p-1.5 text-right font-mono font-bold">{formatarMoeda(it.quantidade * it.valor_unitario)}</td>
+                </tr>
+              ))}
+
+              {/* 2. Serviço Externo / Orçamento Aprovado */}
+              {custoServico > 0 && (
+                <tr className="border-b border-slate-200 bg-slate-50/50">
+                  <td className="p-1.5 font-bold text-slate-800">
+                    🔧 Serviço Terceirizado Especializado
+                    {chamado.orcamento_codigo && ` (${chamado.orcamento_codigo})`}
+                    {chamado.empresa_terceirizada && ` - ${chamado.empresa_terceirizada}`}
+                  </td>
+                  <td className="p-1.5 text-center text-[10px] uppercase font-bold text-slate-600">Serviço Ext.</td>
+                  <td className="p-1.5 text-right font-mono">{formatarMoeda(custoServico)}</td>
+                  <td className="p-1.5 text-right font-mono font-bold">{formatarMoeda(custoServico)}</td>
+                </tr>
+              )}
+
+              {/* 3. Caso não haja peças nem serviços externos */}
+              {(!chamado.itens_vinculados?.length && custoServico <= 0) && (
                 <tr>
                   <td colSpan="4" className="p-2 text-center text-slate-400 italic text-xs">
-                    Nenhuma peça do estoque foi debitada para este atendimento.
+                    Nenhuma peça do estoque debitada ou serviço terceirizado lançado para este atendimento.
                   </td>
                 </tr>
               )}
             </tbody>
             <tfoot>
               <tr className="bg-slate-50 font-bold border-t border-slate-300">
-                <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Total em Insumos:</td>
-                <td className="p-1.5 text-right text-xs">{formatarMoeda(totalPecas)}</td>
+                <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Total em Insumos (Estoque):</td>
+                <td className="p-1.5 text-right text-xs font-mono">{formatarMoeda(totalPecas)}</td>
               </tr>
+              {custoServico > 0 && (
+                <tr className="bg-slate-50 font-bold border-t border-slate-200">
+                  <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Total Mão de Obra / Serviços Terceiros:</td>
+                  <td className="p-1.5 text-right text-xs font-mono">{formatarMoeda(custoServico)}</td>
+                </tr>
+              )}
               <tr className="bg-slate-100 font-black border-t border-black">
                 <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Custo Total da OS (Peças + Serviços/Terceiros):</td>
-                <td className="p-1.5 text-right text-sm font-black">{formatarMoeda(totalGeral)}</td>
+                <td className="p-1.5 text-right text-sm font-black font-mono">{formatarMoeda(totalGeral)}</td>
               </tr>
             </tfoot>
           </table>

@@ -655,8 +655,44 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 WHEN sp.nome IS NOT NULL THEN CONCAT(sp.nome, ' > ', s.nome)
                 ELSE s.nome 
             END AS setor_completo,
-            f.nome_fantasia as empresa_terceirizada,
+
+            -- 🏢 Puxa fornecedor direto do chamado ou via orçamento aprovado
+            COALESCE(
+                f.nome_fantasia, 
+                f.razao_social, 
+                (
+                    SELECT COALESCE(fo.nome_fantasia, fo.razao_social)
+                    FROM orcamentos_externos_itens oi
+                    INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+                    INNER JOIN fornecedores fo ON o.fornecedor_id = fo.id
+                    WHERE oi.chamado_id = c.id AND o.status = 'Aprovado Financeiro'
+                    ORDER BY o.id DESC LIMIT 1
+                )
+            ) as empresa_terceirizada,
+
             u.nome as solicitante_nome,
+
+            -- 💰 Resgata custo_servico: se c.custo_servico for 0, pega o valor do orçamento aprovado
+            COALESCE(
+                NULLIF(c.custo_servico, 0),
+                NULLIF(c.valor_servico_externo, 0),
+                (
+                    SELECT SUM(oi.valor_unitario)
+                    FROM orcamentos_externos_itens oi
+                    INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+                    WHERE oi.chamado_id = c.id AND o.status = 'Aprovado Financeiro'
+                ),
+                0.00
+            ) AS custo_servico,
+
+            -- 📑 Código do orçamento para referência
+            (
+                SELECT o.codigo_orcamento
+                FROM orcamentos_externos_itens oi
+                INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+                WHERE oi.chamado_id = c.id AND o.status = 'Aprovado Financeiro'
+                ORDER BY o.id DESC LIMIT 1
+            ) AS orcamento_codigo,
 
             CASE 
                 WHEN c.prioridade = 'Urgente' THEN 2
@@ -688,7 +724,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
         LEFT JOIN locais_estoque le ON e.local_estoque_id = le.id
         LEFT JOIN setores s ON c.setor_id = s.id
         LEFT JOIN setores sp ON s.setor_pai_id = sp.id
-        LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+        LEFT JOIN fornecedores f ON COALESCE(c.fornecedor_id, c.fornecedor_externo_id) = f.id
         LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
         WHERE c.id = ?
     `;
@@ -817,9 +853,9 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
                 tipo_atendimento = ?, 
                 tecnico_responsavel = ?, 
                 tecnico_id = ?, 
-                fornecedor_id = ?, 
-                nf_referencia = ?, 
-                custo_servico = ?,
+                fornecedor_id = COALESCE(?, fornecedor_id), 
+                nf_referencia = COALESCE(?, nf_referencia), 
+                custo_servico = CASE WHEN ? > 0 THEN ? ELSE custo_servico END,
                 foto_conclusao = COALESCE(?, foto_conclusao),
                 data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
             WHERE id = ?
@@ -831,7 +867,8 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
             v_tecnico_id, 
             fornecedor_id || null, 
             nf_referencia || null, 
-            custo_servico || 0, 
+            Number(custo_servico || 0),
+            Number(custo_servico || 0),
             foto_conclusao, 
             status, 
             id
