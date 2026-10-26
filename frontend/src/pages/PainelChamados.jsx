@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   FiVolume2, 
   FiMic, 
@@ -8,10 +9,14 @@ import {
   FiX,
   FiCamera,
   FiImage,
-  FiTrash2
+  FiTrash2,
+  FiCalendar,
+  FiAlertTriangle
 } from 'react-icons/fi';
 
 const PainelChamados = () => {
+  const navigate = useNavigate();
+
   const [chamados, setChamados] = useState([]);
   const [setores, setSetores] = useState([]);
   const [agora, setAgora] = useState(new Date());
@@ -22,6 +27,11 @@ const PainelChamados = () => {
 
   // 📱 ABA ATIVA NO CELULAR ('abertos' ou 'atendimento')
   const [abaMobile, setAbaMobile] = useState('abertos');
+
+  // 📅 ALERTA DE MANUTENÇÃO PLANEJADA (POPUP DE 5 MINUTOS)
+  const [planejadasAlerta, setPlanejadasAlerta] = useState([]);
+  const [alertaPlanejadaAtivo, setAlertaPlanejadaAtivo] = useState(null);
+  const alertasPlanejadosIgnoradosRef = useRef(new Set());
 
   // 👤 USUÁRIO LOGADO
   const obterUsuarioLogado = () => {
@@ -295,7 +305,7 @@ const PainelChamados = () => {
     }
   };
 
-  // ⚡ CONCLUIR COM TEXTO / VOZ / FOTO (ROTA DE UPLOAD COM MULTER)
+  // ⚡ CONCLUIR COM TEXTO / VOZ / FOTO
   const concluirChamado = async () => {
     if (!chamadoParaConcluir) return;
 
@@ -384,6 +394,74 @@ const PainelChamados = () => {
     return dataAbertura >= Date.now() - (48 * 60 * 60 * 1000);
   };
 
+  // 🔔 DISPARAR OS DIRETO DO POPUP DE PLANEJADA
+  const handleGerarOSPlanejada = async (planejamento) => {
+    try {
+      const res = await fetch(`${API_URL}/manutencoes-planejadas/${planejamento.id}/gerar-os`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-usuario-nivel': usuarioLogado.nivel || 'admin'
+        },
+        body: JSON.stringify({ usuario_id: usuarioLogado.id || 1 })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.chamado_id) {
+        setAlertaPlanejadaAtivo(null);
+        falarTexto("Ordem de serviço gerada a partir do planejamento.");
+        navigate(`/chamados/${data.chamado_id}/tratar`);
+      } else {
+        alert(data.error || "Erro ao converter planejamento em OS.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro de conexão ao gerar OS.");
+    }
+  };
+
+  // ⏰ VERIFICAÇÃO DO POPUP DE 5 MINUTOS DAS PLANEJADAS
+  const checarAlertaCincoMinutos = (listaPlanejadas) => {
+    if (!Array.isArray(listaPlanejadas) || listaPlanejadas.length === 0) return;
+
+    const agoraDate = new Date();
+    const agoraMinutosDia = (agoraDate.getHours() * 60) + agoraDate.getMinutes();
+
+    for (const plan of listaPlanejadas) {
+      // Se já foi gerada OS ou foi cancelada/concluída, ignora
+      if (plan.status !== 'Agendado' && plan.status !== 'Pendente') continue;
+      if (plan.chamado_execucao_id) continue;
+      if (alertasPlanejadosIgnoradosRef.current.has(plan.id)) continue;
+
+      let deveDisparar = false;
+
+      if (plan.hora_programada) {
+        const [h, m] = plan.hora_programada.split(':').map(Number);
+        const minutosPlanejados = (h * 60) + m;
+        const diffMinutos = minutosPlanejados - agoraMinutosDia;
+
+        // Dispara se faltar até 5 minutos (entre 0 e 5) ou se já passou do horário (atrasada hoje)
+        if (diffMinutos <= 5) {
+          deveDisparar = true;
+        }
+      } else {
+        // Se não tem horário definido, mas está agendada para hoje
+        deveDisparar = true;
+      }
+
+      if (deveDisparar) {
+        setAlertaPlanejadaAtivo(plan);
+        if (audioHabilitado) {
+          tocarBipe();
+          setTimeout(() => {
+            falarTexto(`Aviso de manutenção planejada para o setor ${plan.setor_nome || 'Geral'}. Ativo: ${plan.equipamento_nome || 'não informado'}.`);
+          }, 600);
+        }
+        break;
+      }
+    }
+  };
+
   const buscarDados = async () => {
     try {
       const headers = { 
@@ -391,13 +469,18 @@ const PainelChamados = () => {
         'x-usuario-nivel': usuarioLogado.nivel || 'admin' 
       };
 
-      const [resChamados, resSetores] = await Promise.all([
+      const [resChamados, resSetores, resPlanejadas] = await Promise.all([
         fetch(`${API_URL}/chamados`, { headers }).then(res => res.json()).catch(() => []),
-        fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).catch(() => [])
+        fetch(`${API_URL}/setores`, { headers }).then(res => res.json()).catch(() => []),
+        fetch(`${API_URL}/manutencoes-planejadas/alertas-hoje`, { headers }).then(res => res.json()).catch(() => [])
       ]);
 
       const listaSetores = Array.isArray(resSetores) ? resSetores : [];
       setSetores(listaSetores);
+
+      const listaPlan = Array.isArray(resPlanejadas) ? resPlanejadas : [];
+      setPlanejadasAlerta(listaPlan);
+      checarAlertaCincoMinutos(listaPlan);
 
       const pendentes = (Array.isArray(resChamados) ? resChamados : []).filter(c => c.status !== 'Concluído');
       const agoraMs = Date.now();
@@ -588,7 +671,7 @@ const PainelChamados = () => {
           </div>
         </header>
 
-        {/* 📱 SELETOR DE ABAS MOBILE (VISÍVEL SOMENTE NO CELULAR) */}
+        {/* 📱 SELETOR DE ABAS MOBILE */}
         <div className="grid grid-cols-2 gap-2 mb-4 lg:hidden">
           <button
             type="button"
@@ -788,13 +871,101 @@ const PainelChamados = () => {
           <span>Abertos: <strong className="text-red-400">{abertos.length}</strong></span>
           <span>•</span>
           <span>Em Curso: <strong className="text-amber-400">{emAtendimento.length}</strong></span>
+          {planejadasAlerta.length > 0 && (
+            <>
+              <span>•</span>
+              <span className="text-amber-400">Planejadas Hoje: <strong>{planejadasAlerta.length}</strong></span>
+            </>
+          )}
         </div>
         <div className="text-[10px] text-slate-500 uppercase tracking-widest">
           SEC-H • Hospital Domingos Lourenço
         </div>
       </footer>
 
-      {/* 🟢 MODAL DE RESOLUÇÃO (HÍBRIDO: VOZ OU DIGITAÇÃO + FOTO OPCIONAL) */}
+      {/* 🚨 POPUP PRIORITÁRIO: AVISO DE MANUTENÇÃO PLANEJADA (5 MINUTOS ANTES) */}
+      {alertaPlanejadaAtivo && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in zoom-in duration-200">
+          <div className="bg-slate-900 border-2 border-amber-500 rounded-3xl w-full max-w-lg p-6 space-y-4 text-white shadow-2xl relative shadow-amber-500/20">
+            
+            <button
+              onClick={() => {
+                alertasPlanejadosIgnoradosRef.current.add(alertaPlanejadaAtivo.id);
+                setAlertaPlanejadaAtivo(null);
+              }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 rounded-xl bg-slate-800 cursor-pointer"
+              title="Fechar lembrete"
+            >
+              <FiX className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/40 animate-bounce">
+                <FiAlertTriangle className="w-7 h-7" />
+              </div>
+              <div>
+                <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider block">
+                  Aviso de Manutenção Planejada
+                </span>
+                <h3 className="text-lg font-black text-white leading-tight uppercase mt-0.5">
+                  {alertaPlanejadaAtivo.titulo}
+                </h3>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between items-center text-slate-300">
+                <span>📍 Local / Setor:</span>
+                <strong className="text-white font-black">{alertaPlanejadaAtivo.setor_nome || 'Geral'}</strong>
+              </div>
+              <div className="flex justify-between items-center text-slate-300">
+                <span>🤖 Ativo / Equipamento:</span>
+                <strong className="text-amber-300 font-bold">
+                  {alertaPlanejadaAtivo.equipamento_nome || 'Infraestrutura'} 
+                  {alertaPlanejadaAtivo.equipamento_patrimonio ? ` (Pat: ${alertaPlanejadaAtivo.equipamento_patrimonio})` : ''}
+                </strong>
+              </div>
+              <div className="flex justify-between items-center text-slate-300">
+                <span>⏰ Horário Programado:</span>
+                <span className="font-mono bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-lg font-black border border-amber-500/30">
+                  {alertaPlanejadaAtivo.hora_programada ? `${alertaPlanejadaAtivo.hora_programada.slice(0, 5)} (Janela Operacional)` : 'Agendado para Hoje'}
+                </span>
+              </div>
+              {alertaPlanejadaAtivo.motivo_janela && (
+                <div className="pt-2 border-t border-slate-800">
+                  <span className="text-[10px] font-black text-amber-500 uppercase block">Motivo da Janela:</span>
+                  <p className="text-slate-300 italic text-[11px] mt-0.5">{alertaPlanejadaAtivo.motivo_janela}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  alertasPlanejadosIgnoradosRef.current.add(alertaPlanejadaAtivo.id);
+                  setAlertaPlanejadaAtivo(null);
+                }}
+                className="py-3 px-4 rounded-xl text-slate-400 bg-slate-800 hover:bg-slate-700 font-black text-xs uppercase cursor-pointer transition-all"
+              >
+                Lembrar Depois
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleGerarOSPlanejada(alertaPlanejadaAtivo)}
+                className="py-3 px-4 rounded-xl text-slate-950 bg-amber-400 hover:bg-amber-300 font-black text-xs uppercase flex items-center justify-center gap-2 shadow-lg shadow-amber-400/20 cursor-pointer active:scale-95 transition-all"
+              >
+                <FiPlay className="w-4 h-4" />
+                <span>Iniciar / Gerar OS</span>
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 🟢 MODAL DE RESOLUÇÃO */}
       {chamadoParaConcluir && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-5 md:p-6 space-y-5 text-white shadow-2xl relative my-auto">
@@ -810,7 +981,6 @@ const PainelChamados = () => {
               <FiX className="w-5 h-5" />
             </button>
 
-            {/* CABEÇALHO DO MODAL */}
             <div>
               <span className="text-emerald-400 font-black text-xs uppercase tracking-wider block">
                 Finalizar OS #{chamadoParaConcluir.id}
@@ -823,7 +993,6 @@ const PainelChamados = () => {
               </p>
             </div>
 
-            {/* BOTÃO DO MICROFONE (FALE OU DIGITE) */}
             <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <button
@@ -870,7 +1039,6 @@ const PainelChamados = () => {
               )}
             </div>
 
-            {/* FRASES RÁPIDAS (1 TOQUE) */}
             <div>
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">
                 Inserções Rápidas (1 clique):
@@ -900,7 +1068,6 @@ const PainelChamados = () => {
               </div>
             </div>
 
-            {/* CAMPO DE TEXTO LIVRE / EDITÁVEL */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">
                 Parecer Técnico do Conserto (Voz ou Digitação) *
@@ -914,7 +1081,6 @@ const PainelChamados = () => {
               />
             </div>
 
-            {/* 📷 FOTO OPCIONAL DA CONCLUSÃO */}
             <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">
                 📷 Foto de Evidência / Conclusão (Opcional)
@@ -984,7 +1150,6 @@ const PainelChamados = () => {
               )}
             </div>
 
-            {/* BOTÕES DE FINALIZAÇÃO */}
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
                 type="button"
@@ -1020,7 +1185,7 @@ const PainelChamados = () => {
         </div>
       )}
 
-      {/* 📷 MODAL COM A CÂMERA AO VIVO NA TELA (WEBRTC) */}
+      {/* 📷 MODAL CÂMERA AO VIVO */}
       {modalCameraAoVivo && (
         <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col justify-between p-4 animate-in fade-in duration-150">
           <div className="flex justify-between items-center text-white pb-2 border-b border-slate-800">

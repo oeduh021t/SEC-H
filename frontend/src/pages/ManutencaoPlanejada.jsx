@@ -317,6 +317,7 @@ export function ManutencaoPlanejada({ user: userProp }) {
           const isAgendado = item.status === 'Agendado';
           const isEmAndamento = item.status === 'Em Andamento';
           const isConcluido = item.status === 'Concluído';
+          const isCancelado = item.status === 'Cancelado';
 
           return (
             <div
@@ -405,6 +406,16 @@ export function ManutencaoPlanejada({ user: userProp }) {
                     className="text-[10px] font-black text-rose-500 hover:text-rose-700 uppercase"
                   >
                     Cancelar
+                  </button>
+                )}
+
+                {/* 🟢 REATIVAR PLANEJADA CANCELADA */}
+                {isCancelado && (
+                  <button
+                    onClick={() => handleAlterarStatus(item.id, 'Agendado')}
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 shadow-sm active:scale-95 ml-auto"
+                  >
+                    <span>🔄</span> Reativar
                   </button>
                 )}
               </div>
