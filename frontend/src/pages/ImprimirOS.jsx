@@ -78,7 +78,7 @@ export function ImprimirOS() {
   if (loading) return <p className="p-8 text-center font-bold">Gerando Relatório...</p>;
   if (!chamado) return <p className="p-8 text-center text-red-500 font-bold">OS não encontrada.</p>;
 
-  // Cálculo de Peças e Totais (Considera custo_servico e valor_servico_externo)
+  // Cálculo de Peças e Totais
   const totalPecas = chamado.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0) || 0;
   const custoServico = Number(chamado.custo_servico || chamado.valor_servico_externo || 0);
   const totalGeral = totalPecas + custoServico;
@@ -89,7 +89,7 @@ export function ImprimirOS() {
   );
   const solucaoTecnica = logConclusao?.texto_historico?.trim() || chamado.descricao_solucao?.trim();
 
-  // Flag de Fornecedor Terceirizado (Ativa se tiver empresa, fornecedor_id ou custo externo)
+  // Flag de Fornecedor Terceirizado
   const temTerceirizado = Boolean(chamado.empresa_terceirizada || chamado.fornecedor_id || custoServico > 0);
 
   // Exibição do Setor Hierárquico
@@ -102,23 +102,24 @@ export function ImprimirOS() {
   const temFotos = Boolean(fotoAberturaUrl || fotoConclusaoUrl);
 
   return (
-    <div className="p-2 md:p-6 max-w-[210mm] mx-auto text-black bg-white">
+    <div className="p-2 md:p-4 max-w-[210mm] mx-auto text-black bg-white">
       
-      {/* CSS DE IMPRESSÃO TRAVADO EM 1 FOLHA */}
+      {/* CSS DE IMPRESSÃO TRAVADO EM EXATAMENTE 1 FOLHA */}
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 7mm 8mm;
+          margin: 6mm 8mm;
         }
 
         @media print {
           html, body {
-            height: 100%;
+            height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
             background: white !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+            overflow: hidden !important;
           }
 
           body * {
@@ -135,12 +136,15 @@ export function ImprimirOS() {
             left: 0;
             top: 0;
             width: 100% !important;
+            max-height: 282mm !important;
             border: 1.5px solid #000 !important;
-            padding: 16px 20px !important;
+            padding: 10px 14px !important;
             margin: 0 !important;
-            box-sizing: border-box;
+            box-sizing: border-box !important;
             page-break-after: avoid !important;
+            page-break-before: avoid !important;
             page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
 
           .hide-print {
@@ -148,55 +152,56 @@ export function ImprimirOS() {
           }
 
           .foto-evidencia-box {
-            height: 135px !important;
-            max-height: 135px !important;
+            height: 90px !important;
+            max-height: 90px !important;
+            padding: 2px !important;
           }
           .foto-evidencia-img {
-            max-height: 125px !important;
+            max-height: 82px !important;
             object-fit: contain !important;
           }
         }
       `}</style>
 
       {/* BOTÕES DE AÇÃO */}
-      <div className="flex gap-3 justify-center mb-6 hide-print">
-        <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 text-sm hover:bg-slate-900 transition">
+      <div className="flex gap-3 justify-center mb-4 hide-print">
+        <button onClick={() => window.print()} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 text-sm hover:bg-slate-900 transition">
           🖨️ IMPRIMIR OS
         </button>
-        <button onClick={() => navigate(-1)} className="bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold text-sm hover:bg-slate-300 transition">
+        <button onClick={() => navigate(-1)} className="bg-slate-200 text-slate-700 px-6 py-2 rounded-lg font-bold text-sm hover:bg-slate-300 transition">
           VOLTAR
         </button>
       </div>
 
       {/* CONTAINER PRINCIPAL */}
-      <div className="os-impressao-container border-2 border-black p-6 bg-white">
+      <div className="os-impressao-container border-2 border-black p-4 bg-white">
         
-        {/* CABEÇALHO CORPORATIVO */}
-        <div className="flex justify-between items-center border-b-2 border-black pb-3 mb-3">
+        {/* CABEÇALHO */}
+        <div className="flex justify-between items-center border-b-2 border-black pb-2 mb-2">
           <div>
-            <h1 className="text-2xl font-black italic tracking-tight text-slate-900 leading-none">HOSPITAL DOMINGOS LOURENÇO</h1>
-            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mt-1">Engenharia Clínica & Manutenção Predial</p>
+            <h1 className="text-xl font-black italic tracking-tight text-slate-900 leading-none">HOSPITAL DOMINGOS LOURENÇO</h1>
+            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mt-0.5">Engenharia Clínica & Manutenção Predial</p>
           </div>
           <div className="text-right">
-            <div className="bg-black text-white px-4 py-1 text-xs font-black rounded mb-1 tracking-wider inline-block">ORDEM DE SERVIÇO</div>
-            <p className="text-lg font-black leading-tight">Nº {String(chamado.id).padStart(6, "0")}</p>
+            <div className="bg-black text-white px-3 py-0.5 text-[10px] font-black rounded mb-0.5 tracking-wider inline-block">ORDEM DE SERVIÇO</div>
+            <p className="text-base font-black leading-tight">Nº {String(chamado.id).padStart(6, "0")}</p>
           </div>
         </div>
 
         {/* METADADOS DO CHAMADO */}
-        <div className="grid grid-cols-4 gap-3 mb-3 text-xs bg-slate-50 p-2.5 border border-slate-300 rounded">
-          <div><label className="font-bold text-slate-500 block text-[10px] uppercase">Status:</label><span className="font-extrabold">{chamado.status?.toUpperCase()}</span></div>
-          <div><label className="font-bold text-slate-500 block text-[10px] uppercase">Tipo:</label><span className="font-extrabold">{chamado.tipo_manutencao?.toUpperCase() || "CORRETIVA"}</span></div>
-          <div><label className="font-bold text-slate-500 block text-[10px] uppercase">Aberto em:</label><span className="font-bold">{formatarData(chamado.data_abertura)}</span></div>
-          <div><label className="font-bold text-slate-500 block text-[10px] uppercase">Concluído em:</label><span className="font-bold">{formatarData(chamado.data_conclusao)}</span></div>
+        <div className="grid grid-cols-4 gap-2 mb-2 text-[11px] bg-slate-50 p-2 border border-slate-300 rounded">
+          <div><label className="font-bold text-slate-500 block text-[9px] uppercase">Status:</label><span className="font-extrabold">{chamado.status?.toUpperCase()}</span></div>
+          <div><label className="font-bold text-slate-500 block text-[9px] uppercase">Tipo:</label><span className="font-extrabold">{chamado.tipo_manutencao?.toUpperCase() || "CORRETIVA"}</span></div>
+          <div><label className="font-bold text-slate-500 block text-[9px] uppercase">Aberto em:</label><span className="font-bold">{formatarData(chamado.data_abertura)}</span></div>
+          <div><label className="font-bold text-slate-500 block text-[9px] uppercase">Concluído em:</label><span className="font-bold">{formatarData(chamado.data_conclusao)}</span></div>
         </div>
 
         {/* BOX 1: DADOS DO ATIVO E LOCALIZAÇÃO */}
-        <div className="mb-3 border border-black">
-          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+        <div className="mb-2 border border-black">
+          <div className="bg-slate-100 border-b border-black px-2.5 py-0.5 text-[9px] font-black uppercase">
             1. Identificação do Ativo / Local
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 p-2.5 text-xs">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-2 text-[11px]">
             <p><strong>Equipamento:</strong> {chamado.eq_nome || "N/A"}</p>
             <p><strong>Patrimônio:</strong> {chamado.patrimonio || "N/A"}</p>
             <p><strong>Modelo:</strong> {chamado.modelo || "N/A"}</p>
@@ -208,14 +213,14 @@ export function ImprimirOS() {
 
         {/* BOX 2: DADOS DO FORNECEDOR / TERCEIRIZADO */}
         {temTerceirizado && (
-          <div className="mb-3 border border-black">
-            <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase flex justify-between">
+          <div className="mb-2 border border-black">
+            <div className="bg-slate-100 border-b border-black px-2.5 py-0.5 text-[9px] font-black uppercase flex justify-between">
               <span>2. Prestação de Serviço Terceirizado / Orçamento</span>
-              <span className="font-bold text-[9px]">
+              <span className="font-bold text-[8.5px]">
                 {chamado.orcamento_codigo ? `LOTE ${chamado.orcamento_codigo}` : "FORNECEDOR HOMOLOGADO"}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 p-2.5 text-xs">
+            <div className="grid grid-cols-3 gap-x-3 gap-y-1 p-2 text-[11px]">
               <p className="col-span-2"><strong>Empresa Prestadora:</strong> {chamado.empresa_terceirizada || "Prestador Autorizado"}</p>
               <p><strong>NF / Doc:</strong> {chamado.nf_referencia || chamado.numero_nf_retorno || (chamado.orcamento_codigo ? `Orçamento ${chamado.orcamento_codigo}` : "Não informada")}</p>
               <p><strong>Representante / Técnico:</strong> {chamado.tecnico_externo_nome || "Conforme Proposta"}</p>
@@ -226,67 +231,65 @@ export function ImprimirOS() {
         )}
 
         {/* BOX 3: RELATÓRIO TÉCNICO */}
-        <div className="mb-3 border border-black">
-          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+        <div className="mb-2 border border-black">
+          <div className="bg-slate-100 border-b border-black px-2.5 py-0.5 text-[9px] font-black uppercase">
             {temTerceirizado ? "3." : "2."} Descrição Técnica do Atendimento
           </div>
-          <div className="p-2.5 space-y-2 text-xs">
+          <div className="p-2 space-y-1.5 text-[11px]">
             <div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-0.5">Reclamação / Diagnóstico:</span>
-              <p className="italic text-slate-800 bg-slate-50/70 p-1.5 rounded border border-slate-200 min-h-[30px]">{chamado.descricao_problema || "Sem descrição informada."}</p>
+              <span className="text-[9px] font-bold text-slate-500 uppercase block">Reclamação / Diagnóstico:</span>
+              <p className="italic text-slate-800 bg-slate-50/70 p-1 rounded border border-slate-200 min-h-[22px]">{chamado.descricao_problema || "Sem descrição informada."}</p>
             </div>
             <div>
-              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-0.5">Solução Técnica Aplicada:</span>
-              <p className="font-bold text-slate-900 bg-slate-50/70 p-1.5 rounded border border-slate-200 min-h-[35px]">
+              <span className="text-[9px] font-bold text-slate-500 uppercase block">Solução Técnica Aplicada:</span>
+              <p className="font-bold text-slate-900 bg-slate-50/70 p-1 rounded border border-slate-200 min-h-[22px]">
                 {solucaoTecnica && solucaoTecnica !== "" ? solucaoTecnica : "Aguardando conclusão do chamado."}
               </p>
             </div>
           </div>
         </div>
 
-        {/* BOX 4: ANTES E DEPOIS - EVIDÊNCIAS FOTOGRÁFICAS */}
+        {/* BOX 4: FOTOS */}
         {temFotos && (
-          <div className="mb-3 border border-black">
-            <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase flex justify-between items-center">
+          <div className="mb-2 border border-black">
+            <div className="bg-slate-100 border-b border-black px-2.5 py-0.5 text-[9px] font-black uppercase flex justify-between items-center">
               <span>{temTerceirizado ? "4." : "3."} Evidências Fotográficas</span>
-              <span className="text-[9px] font-bold text-slate-600">REGISTRO DE CONFORMIDADE (ANTES & DEPOIS)</span>
+              <span className="text-[8px] font-bold text-slate-600">REGISTRO DE CONFORMIDADE (ANTES & DEPOIS)</span>
             </div>
-            <div className="grid grid-cols-2 gap-4 p-2.5">
+            <div className="grid grid-cols-2 gap-3 p-1.5">
               
-              {/* COLUNA ESQUERDA: ANTES */}
               <div className="text-center">
-                <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                <span className="text-[9px] font-black text-slate-700 uppercase block mb-0.5">
                   1. Evidência na Abertura (Antes)
                 </span>
-                <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1 rounded flex items-center justify-center h-36">
+                <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1 rounded flex items-center justify-center h-24">
                   {fotoAberturaUrl ? (
                     <img 
                       src={fotoAberturaUrl} 
                       alt="Evidência Antes" 
-                      className="foto-evidencia-img max-h-32 max-w-full object-contain mx-auto" 
+                      className="foto-evidencia-img max-h-20 max-w-full object-contain mx-auto" 
                     />
                   ) : (
-                    <div className="text-[10px] text-slate-400 font-bold uppercase italic p-2">
+                    <div className="text-[9px] text-slate-400 font-bold uppercase italic p-1">
                       Sem registro fotográfico inicial
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* COLUNA DIREITA: DEPOIS */}
               <div className="text-center">
-                <span className="text-[10px] font-black text-slate-700 uppercase block mb-1">
+                <span className="text-[9px] font-black text-slate-700 uppercase block mb-0.5">
                   2. Evidência na Conclusão (Depois)
                 </span>
-                <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1 rounded flex items-center justify-center h-36">
+                <div className="foto-evidencia-box border border-slate-300 bg-slate-50 p-1 rounded flex items-center justify-center h-24">
                   {fotoConclusaoUrl ? (
                     <img 
                       src={fotoConclusaoUrl} 
                       alt="Evidência Depois" 
-                      className="foto-evidencia-img max-h-32 max-w-full object-contain mx-auto" 
+                      className="foto-evidencia-img max-h-20 max-w-full object-contain mx-auto" 
                     />
                   ) : (
-                    <div className="text-[10px] text-slate-400 font-bold uppercase italic p-2">
+                    <div className="text-[9px] text-slate-400 font-bold uppercase italic p-1">
                       {chamado.status === "Concluído" 
                         ? "Sem registro fotográfico na conclusão" 
                         : "Aguardando conclusão do atendimento"}
@@ -299,49 +302,46 @@ export function ImprimirOS() {
           </div>
         )}
 
-        {/* BOX 5: TABELA DE PEÇAS / INSUMOS E SERVIÇOS */}
-        <div className="mb-3 border border-black">
-          <div className="bg-slate-100 border-b border-black px-3 py-1 text-[10px] font-black uppercase">
+        {/* BOX 5: PEÇAS E SERVIÇOS */}
+        <div className="mb-2 border border-black">
+          <div className="bg-slate-100 border-b border-black px-2.5 py-0.5 text-[9px] font-black uppercase">
             {temTerceirizado ? (temFotos ? "5." : "4.") : (temFotos ? "4." : "3.")} Peças, Insumos e Serviços Aplicados
           </div>
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-[10px] text-left">
             <thead>
               <tr className="border-b border-black bg-slate-50">
-                <th className="p-1.5">Item / Insumo / Descrição</th>
-                <th className="p-1.5 text-center">Tipo / Qtd</th>
-                <th className="p-1.5 text-right">Unitário</th>
-                <th className="p-1.5 text-right">Subtotal</th>
+                <th className="p-1">Item / Insumo / Descrição</th>
+                <th className="p-1 text-center">Tipo / Qtd</th>
+                <th className="p-1 text-right">Unitário</th>
+                <th className="p-1 text-right">Subtotal</th>
               </tr>
             </thead>
             <tbody>
-              {/* 1. Insumos do Almoxarifado */}
               {chamado.itens_vinculados?.map((it, idx) => (
                 <tr key={`item-${idx}`} className="border-b border-slate-200">
-                  <td className="p-1.5 font-medium">{it.nome}</td>
-                  <td className="p-1.5 text-center">{it.quantidade} un.</td>
-                  <td className="p-1.5 text-right font-mono">{formatarMoeda(it.valor_unitario)}</td>
-                  <td className="p-1.5 text-right font-mono font-bold">{formatarMoeda(it.quantidade * it.valor_unitario)}</td>
+                  <td className="p-1 font-medium">{it.nome}</td>
+                  <td className="p-1 text-center">{it.quantidade} un.</td>
+                  <td className="p-1 text-right font-mono">{formatarMoeda(it.valor_unitario)}</td>
+                  <td className="p-1 text-right font-mono font-bold">{formatarMoeda(it.quantidade * it.valor_unitario)}</td>
                 </tr>
               ))}
 
-              {/* 2. Serviço Externo / Orçamento Aprovado */}
               {custoServico > 0 && (
                 <tr className="border-b border-slate-200 bg-slate-50/50">
-                  <td className="p-1.5 font-bold text-slate-800">
+                  <td className="p-1 font-bold text-slate-800">
                     🔧 Serviço Terceirizado Especializado
                     {chamado.orcamento_codigo && ` (${chamado.orcamento_codigo})`}
                     {chamado.empresa_terceirizada && ` - ${chamado.empresa_terceirizada}`}
                   </td>
-                  <td className="p-1.5 text-center text-[10px] uppercase font-bold text-slate-600">Serviço Ext.</td>
-                  <td className="p-1.5 text-right font-mono">{formatarMoeda(custoServico)}</td>
-                  <td className="p-1.5 text-right font-mono font-bold">{formatarMoeda(custoServico)}</td>
+                  <td className="p-1 text-center text-[9px] uppercase font-bold text-slate-600">Serviço Ext.</td>
+                  <td className="p-1 text-right font-mono">{formatarMoeda(custoServico)}</td>
+                  <td className="p-1 text-right font-mono font-bold">{formatarMoeda(custoServico)}</td>
                 </tr>
               )}
 
-              {/* 3. Caso não haja peças nem serviços externos */}
               {(!chamado.itens_vinculados?.length && custoServico <= 0) && (
                 <tr>
-                  <td colSpan="4" className="p-2 text-center text-slate-400 italic text-xs">
+                  <td colSpan="4" className="p-1.5 text-center text-slate-400 italic text-[10px]">
                     Nenhuma peça do estoque debitada ou serviço terceirizado lançado para este atendimento.
                   </td>
                 </tr>
@@ -349,25 +349,25 @@ export function ImprimirOS() {
             </tbody>
             <tfoot>
               <tr className="bg-slate-50 font-bold border-t border-slate-300">
-                <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Total em Insumos (Estoque):</td>
-                <td className="p-1.5 text-right text-xs font-mono">{formatarMoeda(totalPecas)}</td>
+                <td colSpan="3" className="p-1 text-right uppercase text-[9px]">Total em Insumos (Estoque):</td>
+                <td className="p-1 text-right text-[10px] font-mono">{formatarMoeda(totalPecas)}</td>
               </tr>
               {custoServico > 0 && (
                 <tr className="bg-slate-50 font-bold border-t border-slate-200">
-                  <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Total Mão de Obra / Serviços Terceiros:</td>
-                  <td className="p-1.5 text-right text-xs font-mono">{formatarMoeda(custoServico)}</td>
+                  <td colSpan="3" className="p-1 text-right uppercase text-[9px]">Total Mão de Obra / Serviços Terceiros:</td>
+                  <td className="p-1 text-right text-[10px] font-mono">{formatarMoeda(custoServico)}</td>
                 </tr>
               )}
               <tr className="bg-slate-100 font-black border-t border-black">
-                <td colSpan="3" className="p-1.5 text-right uppercase text-[10px]">Custo Total da OS (Peças + Serviços/Terceiros):</td>
-                <td className="p-1.5 text-right text-sm font-black font-mono">{formatarMoeda(totalGeral)}</td>
+                <td colSpan="3" className="p-1 text-right uppercase text-[9px]">Custo Total da OS (Peças + Serviços/Terceiros):</td>
+                <td className="p-1 text-right text-xs font-black font-mono">{formatarMoeda(totalGeral)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
 
-        {/* RODAPÉ DE ASSINATURAS */}
-        <div className="grid grid-cols-2 gap-8 mt-5 pt-1">
+        {/* ASSINATURAS */}
+        <div className="grid grid-cols-2 gap-6 mt-2 pt-1">
           {["tecnico", "setor"].map((tipo) => {
             const assinado = tipo === "tecnico" ? chamado.assinatura_tecnico : chamado.assinatura_setor;
             const nomeExibicao = tipo === "tecnico" 
@@ -375,19 +375,17 @@ export function ImprimirOS() {
               : chamado.nome_setor;
 
             return (
-              <div key={tipo} className="text-center flex flex-col justify-end min-h-[90px]">
+              <div key={tipo} className="text-center flex flex-col justify-end min-h-[50px]">
                 {assinado ? (
-                  <div className="mb-1">
-                    <img src={assinado} alt="Rubrica" className="h-12 mx-auto object-contain" />
-                    <p className="text-xs font-black uppercase mt-1 tracking-tight border-t border-black pt-1">{nomeExibicao}</p>
+                  <div className="mb-0.5">
+                    <img src={assinado} alt="Rubrica" className="h-10 mx-auto object-contain" />
+                    <p className="text-[10px] font-black uppercase mt-0.5 tracking-tight border-t border-black pt-0.5">{nomeExibicao}</p>
                   </div>
                 ) : (
                   <div>
-                    {/* Linha para assinatura manual no papel */}
-                    <div className="h-14 border-b border-black mb-1"></div>
-                    <p className="text-xs font-bold uppercase tracking-tight text-slate-800">Assinatura / Carimbo</p>
+                    <div className="h-9 border-b border-black mb-0.5"></div>
+                    <p className="text-[10px] font-bold uppercase tracking-tight text-slate-800">Assinatura / Carimbo</p>
                     
-                    {/* Pad de assinatura digital (some ao imprimir) */}
                     <div className="hide-print space-y-1.5 mt-2">
                       <input 
                         type="text" 
@@ -397,7 +395,7 @@ export function ImprimirOS() {
                         className="w-full border border-slate-300 p-1.5 rounded text-xs font-bold text-center" 
                       />
                       <div className="border border-slate-300 rounded bg-white">
-                        <SignaturePad ref={tipo === "tecnico" ? padTecnico : padSetor} canvasProps={{ height: 70, className: "w-full" }} />
+                        <SignaturePad ref={tipo === "tecnico" ? padTecnico : padSetor} canvasProps={{ height: 60, className: "w-full" }} />
                       </div>
                       <button onClick={() => salvarAssinatura(tipo)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-1 rounded text-[10px] font-black uppercase">
                         Salvar Assinatura
@@ -405,7 +403,7 @@ export function ImprimirOS() {
                     </div>
                   </div>
                 )}
-                <p className="text-[9px] font-black text-slate-400 uppercase mt-1">
+                <p className="text-[8.5px] font-black text-slate-400 uppercase mt-0.5">
                   {tipo === "tecnico" 
                     ? (temTerceirizado ? "Prestador / Técnico Responsável" : "Técnico Responsável") 
                     : "Aceite do Responsável pelo Setor"}
@@ -416,8 +414,8 @@ export function ImprimirOS() {
         </div>
 
         {/* NOTA DE RODAPÉ LEGAL */}
-        <div className="mt-4 pt-2 border-t border-slate-200 text-[9px] text-center text-slate-400 uppercase tracking-widest">
-            Documento gerado eletronicamente pelo Sistema SEC-H - {new Date().getFullYear()}
+        <div className="mt-2 pt-1 border-t border-slate-200 text-[8px] text-center text-slate-400 uppercase tracking-widest">
+          Documento gerado eletronicamente pelo Sistema SEC-H - {new Date().getFullYear()}
         </div>
       </div>
     </div>
