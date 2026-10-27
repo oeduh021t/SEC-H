@@ -324,6 +324,37 @@ const Preventivas = () => {
                     </p>
                 </div>
 
+                {/* ALERTA OPERACIONAL DE ATENÇÃO IMEDIATA */}
+                {(totais.atrasadas > 0 || totais.criticas > 0) && (
+                    <div className={`p-4 rounded-2xl border flex items-center justify-between hide-print ${
+                        totais.atrasadas > 0 
+                            ? 'bg-red-50 border-red-200 text-red-900' 
+                            : 'bg-amber-50 border-amber-200 text-amber-900'
+                    }`}>
+                        <div className="flex items-center gap-3">
+                            <span className="text-2xl">{totais.atrasadas > 0 ? '🚨' : '⚠️'}</span>
+                            <div>
+                                <p className="text-xs font-black uppercase tracking-wider">
+                                    {totais.atrasadas > 0 
+                                        ? `Atenção: Existem ${totais.atrasadas} rotina(s) de preventiva atrasada(s)!` 
+                                        : `Atenção: ${totais.criticas} rotina(s) vencem nos próximos 15 dias!`}
+                                </p>
+                                <p className="text-[11px] font-medium opacity-80">
+                                    Priorize a execução dos roteiros críticos para assegurar a conformidade do parque hospitalar.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => alternarFiltroCard(totais.atrasadas > 0 ? 'atrasadas' : 'criticas')}
+                            className={`px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm transition-all active:scale-95 ${
+                                totais.atrasadas > 0 ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-amber-600 hover:bg-amber-700 text-white'
+                            }`}
+                        >
+                            Filtrar Urgências
+                        </button>
+                    </div>
+                )}
+
                 {/* PAINEL DE CARDS INTERATIVOS */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div 
@@ -382,8 +413,22 @@ const Preventivas = () => {
                             <tbody className="divide-y divide-slate-100 text-xs">
                                 {dadosPaginados.map(p => {
                                     const temPai = Boolean(p.setor_pai_nome);
+                                    
+                                    // Determinação de criticidade para linha
+                                    const isAtrasada = p.dias_restantes < 0;
+                                    const isVenceHoje = p.dias_restantes === 0;
+                                    const isCritica = p.dias_restantes > 0 && p.dias_restantes <= 15;
+
+                                    const rowStyle = isAtrasada
+                                        ? 'bg-red-50/40 hover:bg-red-50/70 border-l-4 border-l-red-500'
+                                        : isVenceHoje
+                                        ? 'bg-amber-100/40 hover:bg-amber-100/70 border-l-4 border-l-amber-500'
+                                        : isCritica
+                                        ? 'bg-amber-50/30 hover:bg-amber-50/60 border-l-4 border-l-amber-400'
+                                        : 'hover:bg-slate-50/60 border-l-4 border-l-transparent';
+
                                     return (
-                                        <tr key={p.id} className="hover:bg-slate-50/60 transition-colors text-slate-800">
+                                        <tr key={p.id} className={`transition-colors text-slate-800 ${rowStyle}`}>
                                             <td className="p-3.5">
                                                 <div className="font-black text-slate-700 uppercase">{p.nome}</div>
                                                 <div className="text-[10px] text-slate-400 font-mono mt-0.5">Patrimônio: {p.patrimonio || 'S/P'}</div>
@@ -414,13 +459,27 @@ const Preventivas = () => {
                                                 <div className="text-[10px] text-slate-400 mt-0.5 font-medium">Última: {formatarDataLocal(p.data_ultima_preventiva)}</div>
                                             </td>
                                             <td className="p-3.5">
-                                                <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-block ${
-                                                    p.dias_restantes < 0 ? 'bg-red-50 text-red-600 border border-red-100' : 
-                                                    p.dias_restantes <= 15 ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-green-50 text-green-600 border border-green-100'
-                                                }`}>
-                                                    {p.dias_restantes < 0 ? `🚨 Atrasada há ${Math.abs(p.dias_restantes)} dias` : 
-                                                     p.dias_restantes === 0 ? '⚠️ Vence Hoje' : `✅ Restam ${p.dias_restantes} dias`}
-                                                </span>
+                                                {isAtrasada ? (
+                                                    <span className="px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-200 animate-pulse">
+                                                        🚨 Atrasada há {Math.abs(p.dias_restantes)} dias
+                                                    </span>
+                                                ) : isVenceHoje ? (
+                                                    <span className="px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 bg-amber-500 text-white border border-amber-600 shadow-sm">
+                                                        ⚡ Vence Hoje
+                                                    </span>
+                                                ) : p.dias_restantes <= 7 ? (
+                                                    <span className="px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 bg-amber-100 text-amber-800 border border-amber-300">
+                                                        ⚠️ Restam {p.dias_restantes} dias (Semana)
+                                                    </span>
+                                                ) : isCritica ? (
+                                                    <span className="px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-block bg-amber-50 text-amber-700 border border-amber-200">
+                                                        ⏳ Restam {p.dias_restantes} dias
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-3 py-1 rounded-xl text-[9px] font-black uppercase tracking-wider inline-block bg-green-50 text-green-600 border border-green-100">
+                                                        ✅ Restam {p.dias_restantes} dias
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="p-3.5 text-center hide-print">
                                                 <div className="flex items-center justify-center gap-1.5">

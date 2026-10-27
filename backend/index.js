@@ -7048,5 +7048,56 @@ app.get('/api/timeline-operacional', permitirApenas(['admin', 'coordenador', 'te
     });
 });
 
+// =========================================================================
+// 🔔 ALERTA DIÁRIO DE PREVENTIVAS / PMOC VIA TELEGRAM (Às 08:00)
+// =========================================================================
+let ultimoEnvioPreventivas = null;
+
+setInterval(() => {
+    const agora = new Date();
+    const horaAtual = agora.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
+    const dataAtual = agora.toISOString().split('T')[0];
+
+    // Dispara uma vez por dia, entre 08:00 e 08:05
+    if (horaAtual >= '08:00:00' && horaAtual <= '08:05:00' && ultimoEnvioPreventivas !== dataAtual) {
+        ultimoEnvioPreventivas = dataAtual;
+
+        const sqlPreventivasCriticas = `
+            SELECT 
+                e.nome, 
+                e.patrimonio, 
+                s.nome AS setor_nome,
+                DATEDIFF(DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY), CURDATE()) as dias_restantes
+            FROM equipamentos e
+            LEFT JOIN setores s ON e.setor_id = s.id
+            WHERE e.status IN ('Ativo', 'Em Manutenção', 'Reserva')
+              AND e.periodicidade_preventiva > 0
+              AND DATEDIFF(DATE_ADD(COALESCE(e.data_ultima_preventiva, CURDATE()), INTERVAL e.periodicidade_preventiva DAY), CURDATE()) <= 15
+            ORDER BY dias_restantes ASC
+            LIMIT 15;
+        `;
+
+        db.query(sqlPreventivasCriticas, (err, rows) => {
+            if (!err && rows && rows.length > 0) {
+                let msg = `📅 <b>RELATÓRIO DIÁRIO DE PREVENTIVAS / PMOC</b>\n\n`;
+                
+                rows.forEach(r => {
+                    const statusIcon = r.dias_restantes < 0 
+                        ? `🚨 <b>ATRASADA</b> (${Math.abs(r.dias_restantes)}d)` 
+                        : r.dias_restantes === 0 
+                        ? `⚡ <b>VENCE HOJE</b>` 
+                        : `⚠️ Vence em ${r.dias_restantes}d`;
+
+                    msg += `• <b>${r.nome}</b> (PAT: ${r.patrimonio || 'S/P'})\n`;
+                    msg += `  📍 Setor: ${r.setor_nome || 'Geral'} | Situação: ${statusIcon}\n\n`;
+                });
+
+                msg += `<i>Verifique o cronograma completo no sistema SEC-H.</i>`;
+                enviarTelegram(msg);
+            }
+        });
+    }
+}, 60 * 1000);
+
 const PORT = 3000;
 app.listen(PORT, () => console.log(`🚀 SEC-H rodando na porta ${PORT}`));
