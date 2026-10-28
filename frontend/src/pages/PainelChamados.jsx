@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FiVolume2, 
@@ -81,9 +81,37 @@ const PainelChamados = () => {
   const scrollContainerAbertosRef = useRef(null);
   const scrollContainerAndamentoRef = useRef(null);
 
+  // 🛡️ REFS DE ESTABILIDADE (VOZ, ÁUDIO E WAKELOCK)
+  const utteranceAtivaRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const watchdogVozRef = useRef(null);
+
   const API_URL = '/api';
 
-  const obterSetorCompleto = (chamado, listaSetores = setores) => {
+  // 🖥️ MANTER A TELA LIGADA (KIOSK / MONITORAMENTO)
+  useEffect(() => {
+    let wakeLock = null;
+
+    const solicitarWakeLock = async () => {
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+        } catch (_) {}
+      }
+    };
+
+    solicitarWakeLock();
+    document.addEventListener('visibilitychange', solicitarWakeLock);
+
+    return () => {
+      document.removeEventListener('visibilitychange', solicitarWakeLock);
+      if (wakeLock) {
+        wakeLock.release().catch(() => {});
+      }
+    };
+  }, []);
+
+  const obterSetorCompleto = useCallback((chamado, listaSetores = setores) => {
     if (!chamado) return 'Setor Geral';
     if (chamado.setor_completo) return chamado.setor_completo;
 
@@ -93,12 +121,15 @@ const PainelChamados = () => {
     }
 
     return chamado.setor_nome || 'Setor Geral';
-  };
+  }, [setores]);
 
-  // 🗣️ SÍNTESE DE VOZ
-  const falarTexto = (texto) => {
+  // 🗣️ SÍNTESE DE VOZ ROBUSTA CONTRA GARBAGE COLLECTION E DEADLOCK
+  const falarTexto = useCallback((texto) => {
     if (!('speechSynthesis' in window)) return;
+
     try {
+      if (watchdogVozRef.current) clearInterval(watchdogVozRef.current);
+
       window.speechSynthesis.cancel();
       window.speechSynthesis.resume();
 
@@ -111,19 +142,40 @@ const PainelChamados = () => {
       const vozPt = vozes.find(v => v.lang === 'pt-BR' || v.lang.includes('pt'));
       if (vozPt) utterance.voice = vozPt;
 
+      utteranceAtivaRef.current = utterance;
+
+      watchdogVozRef.current = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        } else {
+          clearInterval(watchdogVozRef.current);
+        }
+      }, 8000);
+
+      utterance.onend = () => {
+        clearInterval(watchdogVozRef.current);
+        utteranceAtivaRef.current = null;
+      };
+
+      utterance.onerror = () => {
+        clearInterval(watchdogVozRef.current);
+        utteranceAtivaRef.current = null;
+      };
+
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn("Falha na síntese de voz:", e);
     }
-  };
+  }, []);
 
-  const narrarChamado = (c) => {
+  const narrarChamado = useCallback((c) => {
     const setor = obterSetorCompleto(c, setores).replace(/\s*>\s*/g, ', ');
     const titulo = c.titulo || 'Sem assunto';
     const equip = c.equip_nome ? `Equipamento: ${c.equip_nome}.` : '';
     const desc = c.descricao_problema ? `Detalhe: ${c.descricao_problema}.` : '';
     falarTexto(`Chamado no setor ${setor}. Problema: ${titulo}. ${equip} ${desc}`);
-  };
+  }, [obterSetorCompleto, setores, falarTexto]);
 
   // 🔊 RECONHECIMENTO DE VOZ
   useEffect(() => {
@@ -263,7 +315,7 @@ const PainelChamados = () => {
           ctx.drawImage(img, 0, 0, largura, altura);
           canvas.toBlob((blob) => {
             if (!blob) return resolve(arquivo);
-            resolve(new File([blob], arquivo.name.replace(/\.[^/.]+\$/, ".jpg"), { type: 'image/jpeg' }));
+            resolve(new File([blob], arquivo.name.replace(/\.[^/.]+$/, ".jpg"), { type: 'image/jpeg' }));
           }, 'image/jpeg', 0.8);
         };
         img.onerror = () => resolve(arquivo);
@@ -275,6 +327,35 @@ const PainelChamados = () => {
   const injetarTextoRapido = (txt) => {
     setDescricaoSolucao(prev => prev ? `${prev}. ${txt}` : txt);
   };
+
+  const tocarBipe = useCallback(() => {
+    try {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) return;
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtxClass();
+      }
+
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+
+      const audioCtx = audioContextRef.current;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.3);
+    } catch (e) {
+      console.warn("Áudio não pôde tocar:", e);
+    }
+  }, []);
 
   // ⚡ ATENDER
   const iniciarAtendimento = async (chamadoId) => {
@@ -363,24 +444,6 @@ const PainelChamados = () => {
     }
   };
 
-  const tocarBipe = () => {
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.3);
-    } catch (e) {
-      console.warn("Áudio não pôde tocar:", e);
-    }
-  };
-
   const alternarModoPlantao = () => {
     const novoStatus = !modoPlantao;
     setModoPlantao(novoStatus);
@@ -421,14 +484,13 @@ const PainelChamados = () => {
   };
 
   // ⏰ VERIFICAÇÃO DO POPUP DE 5 MINUTOS DAS PLANEJADAS
-  const checarAlertaCincoMinutos = (listaPlanejadas) => {
+  const checarAlertaCincoMinutos = useCallback((listaPlanejadas) => {
     if (!Array.isArray(listaPlanejadas) || listaPlanejadas.length === 0) return;
 
     const agoraDate = new Date();
     const agoraMinutosDia = (agoraDate.getHours() * 60) + agoraDate.getMinutes();
 
     for (const plan of listaPlanejadas) {
-      // Se já foi gerada OS ou foi cancelada/concluída, ignora
       if (plan.status !== 'Agendado' && plan.status !== 'Pendente') continue;
       if (plan.chamado_execucao_id) continue;
       if (alertasPlanejadosIgnoradosRef.current.has(plan.id)) continue;
@@ -440,12 +502,10 @@ const PainelChamados = () => {
         const minutosPlanejados = (h * 60) + m;
         const diffMinutos = minutosPlanejados - agoraMinutosDia;
 
-        // Dispara se faltar até 5 minutos (entre 0 e 5) ou se já passou do horário (atrasada hoje)
         if (diffMinutos <= 5) {
           deveDisparar = true;
         }
       } else {
-        // Se não tem horário definido, mas está agendada para hoje
         deveDisparar = true;
       }
 
@@ -460,9 +520,9 @@ const PainelChamados = () => {
         break;
       }
     }
-  };
+  }, [audioHabilitado, falarTexto, tocarBipe]);
 
-  const buscarDados = async () => {
+  const buscarDados = useCallback(async () => {
     try {
       const headers = { 
         'Content-Type': 'application/json', 
@@ -526,7 +586,7 @@ const PainelChamados = () => {
     } catch (err) {
       console.error("Erro ao sincronizar painel:", err);
     }
-  };
+  }, [audioHabilitado, modoPlantao, usuarioLogado.nivel, checarAlertaCincoMinutos, tocarBipe, narrarChamado, obterSetorCompleto, falarTexto]);
 
   useEffect(() => {
     buscarDados();
@@ -537,24 +597,41 @@ const PainelChamados = () => {
       clearInterval(intervalBusca);
       clearInterval(intervalRelogio);
     };
-  }, [audioHabilitado, modoPlantao]);
+  }, [buscarDados]);
 
+  // 📜 ROLAGEM AUTOMÁTICA USANDO REQUESTANIMATIONFRAME (IMUNE A THROTTLING)
   useEffect(() => {
     if (!autoScroll || usuarioPausouHover) return;
 
-    const scrollInterval = setInterval(() => {
-      [scrollContainerAbertosRef.current, scrollContainerAndamentoRef.current].forEach(el => {
-        if (!el || el.scrollHeight <= el.clientHeight) return;
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 5) {
-          el.scrollTop = 0;
-        } else {
-          el.scrollTop += 1;
-        }
-      });
-    }, 50);
+    let animId;
+    let ultimoTempo = performance.now();
 
-    return () => clearInterval(scrollInterval);
-  }, [autoScroll, usuarioPausouHover]);
+    const executarScroll = (tempoAtual) => {
+      if (tempoAtual - ultimoTempo >= 45) {
+        [scrollContainerAbertosRef.current, scrollContainerAndamentoRef.current].forEach(el => {
+          if (!el) return;
+
+          const limiteScroll = el.scrollHeight - el.clientHeight;
+          if (limiteScroll <= 0) return;
+
+          if (el.scrollTop >= limiteScroll - 8) {
+            el.scrollTop = 0;
+          } else {
+            el.scrollTop += 1;
+          }
+        });
+        ultimoTempo = tempoAtual;
+      }
+
+      animId = requestAnimationFrame(executarScroll);
+    };
+
+    animId = requestAnimationFrame(executarScroll);
+
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [autoScroll, usuarioPausouHover, chamados]);
 
   const alternarFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -640,6 +717,8 @@ const PainelChamados = () => {
                 if (novoStatus) {
                   tocarBipe();
                   falarTexto("Avisos automáticos ativados.");
+                } else if ('speechSynthesis' in window) {
+                  window.speechSynthesis.cancel();
                 }
               }}
               className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -883,11 +962,10 @@ const PainelChamados = () => {
         </div>
       </footer>
 
-      {/* 🚨 POPUP PRIORITÁRIO: AVISO DE MANUTENÇÃO PLANEJADA (5 MINUTOS ANTES) */}
+      {/* 🚨 POPUP PRIORITÁRIO: AVISO DE MANUTENÇÃO PLANEJADA */}
       {alertaPlanejadaAtivo && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in zoom-in duration-200">
           <div className="bg-slate-900 border-2 border-amber-500 rounded-3xl w-full max-w-lg p-6 space-y-4 text-white shadow-2xl relative shadow-amber-500/20">
-            
             <button
               onClick={() => {
                 alertasPlanejadosIgnoradosRef.current.add(alertaPlanejadaAtivo.id);
@@ -960,7 +1038,6 @@ const PainelChamados = () => {
                 <span>Iniciar / Gerar OS</span>
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -969,7 +1046,6 @@ const PainelChamados = () => {
       {chamadoParaConcluir && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4 overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-5 md:p-6 space-y-5 text-white shadow-2xl relative my-auto">
-            
             <button
               onClick={() => {
                 setChamadoParaConcluir(null);
@@ -1180,7 +1256,6 @@ const PainelChamados = () => {
                 )}
               </button>
             </div>
-
           </div>
         </div>
       )}
@@ -1240,7 +1315,6 @@ const PainelChamados = () => {
           </div>
         </div>
       )}
-
     </div>
   );
 };

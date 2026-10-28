@@ -424,12 +424,18 @@ export default function NotasFiscais() {
         return;
       }
       const insumoSel = estoqueItens.find(i => String(i.id) === String(itemTemp.item_id));
+      
+      // Prioriza o valor digitado no input do formulário; se vazio, mantém o do cadastro
+      const valorUnitarioFinal = itemTemp.valor_unitario !== '' && !isNaN(Number(itemTemp.valor_unitario))
+        ? Number(itemTemp.valor_unitario)
+        : Number(insumoSel?.valor_unitario || 0);
+
       itemFormatado = {
         item_id: itemTemp.item_id,
         nome: insumoSel?.nome || 'Insumo',
         referencia: insumoSel?.referencia || '',
         quantidade: Number(itemTemp.quantidade),
-        valor_unitario: Number(itemTemp.valor_unitario || insumoSel?.valor_unitario || 0),
+        valor_unitario: valorUnitarioFinal,
         isNovo: false
       };
     }
@@ -1242,7 +1248,7 @@ export default function NotasFiscais() {
 
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
                   {!isNovoCadastroItem ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                       <div className="sm:col-span-2">
                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Insumo do Almoxarifado</label>
                         <select
@@ -1258,7 +1264,7 @@ export default function NotasFiscais() {
                             setItemTemp({
                               ...itemTemp,
                               item_id: e.target.value,
-                              valor_unitario: insumoSel ? insumoSel.valor_unitario : itemTemp.valor_unitario
+                              valor_unitario: insumoSel?.valor_unitario || ''
                             });
                           }}
                         >
@@ -1266,14 +1272,14 @@ export default function NotasFiscais() {
                           <option value="NOVO_ITEM" className="font-bold text-blue-600">➕ [ CADASTRAR NOVO INSUMO... ]</option>
                           {estoqueItens.map(i => (
                             <option key={i.id} value={i.id}>
-                              {i.nome} {i.referencia ? `(Ref: ${i.referencia})` : ''}
+                              {i.nome} {i.referencia ? `(Ref: ${i.referencia})` : ''} — Atual: R$ {Number(i.valor_unitario || 0).toFixed(2)}
                             </option>
                           ))}
                         </select>
                       </div>
 
                       <div>
-                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Quantidade</label>
+                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Quantidade *</label>
                         <input
                           type="number"
                           min="1"
@@ -1281,6 +1287,18 @@ export default function NotasFiscais() {
                           className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-bold focus:border-blue-500"
                           value={itemTemp.quantidade}
                           onChange={e => setItemTemp({ ...itemTemp, quantidade: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Preço Pago Unit. (R$) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          className="w-full p-2.5 border-2 border-slate-100 rounded-xl outline-none text-xs bg-white text-slate-800 font-mono font-bold focus:border-blue-500"
+                          value={itemTemp.valor_unitario}
+                          onChange={e => setItemTemp({ ...itemTemp, valor_unitario: e.target.value })}
                         />
                       </div>
 
