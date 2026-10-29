@@ -2730,6 +2730,7 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
     const { 
         numero_nf, serie, chave_acesso, fornecedor_id, 
         data_emissao, data_recebimento, valor_total, descricao, 
+        status, // 👈 Recebe o status do front
         itens, boletos, solicitacao_compra_id 
     } = req.body;
 
@@ -2759,9 +2760,10 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
+        // Query alinhada com as colunas reais da sua tabela notas_fiscais:
         const queryNF = `
-            INSERT INTO notas_fiscais (numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, url_xml, url_danfe)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notas_fiscais (numero_nf, serie, chave_acesso, fornecedor_id, data_emissao, data_recebimento, valor_total, descricao, status, url_xml, url_danfe)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const valuesNF = [
             numero_nf, 
@@ -2772,6 +2774,7 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
             data_recebimento || null, 
             Number(valor_total), 
             descricao || null, 
+            status || 'Pendente', // 👈 Grava o status selecionado ou usa o default
             url_xml, 
             url_danfe
         ];
@@ -2800,7 +2803,7 @@ app.post('/api/notas-fiscais', permitirApenas(['admin', 'coordenador']), uploadD
                 }
             };
 
-            // Passo 2: Gravação de Boletos em Lote (se enviados)
+            // Passo 2: Gravação de Boletos em Lote
             const tratarBoletos = (callbackPasso2) => {
                 if (!listaBoletos || !Array.isArray(listaBoletos) || listaBoletos.length === 0) {
                     return callbackPasso2();
@@ -3007,18 +3010,20 @@ app.put('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req
     const { 
         numero_nf, serie, chave_acesso, fornecedor_id, 
         data_emissao, data_recebimento, valor_total, descricao, 
+        status, // 👈 Recebe o status do modal de edição
         solicitacao_compra_id, chamado_id 
     } = req.body;
 
     const v_fornecedor = fornecedor_id ? Number(fornecedor_id) : null;
     const v_valor = valor_total !== undefined && valor_total !== null && valor_total !== '' ? Number(valor_total) : 0.00;
+    const v_status = status || 'Pendente';
     const v_solicitacao = solicitacao_compra_id && solicitacao_compra_id !== "" && solicitacao_compra_id !== "null" ? Number(solicitacao_compra_id) : null;
     const v_chamado = chamado_id && chamado_id !== "" && chamado_id !== "null" ? Number(chamado_id) : null;
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        // 1. Atualiza cabeçalho da nota
+        // 1. Atualiza os campos cadastrais da tabela notas_fiscais
         const queryUpdate = `
             UPDATE notas_fiscais 
             SET numero_nf = ?, 
@@ -3028,6 +3033,7 @@ app.put('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req
                 data_emissao = ?, 
                 data_recebimento = ?, 
                 valor_total = ?, 
+                status = ?,
                 descricao = ?
             WHERE id = ?
         `;
@@ -3039,6 +3045,7 @@ app.put('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req
             data_emissao,
             data_recebimento || null,
             v_valor,
+            v_status,
             descricao || null,
             id
         ];
@@ -3052,14 +3059,14 @@ app.put('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req
                 });
             }
 
-            // 2. Trata desvinculação anterior de solicitação de compra para não deixar rastros órfãos
+            // 2. Trata desvinculação de solicitação de compra antiga
             const queryLimpaSolicitacao = `UPDATE solicitacoes_compra SET nota_fiscal_id = NULL WHERE nota_fiscal_id = ?`;
             conn.query(queryLimpaSolicitacao, [id], (errLimpa) => {
                 if (errLimpa) {
                     return conn.rollback(() => { conn.release(); res.status(500).json({ error: errLimpa.message }); });
                 }
 
-                // 3. Se houver nova solicitação de compra vinculada, associa e marca como Entregue
+                // 3. Associa nova solicitação de compra (se houver)
                 const associarSolicitacao = (proximoPasso) => {
                     if (v_solicitacao) {
                         const queryAssocia = `UPDATE solicitacoes_compra SET nota_fiscal_id = ?, status = 'Entregue' WHERE id = ?`;
@@ -3072,10 +3079,10 @@ app.put('/api/notas-fiscais/:id', permitirApenas(['admin', 'coordenador']), (req
                     }
                 };
 
-                // 4. Se houver vínculo direto com chamado/OS, registra histórico de auditoria na OS
+                // 4. Se houver vínculo com chamado/OS, registra histórico na OS
                 associarSolicitacao(() => {
                     if (v_chamado) {
-                        const msgLog = `[🧾 VÍNCULO FISCAL ATUALIZADO] Nota Fiscal #${numero_nf} vinculada a esta OS. Valor: R$ ${v_valor.toFixed(2)}.`;
+                        const msgLog = `[🧾 VÍNCULO FISCAL ATUALIZADO] Nota Fiscal #${numero_nf} vinculada a esta OS. Status: ${v_status} | Valor: R$ ${v_valor.toFixed(2)}.`;
                         const qHist = `
                             INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro)
                             VALUES (?, 'Sistema / Faturamento', ?, 'Em Atendimento', NOW())

@@ -37,12 +37,14 @@ export default function NotasFiscais() {
   const [novaNota, setNovaNota] = useState({
     numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '',
     data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', 
+    status: 'Pendente',
     solicitacao_compra_id: '', chamado_id: ''
   });
 
   const [notaEdicao, setNotaEdicao] = useState({
     id: '', numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '',
     data_emissao: '', data_recebimento: '', valor_total: '', descricao: '',
+    status: 'Pendente',
     solicitacao_compra_id: '', chamado_id: ''
   });
 
@@ -139,6 +141,7 @@ export default function NotasFiscais() {
       data_recebimento: nota.data_recebimento ? nota.data_recebimento.split('T')[0] : '',
       valor_total: nota.valor_total || '',
       descricao: nota.descricao || '',
+      status: nota.status || 'Pendente',
       solicitacao_compra_id: nota.solicitacao_compra_id ? String(nota.solicitacao_compra_id) : '',
       chamado_id: nota.os_vinculada_id ? String(nota.os_vinculada_id) : ''
     });
@@ -173,7 +176,6 @@ export default function NotasFiscais() {
     }
   };
 
-  // Leitor automático de XML com itens E duplicatas
   const handleImportarXML = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -226,7 +228,6 @@ export default function NotasFiscais() {
           descricao: `Importada via XML [Emitente: ${emitNome} - CNPJ: ${emitCNPJ}]`
         }));
 
-        // Extração dos Itens da NF
         const detList = xmlDoc.querySelectorAll("det");
         const itensLidos = [];
 
@@ -268,7 +269,6 @@ export default function NotasFiscais() {
 
         if (itensLidos.length > 0) setItensNovosNota(itensLidos);
 
-        // Extração das Duplicatas / Boletos da NF (<cobr> -> <dup>)
         const dupList = xmlDoc.querySelectorAll("cobr > dup");
         const boletosLidos = [];
 
@@ -425,7 +425,6 @@ export default function NotasFiscais() {
       }
       const insumoSel = estoqueItens.find(i => String(i.id) === String(itemTemp.item_id));
       
-      // Prioriza o valor digitado no input do formulário; se vazio, mantém o do cadastro
       const valorUnitarioFinal = itemTemp.valor_unitario !== '' && !isNaN(Number(itemTemp.valor_unitario))
         ? Number(itemTemp.valor_unitario)
         : Number(insumoSel?.valor_unitario || 0);
@@ -453,7 +452,6 @@ export default function NotasFiscais() {
     setBoletosNovosNota(boletosNovosNota.filter((_, i) => i !== index));
   };
 
-  // Cálculo de conciliação do modal de nota
   const totalItensModal = useMemo(() => {
     return itensNovosNota.reduce((acc, it) => acc + (Number(it.quantidade || 0) * Number(it.valor_unitario || 0)), 0);
   }, [itensNovosNota]);
@@ -488,7 +486,7 @@ export default function NotasFiscais() {
       if (res.ok) {
         alert('Nota Fiscal, itens e cronograma financeiro salvos com sucesso! 📦🧾');
         setModalNotaAberto(false);
-        setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '', chamado_id: '' });
+        setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', status: 'Pendente', solicitacao_compra_id: '', chamado_id: '' });
         setArquivosNota({ xml: null, danfe: null });
         setItensNovosNota([]);
         setBoletosNovosNota([]);
@@ -715,7 +713,7 @@ export default function NotasFiscais() {
 
           <button 
             onClick={() => {
-              setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', solicitacao_compra_id: '', chamado_id: '' });
+              setNovaNota({ numero_nf: '', serie: '', chave_acesso: '', fornecedor_id: '', data_emissao: '', data_recebimento: '', valor_total: '', descricao: '', status: 'Pendente', solicitacao_compra_id: '', chamado_id: '' });
               setArquivosNota({ xml: null, danfe: null });
               setItensNovosNota([]);
               setBoletosNovosNota([]);
@@ -994,9 +992,22 @@ export default function NotasFiscais() {
                       R$ {Number(nota.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
 
-                    {/* Coluna 5: Auditoria & Cobrança */}
-                    <td className="p-5">
-                      {renderizarBadgeConciliacao(nota)}
+                    {/* Coluna 5: Auditoria & Cobrança (Status da Nota + Conciliação de Boletos) */}
+                    <td className="p-5 space-y-1">
+                      <div>
+                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider inline-block ${
+                          nota.status === 'Paga'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : nota.status === 'Cancelada'
+                            ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                        }`}>
+                          {nota.status || 'Pendente'}
+                        </span>
+                      </div>
+                      <div>
+                        {renderizarBadgeConciliacao(nota)}
+                      </div>
                     </td>
 
                     {/* Coluna 6: Documentos */}
@@ -1022,7 +1033,6 @@ export default function NotasFiscais() {
                     <td className="p-5 text-center">
                       <div className="flex justify-center items-center gap-1.5">
                         
-                        {/* ✏️ NOVO BOTÃO: EDITAR NOTA & VÍNCULOS PÓS-CADASTRO */}
                         <button 
                           onClick={() => abrirModalEditar(nota)}
                           className="px-2.5 py-1.5 bg-blue-50 text-blue-700 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-2xs border border-blue-200 text-[11px] font-black uppercase tracking-wider flex items-center gap-1"
@@ -1221,6 +1231,22 @@ export default function NotasFiscais() {
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Valor Total (R$) *</label>
                   <input type="number" step="0.01" required className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm font-bold bg-white text-slate-800" value={novaNota.valor_total} onChange={e => setNovaNota({...novaNota, valor_total: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data de Recebimento</label>
+                  <input type="date" className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none text-sm bg-white text-slate-800 font-bold" value={novaNota.data_recebimento} onChange={e => setNovaNota({...novaNota, data_recebimento: e.target.value})} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Status da Nota *</label>
+                  <select 
+                    className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none font-bold text-sm bg-white text-slate-800 focus:border-blue-500"
+                    value={novaNota.status} 
+                    onChange={e => setNovaNota({ ...novaNota, status: e.target.value })}
+                  >
+                    <option value="Pendente">⏳ Pendente</option>
+                    <option value="Paga">✅ Paga / Liquidada</option>
+                    <option value="Cancelada">❌ Cancelada</option>
+                  </select>
                 </div>
                 <div className="col-span-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Arquivo PDF DANFE (Opcional)</label>
@@ -1480,7 +1506,7 @@ export default function NotasFiscais() {
         </div>
       )}
 
-      {/* --- ✏️ NOVO MODAL: EDITAR DADOS & VÍNCULOS DA NOTA FISCAL (PÓS-LANÇAMENTO) --- */}
+      {/* --- ✏️ MODAL: EDITAR DADOS & VÍNCULOS DA NOTA FISCAL (PÓS-LANÇAMENTO) --- */}
       {modalEditarAberto && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col">
@@ -1602,7 +1628,7 @@ export default function NotasFiscais() {
                     onChange={e => setNotaEdicao({ ...notaEdicao, data_recebimento: e.target.value })}
                   />
                 </div>
-                <div className="sm:col-span-2">
+                <div>
                   <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Valor Total (R$) *</label>
                   <input
                     type="number"
@@ -1612,6 +1638,18 @@ export default function NotasFiscais() {
                     value={notaEdicao.valor_total}
                     onChange={e => setNotaEdicao({ ...notaEdicao, valor_total: e.target.value })}
                   />
+                </div>
+                <div>
+                  <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Status da Nota *</label>
+                  <select
+                    className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-white text-slate-800 outline-none focus:border-blue-500"
+                    value={notaEdicao.status}
+                    onChange={e => setNotaEdicao({ ...notaEdicao, status: e.target.value })}
+                  >
+                    <option value="Pendente">⏳ Pendente</option>
+                    <option value="Paga">✅ Paga / Liquidada</option>
+                    <option value="Cancelada">❌ Cancelada</option>
+                  </select>
                 </div>
                 <div className="sm:col-span-2">
                   <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Observações / Descrição</label>
