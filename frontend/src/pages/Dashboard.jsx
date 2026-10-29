@@ -99,12 +99,10 @@ const Dashboard = ({ user }) => {
         return `${h}h ${m > 0 ? `${m}m` : ''}`;
     };
 
-    // Lista de Chamados Externos (Prioriza o endpoint dedicado, com fallback resiliente)
     const listaExternos = stats?.chamadosExternosLista 
         ? asArray(stats.chamadosExternosLista) 
         : asArray(stats?.recentes).filter(r => r.status === 'Aguardando Externa' || Number(r.em_manutencao_externa) === 1);
 
-    // Cálculos Operacionais
     const totalAbertos = Number(stats?.chamadosAbertos?.[0]?.total || 0);
     const totalAndamento = Number(stats?.chamadosAndamento?.[0]?.total || 0);
     const totalExternos = Number(stats?.chamadosExternos?.[0]?.total || listaExternos.length || 0);
@@ -112,7 +110,6 @@ const Dashboard = ({ user }) => {
     const totalGeralChamados = totalAbertos + totalAndamento + totalExternos + totalConcluidos;
     const taxaResolucao = totalGeralChamados > 0 ? Math.round((totalConcluidos / totalGeralChamados) * 100) : 100;
 
-    // Métricas de Auditoria ONA / Parque Tecnológico
     const uptimeCalculado = stats?.indicadoresQualidade?.[0]?.uptime_parque_taxa ?? (
         stats?.statusAtivos?.[0]?.total > 0
             ? (((Number(stats?.statusAtivos?.[0]?.ativos || 0) + Number(stats?.statusAtivos?.[0]?.reserva || 0)) / Number(stats?.statusAtivos?.[0]?.total)) * 100).toFixed(1)
@@ -120,27 +117,18 @@ const Dashboard = ({ user }) => {
     );
     const mttrCalculado = stats?.indicadoresQualidade?.[0]?.mttr_medio_horas ?? '0.0';
 
-    // Métricas de SLA & TMA
     const slaStats = stats?.metricasSLA?.[0];
     const totalConcluidasSLA = Number(slaStats?.total_concluidas || 0);
     const dentroSla = Number(slaStats?.dentro_sla_total || 0);
     const percentualCumprimentoSLA = totalConcluidasSLA > 0 ? Math.round((dentroSla / totalConcluidasSLA) * 100) : 100;
     const tmaGeralTexto = formatarMinutosParaHoras(slaStats?.tma_minutos);
 
-    // Cálculos Financeiros
-    const gastoInsumos = Number(stats?.gastoInsumosGerais || 0);
-    const gastoEquipamentos = Number(stats?.gastoTotalEquipamentos || 0);
-    const gastoEstrutura = Number(stats?.gastoTotalEstrutura || 0);
-    const custoOperacionalTotal = gastoInsumos + gastoEquipamentos + gastoEstrutura;
-
-    // Métricas de Compras & Saving
     const savingStats = stats?.savingCompras?.[0] || { total_estimado: 0, total_real: 0, total_pedidos_baixados: 0 };
     const estimadoTotalCompras = Number(savingStats.total_estimado || 0);
     const realTotalCompras = Number(savingStats.total_real || 0);
     const diferencaSaving = estimadoTotalCompras - realTotalCompras;
     const percentualSaving = estimadoTotalCompras > 0 ? ((diferencaSaving / estimadoTotalCompras) * 100).toFixed(1) : '0.0';
 
-    // Dados Gráficos protegidos
     const dataEquipamentos = {
         labels: asArray(stats?.porEquipamento).map(e => e.nome),
         datasets: [{
@@ -300,7 +288,7 @@ const Dashboard = ({ user }) => {
                 </div>
             </div>
 
-            {/* 🧭 SELETOR DE VISÕES SEGMENTADAS */}
+            {/* SELETOR DE VISÕES SEGMENTADAS */}
             <div className="flex bg-slate-200/80 p-1.5 rounded-2xl gap-1.5 w-full sm:w-fit overflow-x-auto shadow-inner border border-slate-300/40">
                 <button 
                     type="button"
@@ -344,12 +332,10 @@ const Dashboard = ({ user }) => {
             </div>
 
             {/* ========================================================= */}
-            {/* 🛠️ VISÃO 1: TÉCNICA (OPERACIONAL / ENGENHARIA CLÍNICA) */}
+            {/* 🛠️ VISÃO 1: TÉCNICA (OPERACIONAL / ENGENHARIA CLÍNICA)     */}
             {/* ========================================================= */}
             {visaoAtual === 'tecnica' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
-                    
-                    {/* KPIS DA BANCADA */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                         <StatCard title="OS Abertas" value={totalAbertos} icon="🔴" color="border-red-500" link="/chamados" />
                         <StatCard title="Em Atendimento" value={totalAndamento} icon="🟡" color="border-amber-400" link="/chamados" />
@@ -357,7 +343,6 @@ const Dashboard = ({ user }) => {
                         <StatCard title="Atenção PMOC" value={stats?.preventivasAtrasadas?.[0]?.total || 0} icon="⚠️" color="border-orange-500" link="/preventivas" />
                         <StatCard title="Concluídas" value={totalConcluidos} icon="🟢" color="border-emerald-500" link="/chamados" />
 
-                        {/* Taxa de Eficácia */}
                         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-indigo-500 flex flex-col justify-between">
                             <div className="flex justify-between items-start">
                                 <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Resolução</h6>
@@ -370,7 +355,6 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* BANNER DE PERFORMANCE TÉCNICA & SLA */}
                     <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                         <div className="flex items-center gap-3 border-b md:border-b-0 md:border-r border-slate-100 pb-3 md:pb-0 pr-2">
                             <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-xl font-bold">
@@ -425,7 +409,6 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* SEÇÃO PRINCIPAL DA VISÃO TÉCNICA */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[460px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
@@ -478,18 +461,15 @@ const Dashboard = ({ user }) => {
                                 </div>
                             </div>
                         </div>
-
                     </div>
-
                 </div>
             )}
 
             {/* ========================================================= */}
-            {/* 🤖 VISÃO 2: ATIVOS & PARQUE TECNOLÓGICO                    */}
+            {/* 🤖 VISÃO 2: ATIVOS & PARQUE TECNOLÓGICO                   */}
             {/* ========================================================= */}
             {visaoAtual === 'ativos' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
-                    
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                         <StatCard 
                             title="Inventário Total" 
@@ -626,7 +606,6 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
                     </div>
-
                 </div>
             )}
 
@@ -635,7 +614,6 @@ const Dashboard = ({ user }) => {
             {/* ========================================================= */}
             {visaoAtual === 'estoque' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
-                    
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <FinanceCard 
                             title="Valor Total do Almoxarifado" 
@@ -731,16 +709,16 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
                     </div>
-
                 </div>
             )}
 
             {/* ========================================================= */}
-            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (EXECUTIVA)                */}
+            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (EXECUTIVA & FISCAL)       */}
             {/* ========================================================= */}
             {visaoAtual === 'financeira' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
+                    {/* INDICADOR DE SAVING */}
                     <div className="bg-gradient-to-r from-emerald-900 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                         <div className="space-y-1">
                             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 bg-emerald-800/60 px-2.5 py-0.5 rounded-full inline-block">
@@ -769,34 +747,35 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
+                    {/* CARDS FISCAIS & CONTAS A PAGAR */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <FinanceCard 
-                            title="Insumos / Peças Aplicadas" 
-                            value={formatarMoeda(gastoInsumos)} 
-                            subtitle="Peças debitadas do almoxarifado em OS" 
-                            color="border-indigo-500" 
-                            bgGradient="from-indigo-50/40" 
+                            title="Total em Notas Fiscais" 
+                            value={formatarMoeda(stats?.totalNotasFiscais)} 
+                            subtitle="Faturamento total registrado no período" 
+                            color="border-blue-600" 
+                            bgGradient="from-blue-50/50" 
                         />
                         <FinanceCard 
-                            title="Parque de Equipamentos" 
-                            value={formatarMoeda(gastoEquipamentos)} 
-                            subtitle="Intervenções em máquinas médicas" 
+                            title="Notas Fiscais Quitadas" 
+                            value={formatarMoeda(stats?.totalNotasPagas)} 
+                            subtitle="Títulos conciliados e baixados" 
                             color="border-emerald-500" 
-                            bgGradient="from-emerald-50/40" 
+                            bgGradient="from-emerald-50/50" 
                         />
                         <FinanceCard 
-                            title="Infraestrutura & Predial" 
-                            value={formatarMoeda(gastoEstrutura)} 
-                            subtitle="Manutenções em leitos e instalações" 
-                            color="border-purple-500" 
-                            bgGradient="from-purple-50/40" 
+                            title="Notas Fiscais Pendentes" 
+                            value={formatarMoeda(stats?.totalNotasPendentes)} 
+                            subtitle="Compromissos pendentes de liquidação" 
+                            color="border-amber-500" 
+                            bgGradient="from-amber-50/50" 
                         />
                         <FinanceCard 
-                            title="Custo Operacional Total" 
-                            value={formatarMoeda(custoOperacionalTotal)} 
-                            subtitle="Soma de insumos e mão de obra no período" 
-                            color="border-slate-900" 
-                            bgGradient="from-slate-100" 
+                            title="Despesas Prediais / Obras" 
+                            value={formatarMoeda(stats?.totalDespesasPrediais)} 
+                            subtitle="Reformas, estrutura e predial" 
+                            color="border-purple-600" 
+                            bgGradient="from-purple-50/50" 
                         />
                     </div>
 
@@ -865,10 +844,16 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
+                    {/* VENCIMENTOS E DUPLICATAS */}
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-                            <span>📅</span> Fluxo de Compromissos & Contas a Pagar
-                        </h4>
+                        <div className="flex justify-between items-center mb-3">
+                            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                <span>📅</span> Fluxo de Compromissos & Contas a Pagar
+                            </h4>
+                            <Link to="/notas-fiscais" className="text-[10px] font-black text-blue-600 hover:underline uppercase">
+                                Painel de Notas & Boletos ↗
+                            </Link>
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
                             <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl">
                                 <span className="text-xl font-black text-rose-700">

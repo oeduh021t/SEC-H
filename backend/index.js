@@ -143,10 +143,19 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
     let filtroAberturaData = '';
     let paramsData = [];
 
+    // Cláusula limpa com AND e apenas data (YYYY-MM-DD) para campos DATE puros
+    let filtroAndDataEmissao = '';
+    let filtroAndDataCompetencia = '';
+    let paramsDataPura = [];
+
     if (data_inicio && data_fim) {
         filtroChamadosData = ` AND data_abertura BETWEEN ? AND ?`;
         filtroAberturaData = ` WHERE data_abertura BETWEEN ? AND ?`;
         paramsData = [`${data_inicio} 00:00:00`, `${data_fim} 23:59:59`];
+
+        filtroAndDataEmissao = ` AND DATE(data_emissao) BETWEEN ? AND ?`;
+        filtroAndDataCompetencia = ` AND DATE(data_competencia) BETWEEN ? AND ?`;
+        paramsDataPura = [data_inicio, data_fim];
     }
 
     const queries = {
@@ -157,7 +166,6 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         chamadosExternos: `SELECT COUNT(*) as total FROM chamados WHERE (status = 'Aguardando Externa' OR em_manutencao_externa = 1)${filtroChamadosData}`,
         chamadosConcluidos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'${filtroChamadosData}`,
 
-        // 🚚 LISTA COMPLETA DEDICADA DE ATIVOS EM CUSTÓDIA EXTERNA
         chamadosExternosLista: `
             SELECT c.id, c.titulo, c.status, c.em_manutencao_externa, c.data_abertura, f.nome_fantasia as fornecedor_nome
             FROM chamados c
@@ -357,6 +365,37 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 ) AS total_pedidos_baixados
         `,
 
+        // 🧾 QUERIES FISCAIS CORRIGIDAS (Sintaxe válida com AND e DATE)
+        totalNotasFiscais: `
+            SELECT IFNULL(SUM(valor_total), 0) AS total 
+            FROM notas_fiscais 
+            WHERE 1=1 ${filtroAndDataEmissao}
+        `,
+
+        totalNotasPagas: `
+            SELECT IFNULL(SUM(valor_total), 0) AS total 
+            FROM notas_fiscais 
+            WHERE status = 'Paga' ${filtroAndDataEmissao}
+        `,
+
+        totalNotasPendentes: `
+            SELECT IFNULL(SUM(valor_total), 0) AS total 
+            FROM notas_fiscais 
+            WHERE (status = 'Pendente' OR status IS NULL OR status = '') ${filtroAndDataEmissao}
+        `,
+
+        totalDespesasPrediais: `
+            SELECT IFNULL(SUM(valor_total), 0) AS total 
+            FROM despesas_prediais 
+            WHERE 1=1 ${filtroAndDataCompetencia}
+        `,
+
+        totalOrcamentosAprovados: `
+            SELECT IFNULL(SUM(valor_total), 0) AS total 
+            FROM orcamentos_externos 
+            WHERE status = 'Aprovado Financeiro' ${filtroAndDataEmissao}
+        `,
+
         boletosVencendoHoje: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'`,
         boletosAtrasados: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'`,
         boletosVencendoSemana: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND status_pagamento != 'Pago'`
@@ -364,7 +403,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
 
     const promises = Object.keys(queries).map(key => {
         return new Promise((resolve) => {
-            const requerData = [
+            const requerDataDateTime = [
                 'chamadosAbertos',
                 'chamadosAndamento',
                 'chamadosExternos',
@@ -384,13 +423,26 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 'savingCompras'
             ].includes(key);
 
-            const queryParams = (requerData && paramsData.length > 0) 
-                ? (key === 'gastoTotalEquipamentos' || key === 'gastoTotalEstrutura' ? [...paramsData, ...paramsData] : paramsData) 
-                : [];
+            const requerDataPura = [
+                'totalNotasFiscais',
+                'totalNotasPagas',
+                'totalNotasPendentes',
+                'totalDespesasPrediais',
+                'totalOrcamentosAprovados'
+            ].includes(key);
+
+            let queryParams = [];
+            if (requerDataDateTime && paramsData.length > 0) {
+                queryParams = (key === 'gastoTotalEquipamentos' || key === 'gastoTotalEstrutura')
+                    ? [...paramsData, ...paramsData]
+                    : paramsData;
+            } else if (requerDataPura && paramsDataPura.length > 0) {
+                queryParams = paramsDataPura;
+            }
 
             db.query(queries[key], queryParams, (err, results) => {
                 if (err) {
-                    console.error(`⚠️ Erro silencioso na query [${key}]:`, err.message);
+                    console.error(`⚠️ Erro na query [${key}]:`, err.message);
                     resolve({ key, data: [{ total: 0 }] });
                 } else {
                     resolve({ key, data: results });
@@ -403,7 +455,20 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                if (['gastoInsumosGerais', 'gastoTotalEquipamentos', 'gastoTotalEstrutura', 'boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana', 'valorTotalAlmoxarifado'].includes(r.key)) {
+                if ([
+                    'gastoInsumosGerais', 
+                    'gastoTotalEquipamentos', 
+                    'gastoTotalEstrutura', 
+                    'boletosVencendoHoje', 
+                    'boletosAtrasados', 
+                    'boletosVencendoSemana', 
+                    'valorTotalAlmoxarifado',
+                    'totalNotasFiscais',
+                    'totalNotasPagas',
+                    'totalNotasPendentes',
+                    'totalDespesasPrediais',
+                    'totalOrcamentosAprovados'
+                ].includes(r.key)) {
                     stats[r.key] = r.data[0]?.total || 0;
                 } else if (r.key === 'savingCompras') {
                     stats[r.key] = r.data; 
