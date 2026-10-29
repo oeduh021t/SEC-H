@@ -81,9 +81,10 @@ const PainelChamados = () => {
   const scrollContainerAbertosRef = useRef(null);
   const scrollContainerAndamentoRef = useRef(null);
 
-  // 🛡️ REFS DE ESTABILIDADE (VOZ, ÁUDIO E WAKELOCK)
+  // 🛡️ REFS DO SISTEMA DE PERSISTÊNCIA (VOZ, ÁUDIO E WAKELOCK)
   const utteranceAtivaRef = useRef(null);
   const audioContextRef = useRef(null);
+  const audioSilenciosoRef = useRef(null);
   const watchdogVozRef = useRef(null);
 
   const API_URL = '/api';
@@ -111,6 +112,34 @@ const PainelChamados = () => {
     };
   }, []);
 
+  // 🔊 HEARTBEAT DE ÁUDIO (IMPEDE O CHROME DE SUSPENDER A ABA E A ENGINE DE FALA)
+  const manterAudioVivo = useCallback(() => {
+    try {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) return;
+
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtxClass();
+      }
+
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+
+      if (!audioSilenciosoRef.current) {
+        const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+        source.connect(audioContextRef.current.destination);
+        source.start(0);
+        audioSilenciosoRef.current = source;
+      }
+    } catch (e) {
+      console.warn("Falha ao manter áudio vivo:", e);
+    }
+  }, []);
+
   const obterSetorCompleto = useCallback((chamado, listaSetores = setores) => {
     if (!chamado) return 'Setor Geral';
     if (chamado.setor_completo) return chamado.setor_completo;
@@ -123,15 +152,16 @@ const PainelChamados = () => {
     return chamado.setor_nome || 'Setor Geral';
   }, [setores]);
 
-  // 🗣️ SÍNTESE DE VOZ ROBUSTA CONTRA GARBAGE COLLECTION E DEADLOCK
+  // 🗣️ SÍNTESE DE VOZ BLINDADA CONTRA SUSPENSÃO E GARBAGE COLLECTION
   const falarTexto = useCallback((texto) => {
     if (!('speechSynthesis' in window)) return;
 
     try {
+      manterAudioVivo();
+
       if (watchdogVozRef.current) clearInterval(watchdogVozRef.current);
 
       window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
 
       const utterance = new SpeechSynthesisUtterance(texto);
       utterance.lang = 'pt-BR';
@@ -151,7 +181,7 @@ const PainelChamados = () => {
         } else {
           clearInterval(watchdogVozRef.current);
         }
-      }, 8000);
+      }, 7000);
 
       utterance.onend = () => {
         clearInterval(watchdogVozRef.current);
@@ -163,11 +193,14 @@ const PainelChamados = () => {
         utteranceAtivaRef.current = null;
       };
 
-      window.speechSynthesis.speak(utterance);
+      setTimeout(() => {
+        window.speechSynthesis.resume();
+        window.speechSynthesis.speak(utterance);
+      }, 50);
     } catch (e) {
       console.warn("Falha na síntese de voz:", e);
     }
-  }, []);
+  }, [manterAudioVivo]);
 
   const narrarChamado = useCallback((c) => {
     const setor = obterSetorCompleto(c, setores).replace(/\s*>\s*/g, ', ');
@@ -330,18 +363,11 @@ const PainelChamados = () => {
 
   const tocarBipe = useCallback(() => {
     try {
-      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtxClass) return;
-
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioCtxClass();
-      }
-
-      if (audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume();
-      }
+      manterAudioVivo();
 
       const audioCtx = audioContextRef.current;
+      if (!audioCtx) return;
+
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'sine';
@@ -355,7 +381,7 @@ const PainelChamados = () => {
     } catch (e) {
       console.warn("Áudio não pôde tocar:", e);
     }
-  }, []);
+  }, [manterAudioVivo]);
 
   // ⚡ ATENDER
   const iniciarAtendimento = async (chamadoId) => {
@@ -599,38 +625,53 @@ const PainelChamados = () => {
     };
   }, [buscarDados]);
 
-  // 📜 ROLAGEM AUTOMÁTICA USANDO REQUESTANIMATIONFRAME (IMUNE A THROTTLING)
+  // 📜 ROLAGEM AUTOMÁTICA CONTÍNUA (SEM REQUESTANIMATIONFRAME, TOLERANTE A ESCALA E EM SEGUNDO PLANO)
   useEffect(() => {
     if (!autoScroll || usuarioPausouHover) return;
 
-    let animId;
-    let ultimoTempo = performance.now();
+    let subPixelAbertos = 0;
+    let subPixelAndamento = 0;
+    const VELOCIDADE_PX = 0.8;
 
-    const executarScroll = (tempoAtual) => {
-      if (tempoAtual - ultimoTempo >= 45) {
-        [scrollContainerAbertosRef.current, scrollContainerAndamentoRef.current].forEach(el => {
-          if (!el) return;
-
-          const limiteScroll = el.scrollHeight - el.clientHeight;
-          if (limiteScroll <= 0) return;
-
-          if (el.scrollTop >= limiteScroll - 8) {
-            el.scrollTop = 0;
+    const timerScroll = setInterval(() => {
+      // 1. Coluna Abertos
+      const elAbertos = scrollContainerAbertosRef.current;
+      if (elAbertos) {
+        const maxScroll = elAbertos.scrollHeight - elAbertos.clientHeight;
+        if (maxScroll > 10) {
+          if (elAbertos.scrollTop >= maxScroll - 15) {
+            elAbertos.scrollTop = 0;
+            subPixelAbertos = 0;
           } else {
-            el.scrollTop += 1;
+            subPixelAbertos += VELOCIDADE_PX;
+            if (subPixelAbertos >= 1) {
+              elAbertos.scrollTop += Math.floor(subPixelAbertos);
+              subPixelAbertos -= Math.floor(subPixelAbertos);
+            }
           }
-        });
-        ultimoTempo = tempoAtual;
+        }
       }
 
-      animId = requestAnimationFrame(executarScroll);
-    };
+      // 2. Coluna Em Atendimento
+      const elAndamento = scrollContainerAndamentoRef.current;
+      if (elAndamento) {
+        const maxScroll = elAndamento.scrollHeight - elAndamento.clientHeight;
+        if (maxScroll > 10) {
+          if (elAndamento.scrollTop >= maxScroll - 15) {
+            elAndamento.scrollTop = 0;
+            subPixelAndamento = 0;
+          } else {
+            subPixelAndamento += VELOCIDADE_PX;
+            if (subPixelAndamento >= 1) {
+              elAndamento.scrollTop += Math.floor(subPixelAndamento);
+              subPixelAndamento -= Math.floor(subPixelAndamento);
+            }
+          }
+        }
+      }
+    }, 30);
 
-    animId = requestAnimationFrame(executarScroll);
-
-    return () => {
-      if (animId) cancelAnimationFrame(animId);
-    };
+    return () => clearInterval(timerScroll);
   }, [autoScroll, usuarioPausouHover, chamados]);
 
   const alternarFullScreen = () => {
@@ -715,6 +756,7 @@ const PainelChamados = () => {
                 const novoStatus = !audioHabilitado;
                 setAudioHabilitado(novoStatus); 
                 if (novoStatus) {
+                  manterAudioVivo();
                   tocarBipe();
                   falarTexto("Avisos automáticos ativados.");
                 } else if ('speechSynthesis' in window) {
