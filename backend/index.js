@@ -166,14 +166,28 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         chamadosExternos: `SELECT COUNT(*) as total FROM chamados WHERE (status = 'Aguardando Externa' OR em_manutencao_externa = 1)${filtroChamadosData}`,
         chamadosConcluidos: `SELECT COUNT(*) as total FROM chamados WHERE status = 'Concluído'${filtroChamadosData}`,
 
+        // 🚚 LISTA COMPLETA DEDICADA DE ATIVOS EM CUSTÓDIA EXTERNA (COM NOME REAL, PATRIMÔNIO E DIAS NA RUA)
         chamadosExternosLista: `
-            SELECT c.id, c.titulo, c.status, c.em_manutencao_externa, c.data_abertura, f.nome_fantasia as fornecedor_nome
+            SELECT 
+                c.id, 
+                c.titulo, 
+                c.status, 
+                c.em_manutencao_externa, 
+                c.data_abertura,
+                c.data_saida_externa,
+                DATEDIFF(NOW(), COALESCE(c.data_saida_externa, c.data_abertura)) AS dias_na_rua,
+                COALESCE(f.nome_fantasia, f.razao_social, 'Prestador Não Vinculado') AS fornecedor_nome,
+                e.nome AS equipamento_nome,
+                e.patrimonio AS equipamento_patrimonio,
+                s.nome AS setor_origem_nome
             FROM chamados c
-            LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+            LEFT JOIN equipamentos e ON c.equipamento_id = e.id
+            LEFT JOIN setores s ON e.setor_id = s.id
+            LEFT JOIN fornecedores f ON COALESCE(c.fornecedor_externo_id, c.fornecedor_id) = f.id
             WHERE (c.status = 'Aguardando Externa' OR c.em_manutencao_externa = 1)
               AND c.status != 'Concluído'
             ${filtroChamadosData ? filtroChamadosData.replace('data_abertura', 'c.data_abertura') : ''}
-            ORDER BY c.id DESC`,
+            ORDER BY dias_na_rua DESC, c.id DESC`,
             
         preventivasAtrasadas: `
             SELECT COUNT(*) as total FROM equipamentos
@@ -182,12 +196,15 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             AND DATE_ADD(data_ultima_preventiva, INTERVAL periodicidade_preventiva DAY) 
                 BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 15 DAY)`,
         
+        // 🚨 TOP 5 ATIVOS COM RASTREABILIDADE PATRIMONIAL NO EIXO DO GRÁFICO
         porEquipamento: `
-            SELECT e.nome, COUNT(c.id) as total
+            SELECT 
+                CONCAT(e.nome, ' (Pat: ', COALESCE(NULLIF(e.patrimonio, ''), 'S/P'), ')') AS nome,
+                COUNT(c.id) AS total
             FROM chamados c 
             JOIN equipamentos e ON c.equipamento_id = e.id
             ${filtroAberturaData}
-            GROUP BY e.id, e.nome
+            GROUP BY e.id, e.nome, e.patrimonio
             ORDER BY total DESC 
             LIMIT 5`,
 
@@ -365,7 +382,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                 ) AS total_pedidos_baixados
         `,
 
-        // 🧾 QUERIES FISCAIS CORRIGIDAS (Sintaxe válida com AND e DATE)
+        // 🧾 QUERIES FISCAIS (Sintaxe com AND e DATE)
         totalNotasFiscais: `
             SELECT IFNULL(SUM(valor_total), 0) AS total 
             FROM notas_fiscais 
@@ -396,9 +413,23 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             WHERE status = 'Aprovado Financeiro' ${filtroAndDataEmissao}
         `,
 
-        boletosVencendoHoje: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'`,
-        boletosAtrasados: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'`,
-        boletosVencendoSemana: `SELECT COUNT(*) as total FROM boletos WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) AND status_pagamento != 'Pago'`
+        // 🗓️ CONTAS A PAGAR: QUANTIDADE E VALOR MONETÁRIO (R$)
+        boletosVencendoHoje: `
+            SELECT COUNT(*) AS total, IFNULL(SUM(valor_boleto), 0) AS valor_total 
+            FROM boletos 
+            WHERE data_vencimento = CURDATE() AND status_pagamento != 'Pago'
+        `,
+        boletosAtrasados: `
+            SELECT COUNT(*) AS total, IFNULL(SUM(valor_boleto), 0) AS valor_total 
+            FROM boletos 
+            WHERE data_vencimento < CURDATE() AND status_pagamento != 'Pago'
+        `,
+        boletosVencendoSemana: `
+            SELECT COUNT(*) AS total, IFNULL(SUM(valor_boleto), 0) AS valor_total 
+            FROM boletos 
+            WHERE data_vencimento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) 
+              AND status_pagamento != 'Pago'
+        `
     };
 
     const promises = Object.keys(queries).map(key => {
@@ -443,7 +474,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
             db.query(queries[key], queryParams, (err, results) => {
                 if (err) {
                     console.error(`⚠️ Erro na query [${key}]:`, err.message);
-                    resolve({ key, data: [{ total: 0 }] });
+                    resolve({ key, data: [{ total: 0, valor_total: 0 }] });
                 } else {
                     resolve({ key, data: results });
                 }
@@ -455,13 +486,16 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
         .then(results => {
             const stats = {};
             results.forEach(r => { 
-                if ([
+                if (['boletosVencendoHoje', 'boletosAtrasados', 'boletosVencendoSemana'].includes(r.key)) {
+                    // Extrai tanto a quantidade quanto a soma em R$
+                    stats[r.key] = {
+                        total: Number(r.data[0]?.total || 0),
+                        valor_total: Number(r.data[0]?.valor_total || 0)
+                    };
+                } else if ([
                     'gastoInsumosGerais', 
                     'gastoTotalEquipamentos', 
                     'gastoTotalEstrutura', 
-                    'boletosVencendoHoje', 
-                    'boletosAtrasados', 
-                    'boletosVencendoSemana', 
                     'valorTotalAlmoxarifado',
                     'totalNotasFiscais',
                     'totalNotasPagas',
@@ -469,7 +503,7 @@ app.get('/api/stats', permitirApenas(['admin', 'coordenador', 'tecnico']), (req,
                     'totalDespesasPrediais',
                     'totalOrcamentosAprovados'
                 ].includes(r.key)) {
-                    stats[r.key] = r.data[0]?.total || 0;
+                    stats[r.key] = Number(r.data[0]?.total || 0);
                 } else if (r.key === 'savingCompras') {
                     stats[r.key] = r.data; 
                 } else {

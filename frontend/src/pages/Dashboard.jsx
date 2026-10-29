@@ -7,6 +7,7 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 
 const Dashboard = ({ user }) => {
     const [visaoAtual, setVisaoAtual] = useState('tecnica');
+    const [tipoGraficoEstoque, setTipoGraficoEstoque] = useState('quantidade');
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -122,12 +123,6 @@ const Dashboard = ({ user }) => {
     const dentroSla = Number(slaStats?.dentro_sla_total || 0);
     const percentualCumprimentoSLA = totalConcluidasSLA > 0 ? Math.round((dentroSla / totalConcluidasSLA) * 100) : 100;
     const tmaGeralTexto = formatarMinutosParaHoras(slaStats?.tma_minutos);
-
-    const savingStats = stats?.savingCompras?.[0] || { total_estimado: 0, total_real: 0, total_pedidos_baixados: 0 };
-    const estimadoTotalCompras = Number(savingStats.total_estimado || 0);
-    const realTotalCompras = Number(savingStats.total_real || 0);
-    const diferencaSaving = estimadoTotalCompras - realTotalCompras;
-    const percentualSaving = estimadoTotalCompras > 0 ? ((diferencaSaving / estimadoTotalCompras) * 100).toFixed(1) : '0.0';
 
     const dataEquipamentos = {
         labels: asArray(stats?.porEquipamento).map(e => e.nome),
@@ -466,319 +461,517 @@ const Dashboard = ({ user }) => {
             )}
 
             {/* ========================================================= */}
-            {/* 🤖 VISÃO 2: ATIVOS & PARQUE TECNOLÓGICO                   */}
+            {/* 🤖 VISÃO 2: ATIVOS & PARQUE TECNOLÓGICO (REFORMULADA)     */}
             {/* ========================================================= */}
-            {visaoAtual === 'ativos' && (
-                <div className="space-y-6 animate-in fade-in duration-200">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
-                        <StatCard 
-                            title="Inventário Total" 
-                            value={stats?.statusAtivos?.[0]?.total || stats?.totalEquipamentos?.[0]?.total || 0} 
-                            icon="⚙️" 
-                            color="border-blue-500" 
-                            link="/equipamentos" 
-                        />
-                        <StatCard 
-                            title="Operando Normal" 
-                            value={stats?.statusAtivos?.[0]?.ativos || 0} 
-                            icon="🟢" 
-                            color="border-emerald-500" 
-                            link="/equipamentos" 
-                        />
-                        <StatCard 
-                            title="Em Manutenção" 
-                            value={stats?.statusAtivos?.[0]?.manutencao || totalExternos} 
-                            icon="🟡" 
-                            color="border-amber-400" 
-                            link="/equipamentos" 
-                        />
-                        <StatCard 
-                            title="Reserva Técnica" 
-                            value={stats?.statusAtivos?.[0]?.reserva || 0} 
-                            icon="🔵" 
-                            color="border-cyan-500" 
-                            link="/equipamentos" 
-                        />
-                        <StatCard 
-                            title="Inoperantes" 
-                            value={stats?.statusAtivos?.[0]?.inoperantes || 0} 
-                            icon="🔴" 
-                            color="border-rose-500" 
-                            link="/equipamentos" 
-                        />
-                    </div>
+            {visaoAtual === 'ativos' && (() => {
+                const totalManutencaoGeral = Number(stats?.statusAtivos?.[0]?.manutencao || 0);
+                const totalNaRua = Number(totalExternos || listaExternos.length || 0);
+                const totalOficinaInterna = Math.max(0, totalManutencaoGeral - totalNaRua);
 
-                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                        <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
-                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
-                                <div>
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                        <span>🚨</span> Top 5 Ativos Críticos / Reincidentes
-                                    </h3>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Equipamentos com maior índice de quebra no período</p>
-                                </div>
-                                <Link to="/equipamentos" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Todos ↗</Link>
-                            </div>
-                            <div className="h-72 w-full">
-                                <Bar data={dataEquipamentos} options={optionsEquipamentos} />
-                            </div>
+                return (
+                    <div className="space-y-6 animate-in fade-in duration-200">
+                        
+                        {/* 1. CARDS DE TOPO: STATUS DETALHADO DO PARQUE */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                            <StatCard 
+                                title="Inventário Total" 
+                                value={stats?.statusAtivos?.[0]?.total || stats?.totalEquipamentos?.[0]?.total || 0} 
+                                icon="⚙️" 
+                                color="border-blue-500" 
+                                link="/equipamentos" 
+                            />
+                            <StatCard 
+                                title="Operando Normal" 
+                                value={stats?.statusAtivos?.[0]?.ativos || 0} 
+                                icon="🟢" 
+                                color="border-emerald-500" 
+                                link="/equipamentos" 
+                            />
+                            <StatCard 
+                                title="Oficina Interna" 
+                                value={totalOficinaInterna} 
+                                icon="🛠️" 
+                                color="border-amber-400" 
+                                link="/chamados" 
+                            />
+                            <StatCard 
+                                title="Na Assistência (Rua)" 
+                                value={totalNaRua} 
+                                icon="🚚" 
+                                color="border-purple-600" 
+                                link="/chamados" 
+                            />
+                            <StatCard 
+                                title="Reserva Técnica" 
+                                value={stats?.statusAtivos?.[0]?.reserva || 0} 
+                                icon="🔵" 
+                                color="border-cyan-500" 
+                                link="/equipamentos" 
+                            />
+                            <StatCard 
+                                title="Inoperantes" 
+                                value={stats?.statusAtivos?.[0]?.inoperantes || 0} 
+                                icon="🔴" 
+                                color="border-rose-500" 
+                                link="/equipamentos" 
+                            />
                         </div>
 
-                        <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
-                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
-                                <div>
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                        <span>📍</span> Densidade por Setor Hospitalar
-                                    </h3>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Concentração de ativos por unidade</p>
-                                </div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">Top 6 Setores</span>
-                            </div>
-                            <div className="h-72 w-full">
-                                <Bar data={dataAtivosPorSetor} options={optionsTecnicos} />
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
-                        <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
-                            <div>
-                                <h3 className="text-[11px] font-black text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
-                                    <span>🚚</span> Ativos sob Custódia Externa / Assistência Autorizada ({totalExternos})
-                                </h3>
-                                <p className="text-[9px] font-bold text-purple-700 uppercase mt-0.5">
-                                    Equipamentos fora da unidade hospitalar aguardando laudo técnico ou retorno
+                        {/* 2. INDICADORES DE CONFIABILIDADE & AUDITORIA ONA/JCI (ELEVADOS PARA O TOPO) */}
+                        <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-5 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border border-indigo-900/60">
+                            <div className="space-y-1">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">
+                                    🛡️ Engenharia Hospitalar & Auditoria ONA
+                                </span>
+                                <h4 className="text-sm font-black uppercase tracking-tight">Disponibilidade Operacional do Parque</h4>
+                                <p className="text-xs text-slate-300 font-medium">
+                                    Acompanhamento da prontidão e disponibilidade imediata dos ativos em relação ao parque total instalado.
                                 </p>
                             </div>
-                            <Link 
-                                to="/chamados" 
-                                state={{ filtroInicial: 'Aguardando Externa' }}
-                                className="text-[10px] font-black text-purple-700 hover:underline uppercase"
-                            >
-                                Filtrar na Lista ↗
-                            </Link>
+                            <div className="flex gap-6 text-center shrink-0 w-full sm:w-auto justify-around sm:justify-end">
+                                <div>
+                                    <span className="text-2xl font-black text-emerald-400 font-mono">{uptimeCalculado}%</span>
+                                    <p className="text-[9px] font-bold text-slate-300 uppercase">Uptime Geral</p>
+                                </div>
+                                <div className="border-l border-indigo-800 pl-6">
+                                    <span className="text-2xl font-black text-cyan-400 font-mono">{mttrCalculado}h</span>
+                                    <p className="text-[9px] font-bold text-slate-300 uppercase">MTTR Médio</p>
+                                </div>
+                            </div>
                         </div>
-                        
-                        <div className="divide-y divide-slate-100 p-2 max-h-56 overflow-y-auto">
-                            {listaExternos.map(ext => (
-                                <div key={ext.id} className="p-3 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl">
-                                    <div className="min-w-0 flex-1 mr-2">
-                                        <p className="text-xs font-bold text-slate-800 truncate">{ext.titulo}</p>
-                                        <p className="text-[10px] text-purple-600 font-bold mt-0.5">
-                                            OS #{ext.id} • Fornecedor: {ext.fornecedor_nome || 'Terceirizado Homologado'}
+
+                        {/* 3. GRÁFICOS: TOP 5 REINCIDENTES COM PATRIMÔNIO + DENSIDADE SETORIAL */}
+                        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            
+                            {/* Gráfico Top 5 Ativos Críticos com Patrimônio (TAG) */}
+                            <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
+                                <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                                    <div>
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>🚨</span> Top 5 Ativos Críticos / Reincidentes
+                                        </h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                            Identificação exata por TAG patrimonial dos equipamentos com maior abertura de OS
                                         </p>
                                     </div>
-                                    <Link 
-                                        to={`/chamados/${ext.id}/tratar`}
-                                        className="px-3 py-1 bg-purple-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-purple-700 transition-colors shadow-xs"
-                                    >
-                                        Dar Entrada
+                                    <Link to="/equipamentos" className="text-[10px] font-black text-blue-600 hover:underline uppercase">
+                                        Ver Todos ↗
                                     </Link>
                                 </div>
-                            ))}
-
-                            {listaExternos.length === 0 && (
-                                <p className="text-xs text-slate-400 font-bold italic text-center py-6">
-                                    Nenhum equipamento externo no momento. Parque interno 100% assistido na unidade.
-                                </p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-6 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <div className="space-y-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">
-                                🛡️ Engenharia Hospitalar & Auditoria
-                            </span>
-                            <h4 className="text-sm font-black uppercase">Disponibilidade Operacional do Parque</h4>
-                            <p className="text-xs text-slate-300 font-medium">
-                                Acompanhamento de segurança do paciente baseado na prontidão de equipamentos de suporte à vida.
-                            </p>
-                        </div>
-                        <div className="flex gap-6 text-center shrink-0">
-                            <div>
-                                <span className="text-2xl font-black text-emerald-400">{uptimeCalculado}%</span>
-                                <p className="text-[9px] font-bold text-slate-300 uppercase">Uptime Geral</p>
-                            </div>
-                            <div className="border-l border-indigo-800 pl-6">
-                                <span className="text-2xl font-black text-cyan-400">{mttrCalculado}h</span>
-                                <p className="text-[9px] font-bold text-slate-300 uppercase">MTTR Médio</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ========================================================= */}
-            {/* 📦 VISÃO 3: ALMOXARIFADO & ESTOQUE                        */}
-            {/* ========================================================= */}
-            {visaoAtual === 'estoque' && (
-                <div className="space-y-6 animate-in fade-in duration-200">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FinanceCard 
-                            title="Valor Total do Almoxarifado" 
-                            value={formatarMoeda(stats?.valorTotalAlmoxarifado)} 
-                            subtitle="Capital físico imobilizado nas prateleiras" 
-                            color="border-blue-500" 
-                            bgGradient="from-blue-50/40" 
-                        />
-                        <FinanceCard 
-                            title="Gastos com Peças em OS" 
-                            value={formatarMoeda(stats?.gastoInsumosGerais)} 
-                            subtitle="Materiais deduzidos nos chamados do período" 
-                            color="border-indigo-500" 
-                            bgGradient="from-indigo-50/40" 
-                        />
-                        <FinanceCard 
-                            title="Reparos Prediais / Consumo" 
-                            value={formatarMoeda(stats?.gastoTotalEstrutura)} 
-                            subtitle="Materiais elétricos, hidráulicos e estrutura" 
-                            color="border-amber-500" 
-                            bgGradient="from-amber-50/40" 
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                        <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
-                            <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
-                                <div>
-                                    <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                                        <span>📊</span> Insumos com Maior Giro / Consumo em OS
-                                    </h3>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Top peças mais aplicadas pela equipe técnica</p>
+                                <div className="h-72 w-full">
+                                    <Bar data={dataEquipamentos} options={optionsEquipamentos} />
                                 </div>
-                                <Link to="/estoque" className="text-[10px] font-black text-blue-600 hover:underline uppercase">Ver Estoque ↗</Link>
                             </div>
-                            <div className="h-72 w-full">
-                                <Bar data={dataTopPecas} options={optionsTecnicos} />
-                            </div>
-                        </div>
 
-                        <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border-2 border-amber-100 overflow-hidden flex flex-col justify-between">
-                            <div>
-                                <div className="p-4 bg-amber-50/70 border-b border-amber-100 flex justify-between items-center">
+                            {/* Densidade por Setor Hospitalar */}
+                            <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
+                                <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                     <div>
-                                        <h3 className="text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
-                                            <span>⚠️</span> Ponto de Pedido / Estoque Crítico
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>📍</span> Densidade por Setor Hospitalar
                                         </h3>
-                                        <p className="text-[9px] font-bold text-amber-700 uppercase mt-0.5">Itens atingindo o limite de segurança</p>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                            Concentração de equipamentos alocados por unidade
+                                        </p>
                                     </div>
-                                    <span className="text-[10px] font-black text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded-md">
-                                        {asArray(stats?.itensAbaixoMinimo).length} Itens
-                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Top 6 Setores</span>
                                 </div>
-
-                                <div className="divide-y divide-slate-100 p-2 max-h-[380px] overflow-y-auto">
-                                    {asArray(stats?.itensAbaixoMinimo).map(item => (
-                                        <div key={item.id} className="p-3 hover:bg-amber-50/30 transition-colors flex justify-between items-center rounded-xl">
-                                            <div className="min-w-0 flex-1 mr-3">
-                                                <p className="text-xs font-bold text-slate-800 truncate">{item.nome}</p>
-                                                <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-                                                    Mínimo: <strong className="text-slate-600">{item.estoque_minimo} un</strong> • Custo: R$ {Number(item.valor_unitario || 0).toFixed(2)}
-                                                </p>
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                                <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-black ${
-                                                    Number(item.quantidade) <= 0 
-                                                        ? 'bg-red-100 text-red-700 border border-red-200' 
-                                                        : 'bg-amber-100 text-amber-800 border border-amber-200'
-                                                }`}>
-                                                    {item.quantidade} un
-                                                </span>
-                                                <p className="text-[8px] font-black uppercase tracking-wider text-red-500 mt-1">
-                                                    {Number(item.quantidade) <= 0 ? 'Zerado' : 'Comprar'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    ))}
-
-                                    {asArray(stats?.itensAbaixoMinimo).length === 0 && (
-                                        <div className="text-center py-10 text-slate-400">
-                                            <span className="text-2xl block mb-1">📦✅</span>
-                                            <p className="text-xs font-bold uppercase">Almoxarifado em Conformidade</p>
-                                            <p className="text-[10px]">Nenhum item abaixo do estoque mínimo de segurança.</p>
-                                        </div>
-                                    )}
+                                <div className="h-72 w-full">
+                                    <Bar data={dataAtivosPorSetor} options={optionsTecnicos} />
                                 </div>
                             </div>
+                        </div>
 
-                            <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
-                                <Link to="/estoque" className="text-[10px] font-black text-amber-700 hover:text-amber-900 uppercase">
-                                    Gerenciar Entradas e Saídas do Almoxarifado ↗
+                        {/* 4. ATIVOS EM CUSTÓDIA EXTERNA: NOME REAL, PATRIMÔNIO, PRESTADOR E TEMPO FORA */}
+                        <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
+                            <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-[11px] font-black text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>🚚</span> Ativos sob Custódia Externa / Assistência Autorizada ({listaExternos.length})
+                                    </h3>
+                                    <p className="text-[9px] font-bold text-purple-700 uppercase mt-0.5">
+                                        Rastreabilidade de equipamentos fora do hospital e contagem de tempo de assistência
+                                    </p>
+                                </div>
+                                <Link 
+                                    to="/chamados" 
+                                    state={{ filtroInicial: 'Aguardando Externa' }}
+                                    className="text-[10px] font-black text-purple-700 hover:underline uppercase"
+                                >
+                                    Filtrar na Lista ↗
                                 </Link>
                             </div>
+                            
+                            <div className="divide-y divide-slate-100 p-2 max-h-64 overflow-y-auto">
+                                {listaExternos.map(ext => (
+                                    <div key={ext.id} className="p-3.5 hover:bg-purple-50/40 transition-colors flex justify-between items-center rounded-xl gap-3">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-slate-800 truncate">
+                                                    {ext.equipamento_nome || ext.titulo}
+                                                </span>
+                                                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[9px] font-mono font-bold shrink-0">
+                                                    PAT: {ext.equipamento_patrimonio || 'S/P'}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-purple-700 font-bold mt-0.5 flex items-center gap-2">
+                                                <span>OS #{ext.id}</span>
+                                                <span>•</span>
+                                                <span>🏢 {ext.fornecedor_nome}</span>
+                                                {ext.setor_origem_nome && (
+                                                    <>
+                                                        <span>•</span>
+                                                        <span className="text-slate-400">Origem: {ext.setor_origem_nome}</span>
+                                                    </>
+                                                )}
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-center gap-3 shrink-0">
+                                            {/* Tag de Tempo Fora */}
+                                            <div className="text-right">
+                                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black font-mono block ${
+                                                    Number(ext.dias_na_rua || 0) > 15 
+                                                        ? 'bg-rose-100 text-rose-700 border border-rose-200' 
+                                                        : Number(ext.dias_na_rua || 0) > 7 
+                                                        ? 'bg-amber-100 text-amber-800 border border-amber-200' 
+                                                        : 'bg-purple-100 text-purple-800 border border-purple-200'
+                                                }`}>
+                                                    ⏱️ {ext.dias_na_rua !== null && ext.dias_na_rua !== undefined ? `${ext.dias_na_rua}d fora` : 'Recentemente'}
+                                                </span>
+                                            </div>
+
+                                            {/* Botão de Dar Entrada */}
+                                            <Link 
+                                                to={`/chamados/${ext.id}/tratar`}
+                                                className="px-3 py-1.5 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-purple-700 transition-all shadow-xs active:scale-95"
+                                            >
+                                                Dar Entrada
+                                            </Link>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {listaExternos.length === 0 && (
+                                    <p className="text-xs text-slate-400 font-bold italic text-center py-8">
+                                        Nenhum equipamento externo no momento. Parque interno 100% assistido na unidade.
+                                    </p>
+                                )}
+                            </div>
                         </div>
+
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* ========================================================= */}
-            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (EXECUTIVA & FISCAL)       */}
+            {/* 📦 VISÃO 3: ALMOXARIFADO & SUPRIMENTOS (REFORMULADA)       */}
+            {/* ========================================================= */}
+            {visaoAtual === 'estoque' && (() => {
+                const kpisEstoque = stats?.kpisEstoqueRuptura?.[0] || { 
+                    total_skus: 0, 
+                    total_zerados: asArray(stats?.itensAbaixoMinimo).filter(i => Number(i.quantidade) <= 0).length, 
+                    total_atencao: asArray(stats?.itensAbaixoMinimo).length 
+                };
+                
+                const taxaRuptura = Number(kpisEstoque.total_skus) > 0 
+                    ? ((Number(kpisEstoque.total_zerados) / Number(kpisEstoque.total_skus)) * 100).toFixed(1)
+                    : '0.0';
+
+                const dadosCurva = {
+                    labels: asArray(stats?.topPecasConsumidas).map(p => p.nome),
+                    datasets: [{
+                        label: (tipoGraficoEstoque || 'quantidade') === 'quantidade' ? 'Qtd Consumida (un)' : 'Custo Aplicado (R$)',
+                        data: asArray(stats?.topPecasConsumidas).map(p => 
+                            (tipoGraficoEstoque || 'quantidade') === 'quantidade' 
+                                ? Number(p.total_qtd || 0) 
+                                : Number(p.total_valor || 0)
+                        ),
+                        backgroundColor: (tipoGraficoEstoque || 'quantidade') === 'quantidade' ? 'rgba(245, 158, 11, 0.85)' : 'rgba(16, 185, 129, 0.85)',
+                        borderColor: (tipoGraficoEstoque || 'quantidade') === 'quantidade' ? '#f59e0b' : '#10b981',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                        barThickness: 18,
+                    }]
+                };
+
+                return (
+                    <div className="space-y-6 animate-in fade-in duration-200">
+                        
+                        {/* 1. CARDS OPERACIONAIS DE CONTROLE E RISCO DE DESABASTECIMENTO */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <FinanceCard 
+                                title="Capital Imobilizado" 
+                                value={formatarMoeda(stats?.valorTotalAlmoxarifado)} 
+                                subtitle="Valor das peças físicas em prateleira" 
+                                color="border-blue-600" 
+                                bgGradient="from-blue-50/50" 
+                            />
+                            
+                            <FinanceCard 
+                                title="Consumo Real em OS" 
+                                value={formatarMoeda(stats?.gastoInsumosGerais)} 
+                                subtitle="Insumos aplicados em manutenção no período" 
+                                color="border-indigo-500" 
+                                bgGradient="from-indigo-50/50" 
+                            />
+                            
+                            {/* Card de Ruptura (Zerados) */}
+                            <div className="bg-gradient-to-br from-rose-50/50 to-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-rose-500 flex flex-col justify-between min-h-[110px]">
+                                <div>
+                                    <div className="flex justify-between items-start">
+                                        <h6 className="text-[10px] font-black text-rose-700 uppercase tracking-widest">Ruptura de Estoque</h6>
+                                        <span className="text-xs">🚨</span>
+                                    </div>
+                                    <p className="text-2xl font-black text-rose-600 tracking-tight font-mono mt-1">
+                                        {kpisEstoque.total_zerados} <span className="text-xs font-bold text-slate-400 font-sans">itens zerados</span>
+                                    </p>
+                                </div>
+                                <p className="text-[9px] font-bold text-rose-500 uppercase mt-2">
+                                    Taxa de Ruptura: {taxaRuptura}% do catálogo
+                                </p>
+                            </div>
+
+                            {/* Card de Ponto de Pedido (Abaixo do Mínimo) */}
+                            <div className="bg-gradient-to-br from-amber-50/50 to-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-amber-500 flex flex-col justify-between min-h-[110px]">
+                                <div>
+                                    <div className="flex justify-between items-start">
+                                        <h6 className="text-[10px] font-black text-amber-800 uppercase tracking-widest">Ponto de Pedido</h6>
+                                        <span className="text-xs">⚠️</span>
+                                    </div>
+                                    <p className="text-2xl font-black text-amber-700 tracking-tight font-mono mt-1">
+                                        {kpisEstoque.total_atencao} <span className="text-xs font-bold text-slate-400 font-sans">em nível crítico</span>
+                                    </p>
+                                </div>
+                                <p className="text-[9px] font-bold text-amber-600 uppercase mt-2">
+                                    Necessitam reposição imediata
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 2. GRÁFICO CURVA DE CONSUMO + PONTO DE PEDIDO COM AÇÃO DIRETA */}
+                        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            
+                            {/* Gráfico de Consumo com Alternador de Métrica */}
+                            <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[460px]">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 border-b border-slate-50 pb-3">
+                                    <div>
+                                        <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                            <span>📊</span> Curva de Demanda em Manutenção
+                                        </h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                            Insumos mais consumidos nas Ordens de Serviço
+                                        </p>
+                                    </div>
+
+                                    {/* Toggle: Quantidade vs Custo Financeiro */}
+                                    <div className="flex bg-slate-100 p-1 rounded-xl shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => setTipoGraficoEstoque('quantidade')}
+                                            className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${
+                                                (tipoGraficoEstoque || 'quantidade') === 'quantidade' 
+                                                    ? 'bg-white text-amber-600 shadow-xs' 
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            Por Volume (un)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTipoGraficoEstoque('valor')}
+                                            className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${
+                                                tipoGraficoEstoque === 'valor' 
+                                                    ? 'bg-white text-emerald-600 shadow-xs' 
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            Por Custo (R$)
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="h-72 w-full">
+                                    <Bar data={dadosCurva} options={optionsTecnicos} />
+                                </div>
+
+                                <div className="pt-3 border-t border-slate-50 flex justify-between items-center text-[10px] text-slate-400">
+                                    <span>Peças com maior rotatividade no período</span>
+                                    <Link to="/estoque" className="font-bold text-blue-600 hover:underline uppercase">
+                                        Catálogo Completo ↗
+                                    </Link>
+                                </div>
+                            </div>
+
+                            {/* Ponto de Pedido Inteligente com Status de Compra */}
+                            <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border-2 border-amber-100 overflow-hidden flex flex-col justify-between">
+                                <div>
+                                    <div className="p-4 bg-amber-50/70 border-b border-amber-100 flex justify-between items-center">
+                                        <div>
+                                            <h3 className="text-[11px] font-black text-amber-900 uppercase tracking-wider flex items-center gap-1.5">
+                                                <span>⚠️</span> Reposição Crítica & Ponto de Pedido
+                                            </h3>
+                                            <p className="text-[9px] font-bold text-amber-700 uppercase mt-0.5">
+                                                Saldo abaixo da margem de segurança
+                                            </p>
+                                        </div>
+                                        <span className="text-[10px] font-black text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded-md">
+                                            {asArray(stats?.itensAbaixoMinimo).length} SKUs
+                                        </span>
+                                    </div>
+
+                                    <div className="divide-y divide-slate-100 p-2 max-h-[380px] overflow-y-auto">
+                                        {asArray(stats?.itensAbaixoMinimo).map(item => (
+                                            <div key={item.id} className="p-3 hover:bg-amber-50/30 transition-colors flex justify-between items-center rounded-xl gap-2">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-xs font-bold text-slate-800 truncate">{item.nome}</p>
+                                                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                                        Mínimo: <strong className="text-slate-600">{item.estoque_minimo} un</strong> • Custo: R$ {Number(item.valor_unitario || 0).toFixed(2)}
+                                                    </p>
+                                                    
+                                                    {/* Indicador se já existe solicitação de compras em andamento */}
+                                                    <div className="mt-1">
+                                                        {item.pedido_aberto_id ? (
+                                                            <Link 
+                                                                to="/solicitacoes-compra" 
+                                                                className="inline-flex items-center gap-1 text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-md hover:underline"
+                                                                title="Ver pedido de compra já em andamento"
+                                                            >
+                                                                <span>🛒</span> Pedido #{item.pedido_aberto_id} ({item.status_pedido_aberto || 'Em Cotação'})
+                                                            </Link>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1 text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-md">
+                                                                <span>🚨</span> Sem Pedido Aberto
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
+                                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-mono font-black ${
+                                                        Number(item.quantidade) <= 0 
+                                                            ? 'bg-red-100 text-red-700 border border-red-200' 
+                                                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                                    }`}>
+                                                        {item.quantidade} un
+                                                    </span>
+
+                                                    <Link
+                                                        to="/solicitacoes-compra"
+                                                        state={{ insumoPreSelecionadoId: item.id }}
+                                                        className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase transition-all shadow-2xs active:scale-95"
+                                                        title="Abrir solicitação de compra para este insumo"
+                                                    >
+                                                        + Pedir
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {asArray(stats?.itensAbaixoMinimo).length === 0 && (
+                                            <div className="text-center py-12 text-slate-400">
+                                                <span className="text-2xl block mb-1">📦✅</span>
+                                                <p className="text-xs font-bold uppercase">Almoxarifado Abastecido</p>
+                                                <p className="text-[10px]">Nenhum insumo operando abaixo da margem de segurança.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
+                                    <Link to="/solicitacoes-compra" className="text-[10px] font-black text-amber-800 hover:underline uppercase">
+                                        Painel de Requisições & Compras ↗
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. DISTRIBUIÇÃO FÍSICA POR LOCAL DE ARMAZENAMENTO */}
+                        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
+                            <div className="flex justify-between items-center mb-3 border-b border-slate-50 pb-2.5">
+                                <div>
+                                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                                        <span>🏢</span> Distribuição Física por Local de Armazenamento
+                                    </h4>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                        Inventário alocado entre Almoxarifado Central, Oficinas e Subestoques
+                                    </p>
+                                </div>
+                                <Link to="/locais-estoque" className="text-[10px] font-black text-blue-600 hover:underline uppercase">
+                                    Gerenciar Locais ↗
+                                </Link>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                {asArray(stats?.saldoPorLocalEstoque).map((loc, idx) => (
+                                    <div key={idx} className="p-3.5 bg-slate-50 border border-slate-200/70 rounded-2xl flex justify-between items-center">
+                                        <div className="min-w-0 mr-2">
+                                            <span className="text-[10px] font-black text-slate-700 uppercase block truncate">
+                                                {loc.local_nome}
+                                            </span>
+                                            <span className="text-[9px] text-slate-400 font-bold">
+                                                {loc.total_itens || 0} SKUs cadastrados
+                                            </span>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <span className="text-sm font-mono font-black text-slate-800 block">
+                                                {formatarMoeda(loc.valor_total)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {asArray(stats?.saldoPorLocalEstoque).length === 0 && (
+                                    <div className="col-span-full text-center py-4 text-xs font-bold text-slate-400">
+                                        Nenhum local de estoque com saldo registrado.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+                );
+            })()}
+
+            {/* ========================================================= */}
+            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (ESTRUTURA EXECUTIVA CFO) */}
             {/* ========================================================= */}
             {visaoAtual === 'financeira' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
                     
-                    {/* INDICADOR DE SAVING */}
-                    <div className="bg-gradient-to-r from-emerald-900 to-slate-900 text-white p-6 rounded-3xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                        <div className="space-y-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-300 bg-emerald-800/60 px-2.5 py-0.5 rounded-full inline-block">
-                                📊 Suprimentos & Negociação
-                            </span>
-                            <h4 className="text-base font-black uppercase tracking-tight">Indicador de Saving de Compras (Real vs. Orçado)</h4>
-                            <p className="text-xs text-slate-300 font-medium max-w-xl">
-                                Comparativo contábil entre o valor estimado nas requisições da engenharia e o valor faturado nas notas fiscais de baixa.
-                            </p>
-                        </div>
-                        <div className="flex gap-4 sm:gap-6 text-center shrink-0 w-full md:w-auto justify-between md:justify-end">
-                            <div className="bg-white/10 px-4 py-3 rounded-2xl backdrop-blur-xs">
-                                <span className="text-xs text-slate-300 font-bold block">Valor Estimado</span>
-                                <span className="text-lg font-black text-white font-mono">{formatarMoeda(estimadoTotalCompras)}</span>
-                            </div>
-                            <div className="bg-white/10 px-4 py-3 rounded-2xl backdrop-blur-xs">
-                                <span className="text-xs text-slate-300 font-bold block">Valor Real Pago</span>
-                                <span className="text-lg font-black text-emerald-400 font-mono">{formatarMoeda(realTotalCompras)}</span>
-                            </div>
-                            <div className="bg-emerald-500/20 border border-emerald-500/40 px-4 py-3 rounded-2xl backdrop-blur-xs">
-                                <span className="text-xs text-emerald-300 font-bold block">Saving / Economia</span>
-                                <span className={`text-lg font-black font-mono ${diferencaSaving >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {diferencaSaving >= 0 ? `+${formatarMoeda(diferencaSaving)}` : formatarMoeda(diferencaSaving)} ({percentualSaving}%)
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* CARDS FISCAIS & CONTAS A PAGAR */}
+                    {/* 1. CARDS DE TOPO: GESTÃO FISCAL & CONTAS A PAGAR */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <FinanceCard 
                             title="Total em Notas Fiscais" 
                             value={formatarMoeda(stats?.totalNotasFiscais)} 
-                            subtitle="Faturamento total registrado no período" 
+                            subtitle="Volume total faturado no período" 
                             color="border-blue-600" 
                             bgGradient="from-blue-50/50" 
                         />
                         <FinanceCard 
                             title="Notas Fiscais Quitadas" 
                             value={formatarMoeda(stats?.totalNotasPagas)} 
-                            subtitle="Títulos conciliados e baixados" 
+                            subtitle="Títulos já liquidados e baixados" 
                             color="border-emerald-500" 
                             bgGradient="from-emerald-50/50" 
                         />
                         <FinanceCard 
                             title="Notas Fiscais Pendentes" 
                             value={formatarMoeda(stats?.totalNotasPendentes)} 
-                            subtitle="Compromissos pendentes de liquidação" 
+                            subtitle="Passivo fiscal a liquidar" 
                             color="border-amber-500" 
                             bgGradient="from-amber-50/50" 
                         />
                         <FinanceCard 
                             title="Despesas Prediais / Obras" 
                             value={formatarMoeda(stats?.totalDespesasPrediais)} 
-                            subtitle="Reformas, estrutura e predial" 
+                            subtitle="Reformas, conservação e estrutura" 
                             color="border-purple-600" 
                             bgGradient="from-purple-50/50" 
                         />
                     </div>
 
+                    {/* 2. RATEIO POR CENTRO DE CUSTO & CURVA ABC DE PRESTADORES */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
@@ -802,7 +995,7 @@ const Dashboard = ({ user }) => {
                                         <h3 className="text-[11px] font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
                                             <span>💼</span> Prestadores Terceirizados Homologados
                                         </h3>
-                                        <p className="text-[9px] font-bold text-emerald-700 uppercase mt-0.5">Gastos com assistências e laudos externos</p>
+                                        <p className="text-[9px] font-bold text-emerald-700 uppercase mt-0.5">Concentração de despesa externa por prestador</p>
                                     </div>
                                     <span className="text-[10px] font-black text-emerald-800 bg-emerald-200/60 px-2 py-0.5 rounded-md">
                                         {asArray(stats?.gastosPorFornecedor).length} Empresas
@@ -844,36 +1037,69 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* VENCIMENTOS E DUPLICATAS */}
+                    {/* 3. FLUXO DE COMPROMISSOS COM PREVISÃO FINANCEIRA (R$) */}
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <div className="flex justify-between items-center mb-3">
-                            <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                <span>📅</span> Fluxo de Compromissos & Contas a Pagar
-                            </h4>
+                        <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
+                            <div>
+                                <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                    <span>📅</span> Fluxo de Caixa de Curto Prazo (Títulos a Pagar)
+                                </h4>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
+                                    Monitoramento de vencimentos de duplicatas para provisão financeira
+                                </p>
+                            </div>
                             <Link to="/notas-fiscais" className="text-[10px] font-black text-blue-600 hover:underline uppercase">
-                                Painel de Notas & Boletos ↗
+                                Painel de Contas a Pagar ↗
                             </Link>
                         </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl">
-                                <span className="text-xl font-black text-rose-700">
-                                    {stats?.boletosAtrasados || 0}
+                            {/* Vencidos / Atrasados */}
+                            <div className="p-4 bg-rose-50/80 border border-rose-200 rounded-2xl flex flex-col justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-rose-600">
+                                    🚨 Boletos em Atraso
                                 </span>
-                                <p className="text-[10px] font-bold text-rose-600 uppercase mt-1">Boletos em Atraso</p>
+                                <div className="my-2">
+                                    <span className="text-2xl font-black text-rose-700 font-mono block">
+                                        {formatarMoeda(stats?.boletosAtrasados?.valor_total || 0)}
+                                    </span>
+                                    <span className="text-xs font-bold text-rose-600">
+                                        {stats?.boletosAtrasados?.total || 0} título(s) pendente(s)
+                                    </span>
+                                </div>
+                                <span className="text-[9px] font-bold text-rose-500 uppercase">Ação imediata requerida</span>
                             </div>
 
-                            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-                                <span className="text-xl font-black text-amber-700">
-                                    {stats?.boletosVencendoHoje || 0}
+                            {/* Vencendo Hoje */}
+                            <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl flex flex-col justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">
+                                    ⏰ Vencendo Hoje
                                 </span>
-                                <p className="text-[10px] font-bold text-amber-600 uppercase mt-1">Vencendo Hoje</p>
+                                <div className="my-2">
+                                    <span className="text-2xl font-black text-amber-800 font-mono block">
+                                        {formatarMoeda(stats?.boletosVencendoHoje?.valor_total || 0)}
+                                    </span>
+                                    <span className="text-xs font-bold text-amber-700">
+                                        {stats?.boletosVencendoHoje?.total || 0} título(s) para liquidação
+                                    </span>
+                                </div>
+                                <span className="text-[9px] font-bold text-amber-600 uppercase">Previsão de saída diária</span>
                             </div>
 
-                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl">
-                                <span className="text-xl font-black text-blue-700">
-                                    {stats?.boletosVencendoSemana || 0}
+                            {/* Próximos 7 Dias */}
+                            <div className="p-4 bg-blue-50/80 border border-blue-200 rounded-2xl flex flex-col justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-blue-700">
+                                    🗓️ Vencimento em 7 Dias
                                 </span>
-                                <p className="text-[10px] font-bold text-blue-600 uppercase mt-1">Vencimento em 7 Dias</p>
+                                <div className="my-2">
+                                    <span className="text-2xl font-black text-blue-800 font-mono block">
+                                        {formatarMoeda(stats?.boletosVencendoSemana?.valor_total || 0)}
+                                    </span>
+                                    <span className="text-xs font-bold text-blue-700">
+                                        {stats?.boletosVencendoSemana?.total || 0} título(s) a vencer
+                                    </span>
+                                </div>
+                                <span className="text-[9px] font-bold text-blue-600 uppercase">Provisão de tesouraria</span>
                             </div>
                         </div>
                     </div>
