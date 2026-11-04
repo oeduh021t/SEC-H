@@ -13,6 +13,7 @@ import PainelChamados from './pages/PainelChamados';
 import Prontuario from './pages/Prontuario';
 import NovoEquipamento from './pages/NovoEquipamento';
 import Preventivas from './pages/Preventivas';
+import Metrologia from './pages/Metrologia'; // ⚖️ NOVO: Metrologia, Calibração e Ensaios
 import Usuarios from './pages/Usuarios';
 import Dashboard from './pages/Dashboard';
 import InventarioGeral from './pages/InventarioGeral';
@@ -40,7 +41,7 @@ import ImprimirOrcamentoExterno from './pages/ImprimirOrcamentoExterno';
 // 🔍 AUDITORIA E EXTRATO DE FORNECEDORES
 import AuditoriaFornecedor from './pages/AuditoriaFornecedor';
 
-// 🕒 NOVO: DIÁRIO DE BORDO & LINHA DO TEMPO OPERACIONAL DO PLANTÃO
+// 🕒 DIÁRIO DE BORDO & LINHA DO TEMPO OPERACIONAL DO PLANTÃO
 import TimelineOperacional from './pages/TimelineOperacional';
 
 function AppRoutes() {
@@ -121,10 +122,13 @@ function AppRoutes() {
                     } 
                   />
 
-                  {/* 2. EQUIPAMENTOS, PREVENTIVAS & ORÇAMENTOS EXTERNOS */}
+                  {/* 2. EQUIPAMENTOS, PREVENTIVAS, METROLOGIA & ORÇAMENTOS EXTERNOS */}
                   <Route path="/equipamentos" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Equipamentos /></ProtectedRoute>} />
                   <Route path="/equipamentos/novo" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><NovoEquipamento /></ProtectedRoute>} />
-                  <Route path="/preventivas" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><Preventivas /></ProtectedRoute>} />
+                  <Route path="/preventivas" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><Preventivas /></ProtectedRoute>} />
+                  
+                  {/* ⚖️ MÓDULO DE METROLOGIA & CALIBRAÇÃO (ANVISA / RDC 2) */}
+                  <Route path="/metrologia" element={<ProtectedRoute allowedRoles={['admin', 'coordenador', 'tecnico']}><Metrologia /></ProtectedRoute>} />
                   
                   {/* 📑 MÓDULO DE ORÇAMENTOS EXTERNOS */}
                   <Route path="/orcamentos-externos" element={<ProtectedRoute allowedRoles={['admin', 'coordenador']}><OrcamentosExternos /></ProtectedRoute>} />

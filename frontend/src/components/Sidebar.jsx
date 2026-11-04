@@ -41,10 +41,11 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
   const podeVerRelatorios = isGestao;
   const podeGerenciarUsuarios = isAdmin;
 
-  // Verificadores de submenus ativos
+  // Verificadores de submenus ativos (adicionado 'metrologia')
   const isAtivosActive = location.pathname.includes('equipamentos') || 
                         location.pathname.includes('tipos-equipamentos') || 
                         location.pathname.includes('preventivas') || 
+                        location.pathname.includes('metrologia') || 
                         location.pathname.includes('setores') || 
                         location.pathname.includes('documentos') ||
                         location.pathname.includes('orcamentos-externos');
@@ -187,7 +188,7 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
             {sidebarAberta && <span className="truncate">Chamados / OS</span>}
           </Link>
 
-          {/* 🕒 NOVO: LINHA DO TEMPO OPERACIONAL / DIÁRIO DO PLANTÃO */}
+          {/* LINHA DO TEMPO OPERACIONAL / DIÁRIO DO PLANTÃO */}
           {podeVerTimeline && (
             <Link 
               to="/timeline" 
@@ -287,6 +288,21 @@ const Sidebar = ({ user, onLogout, sidebarAberta, setSidebarAberta }) => {
                         className={`flex items-center gap-2 p-1.5 rounded-lg text-xs font-bold transition-colors ${isActive('/preventivas') ? 'text-white bg-slate-800' : 'text-slate-400 hover:text-white'}`}
                       >
                         <span>Preventivas PMOC</span>
+                      </Link>
+
+                      {/* ⚖️ NOVO: METROLOGIA & CALIBRAÇÃO (ANVISA / RDC 2) */}
+                      <Link 
+                        to="/metrologia" 
+                        onClick={() => { if (window.innerWidth < 1024) setSidebarAberta(false); }}
+                        className={`flex items-center justify-between p-1.5 rounded-lg text-xs font-bold transition-colors ${
+                          isActive('/metrologia') 
+                            ? 'text-white bg-purple-600/90 shadow-sm' 
+                            : 'text-purple-300 hover:text-white hover:bg-purple-950/40'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span> </span> Metrologia (ANVISA)
+                        </span>
                       </Link>
 
                       {podeGerenciarEstrutura && (
