@@ -27,11 +27,9 @@ const Chamados = ({ user: userProp }) => {
   const fileInputGaleriaRef = useRef(null);
   const fileInputFotoEdicaoRef = useRef(null);
   
-  // Refs para criação (já otimizados)
   const tituloRef = useRef(null);
   const descricaoRef = useRef(null);
 
-  // Novas Refs para edição (elimina o delay ao digitar)
   const tituloEdicaoRef = useRef(null);
   const descricaoEdicaoRef = useRef(null);
 
@@ -89,14 +87,14 @@ const Chamados = ({ user: userProp }) => {
       equipamento_id: st.equipamento_id || eq.id || '',
       prioridade: st.prioridade || 'Média',
       categoria: st.categoria || 'Engenharia Clínica',
-      impacto: 'Normal',
+      impacto_assistencial: 'Sem Impacto Direto',
+      leito_sala_afetada: '',
       ramal_contato: '',
       isRetroativo: false,
       data_abertura: ''
     };
   });
 
-  // Estado limpo de edição (título e descrição removidos do state reativo)
   const [fotoEdicao, setFotoEdicao] = useState(null);
   const [formEdicao, setFormEdicao] = useState({
     id: null,
@@ -104,6 +102,8 @@ const Chamados = ({ user: userProp }) => {
     equipamento_id: '',
     prioridade: 'Média',
     categoria: 'Engenharia Clínica',
+    impacto_assistencial: 'Sem Impacto Direto',
+    leito_sala_afetada: '',
     foto_abertura_atual: null
   });
 
@@ -185,12 +185,18 @@ const Chamados = ({ user: userProp }) => {
     setVisualizadorAnexo(null);
   };
 
-  const calcularTempoSLA = (dataInicioStr, dataFimStr, prioridade = 'Média') => {
+  const calcularTempoSLA = (dataInicioStr, dataFimStr, prioridade = 'Média', impacto = 'Sem Impacto Direto') => {
     if (!dataInicioStr) {
       return { texto: '---', horasDecorridas: 0, percentual: 0, atrasado: false, metaHoras: 24 };
     }
-    const metasHoras = { Urgente: 2, Alta: 6, 'Média': 24, Baixa: 48 };
-    const metaHoras = metasHoras[prioridade] || 24;
+    
+    let metaHoras = 24;
+    if (['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(impacto)) {
+      metaHoras = 1;
+    } else {
+      const metasHoras = { Urgente: 2, Alta: 6, 'Média': 24, Baixa: 48 };
+      metaHoras = metasHoras[prioridade] || 24;
+    }
 
     const inicio = new Date(dataInicioStr);
     const fim = dataFimStr ? new Date(dataFimStr) : agora;
@@ -285,6 +291,8 @@ const Chamados = ({ user: userProp }) => {
       equipamento_id: c.equipamento_id || '',
       prioridade: c.prioridade || 'Média',
       categoria: c.categoria || 'Engenharia Clínica',
+      impacto_assistencial: c.impacto_assistencial || 'Sem Impacto Direto',
+      leito_sala_afetada: c.leito_sala_afetada || '',
       foto_abertura_atual: c.foto_abertura || null
     });
 
@@ -306,6 +314,12 @@ const Chamados = ({ user: userProp }) => {
       const tituloValor = tituloEdicaoRef.current?.value || '';
       const descricaoValor = descricaoEdicaoRef.current?.value || '';
 
+      const setorObj = setores.find(s => String(s.id) === String(formEdicao.setor_id));
+      const nomeSetorFolha = setorObj ? setorObj.nome.split('>').pop().trim() : '';
+      const localAfetado = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(formEdicao.impacto_assistencial)
+        ? nomeSetorFolha
+        : '';
+
       const formData = new FormData();
       formData.append('setor_id', formEdicao.setor_id);
       formData.append('equipamento_id', formEdicao.equipamento_id);
@@ -313,6 +327,8 @@ const Chamados = ({ user: userProp }) => {
       formData.append('descricao_problema', descricaoValor);
       formData.append('prioridade', formEdicao.prioridade);
       formData.append('categoria', formEdicao.categoria);
+      formData.append('impacto_assistencial', formEdicao.impacto_assistencial);
+      formData.append('leito_sala_afetada', localAfetado);
       formData.append('usuario_nome', user?.nome || 'Administrador');
       
       if (fotoEdicao) {
@@ -350,26 +366,32 @@ const Chamados = ({ user: userProp }) => {
     const tituloValor = tituloRef.current?.value || '';
     const descricaoValor = descricaoRef.current?.value || '';
 
+    const setorObj = setores.find(s => String(s.id) === String(form.setor_id));
+    const nomeSetorFolha = setorObj ? setorObj.nome.split('>').pop().trim() : '';
+    const localAfetado = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(form.impacto_assistencial)
+      ? nomeSetorFolha
+      : '';
+
     const formData = new FormData();
     formData.append('setor_id', form.setor_id);
     formData.append('equipamento_id', form.equipamento_id);
     formData.append('titulo', tituloValor);
     
     let relatoFormatado = descricaoValor;
-    if (form.impacto === 'Paralisado' || form.ramal_contato) {
-      const prefixos = [];
-      if (form.impacto === 'Paralisado') prefixos.push('🚨 [LEITO/SETOR PARALISADO]');
-      if (form.ramal_contato) prefixos.push(`📞 [CONTATO: ${form.ramal_contato}]`);
-      relatoFormatado = `${prefixos.join(' ')}\n\n${descricaoValor}`;
+    if (form.ramal_contato) {
+      relatoFormatado = `📞 [CONTATO: ${form.ramal_contato}]\n\n${descricaoValor}`;
     }
 
     formData.append('descricao_problema', relatoFormatado);
     formData.append('prioridade', form.prioridade);
     formData.append('categoria', form.categoria);
+    formData.append('impacto_assistencial', form.impacto_assistencial);
+    formData.append('leito_sala_afetada', localAfetado);
+
     formData.append('usuario_id', user?.id || '');
     if (fotoAbertura) formData.append('foto', fotoAbertura);
 
-    if (form.isRetroativo && form.data_abertura) {
+    if (isAdminOuCoord && form.isRetroativo && form.data_abertura) {
       formData.append('data_abertura', form.data_abertura);
     }
 
@@ -391,7 +413,8 @@ const Chamados = ({ user: userProp }) => {
         equipamento_id: '',
         prioridade: 'Média',
         categoria: categorias[0]?.nome || 'Engenharia Clínica',
-        impacto: 'Normal',
+        impacto_assistencial: 'Sem Impacto Direto',
+        leito_sala_afetada: '',
         ramal_contato: '',
         isRetroativo: false,
         data_abertura: ''
@@ -500,6 +523,9 @@ const Chamados = ({ user: userProp }) => {
   const isManutencaoExterna = (c) => c.status === 'Aguardando Externa' || Number(c.em_manutencao_externa) === 1;
 
   const obterEstiloCard = (c) => {
+    if (['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial) && c.status !== 'Concluído') {
+      return 'bg-red-50/80 border-red-400 border-l-red-600 shadow-red-100 ring-2 ring-red-300/60';
+    }
     if (isManutencaoExterna(c)) return 'bg-purple-50/60 border-purple-200 border-l-purple-600 shadow-purple-50';
     if (c.status === 'Aberto') return 'bg-red-50/40 border-red-200 border-l-red-500 shadow-red-50';
     if (c.status === 'Em Atendimento') return 'bg-amber-50/40 border-amber-200 border-l-amber-500 shadow-amber-50';
@@ -541,6 +567,7 @@ const Chamados = ({ user: userProp }) => {
                       c.setor_nome?.toLowerCase().includes(busca.toLowerCase()) ||
                       setorFormatado.toLowerCase().includes(busca.toLowerCase()) ||
                       c.equip_nome?.toLowerCase().includes(busca.toLowerCase()) ||
+                      c.leito_sala_afetada?.toLowerCase().includes(busca.toLowerCase()) ||
                       c.equip_pat?.toLowerCase().includes(busca.toLowerCase());
 
     return bateStatus && bateEscopo && bateBusca;
@@ -585,7 +612,7 @@ const Chamados = ({ user: userProp }) => {
 
           <input 
             type="text" 
-            placeholder="Buscar por OS, ativo, setor..." 
+            placeholder="Buscar por OS, ativo, setor, leito..." 
             value={busca} 
             className="border-2 border-slate-100 rounded-xl p-2.5 w-full md:w-64 outline-none font-bold text-slate-800 focus:border-blue-500 transition-colors text-sm" 
             onChange={(e) => setBusca(e.target.value)} 
@@ -611,7 +638,8 @@ const Chamados = ({ user: userProp }) => {
                 equipamento_id: '',
                 prioridade: 'Média',
                 categoria: categorias[0]?.nome || 'Engenharia Clínica',
-                impacto: 'Normal',
+                impacto_assistencial: 'Sem Impacto Direto',
+                leito_sala_afetada: '',
                 ramal_contato: '',
                 isRetroativo: false,
                 data_abertura: ''
@@ -650,11 +678,12 @@ const Chamados = ({ user: userProp }) => {
       {/* GRID DE CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {filtrados.map(c => {
-          const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade);
+          const sla = calcularTempoSLA(c.data_abertura, c.data_conclusao, c.prioridade, c.impacto_assistencial);
           const isConcluido = c.status === 'Concluído';
           const isAdmin = user?.nivel?.toLowerCase() === 'admin';
           const emExterna = isManutencaoExterna(c);
           const setorFormatado = obterSetorFormatado(c, setores);
+          const ehImpactoCritico = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial);
 
           return (
             <div 
@@ -707,6 +736,13 @@ const Chamados = ({ user: userProp }) => {
                       </span>
                     </div>
                   </div>
+
+                  {ehImpactoCritico && (
+                    <div className="mb-2.5 px-3 py-1 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wide flex items-center justify-between animate-pulse">
+                      <span>🚨 {c.impacto_assistencial}</span>
+                      {c.leito_sala_afetada && <span>🏥 {c.leito_sala_afetada}</span>}
+                    </div>
+                  )}
 
                   <div className="bg-white/70 p-2 rounded-xl border border-slate-200/50 mb-3 flex justify-between items-center text-[10px]">
                     <div className="flex items-center gap-1.5 font-black text-slate-600">
@@ -840,7 +876,7 @@ const Chamados = ({ user: userProp }) => {
 
       {/* MODAL: DETALHES DO CHAMADO */}
       {modalDetalhesAberta && chamadoSelecionado && (() => {
-        const slaModal = calcularTempoSLA(chamadoSelecionado.data_abertura, chamadoSelecionado.data_conclusao, chamadoSelecionado.prioridade);
+        const slaModal = calcularTempoSLA(chamadoSelecionado.data_abertura, chamadoSelecionado.data_conclusao, chamadoSelecionado.prioridade, chamadoSelecionado.impacto_assistencial);
         const custoPecas = chamadoSelecionado.itens_vinculados?.reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.valor_unitario || 0)), 0) || 0;
         const custoServico = Number(chamadoSelecionado.custo_servico || 0) + Number(chamadoSelecionado.valor_servico_externo || 0);
         const custoTotalOS = custoServico + custoPecas;
@@ -849,6 +885,7 @@ const Chamados = ({ user: userProp }) => {
         const isEmAtendimento = chamadoSelecionado.status === 'Em Atendimento';
         const isExternaModal = isManutencaoExterna(chamadoSelecionado);
         const isConcluido = chamadoSelecionado.status === 'Concluído';
+        const ehCriticoModal = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(chamadoSelecionado.impacto_assistencial);
 
         return (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 p-2 sm:p-4">
@@ -920,6 +957,13 @@ const Chamados = ({ user: userProp }) => {
                   </div>
                 </div>
               </div>
+
+              {ehCriticoModal && (
+                <div className="bg-red-600 text-white px-6 py-2 text-xs font-black uppercase tracking-wider flex items-center justify-between">
+                  <span>🚨 IMPACTO: {chamadoSelecionado.impacto_assistencial}</span>
+                  {chamadoSelecionado.leito_sala_afetada && <span>🏥 LEITO/SALA: {chamadoSelecionado.leito_sala_afetada}</span>}
+                </div>
+              )}
 
               {/* BARRA DE INDICADORES */}
               <div className={`bg-slate-100/70 p-3 sm:p-4 grid grid-cols-2 ${!isUsuarioComum ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-2 sm:gap-3 border-b border-slate-200 shrink-0`}>
@@ -1023,11 +1067,6 @@ const Chamados = ({ user: userProp }) => {
                         <span className="flex items-center gap-1.5">
                           <span>📎</span> Laudos & Arquivos ({listaDocumentos.length})
                         </span>
-                        {listaDocumentos.length > 0 && (
-                          <span className="text-[9px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">
-                            Salvos no Servidor
-                          </span>
-                        )}
                       </h4>
                       
                       {!isConcluido && (
@@ -1251,7 +1290,7 @@ const Chamados = ({ user: userProp }) => {
         );
       })()}
 
-      {/* MODAL: EDITAR CHAMADO (OTIMIZADO COM REFS) */}
+      {/* MODAL: EDITAR CHAMADO */}
       {modalEditarAberta && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 text-slate-800">
           <form onSubmit={salvarEdicaoChamado} className="bg-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl">
@@ -1262,14 +1301,22 @@ const Chamados = ({ user: userProp }) => {
             
             <div className="p-6 sm:p-8 space-y-4 max-h-[80vh] overflow-y-auto">
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Setor / Quarto *</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Setor / Local Solicitante *</label>
                 <select 
                   required 
                   className="w-full border-2 border-slate-100 p-3 rounded-xl font-bold bg-white text-sm outline-none focus:border-blue-500" 
                   value={formEdicao.setor_id} 
-                  onChange={e => setFormEdicao({ ...formEdicao, setor_id: e.target.value })}
+                  onChange={e => {
+                    const novoSetorId = e.target.value;
+                    setFormEdicao({
+                      ...formEdicao,
+                      setor_id: novoSetorId,
+                      equipamento_id: '',
+                      leito_sala_afetada: ''
+                    });
+                  }}
                 >
-                  <option value="">-- Selecione o Setor --</option>
+                  <option value="">-- Selecione o Setor / Local --</option>
                   {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </div>
@@ -1306,6 +1353,29 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
+              <div className="p-3.5 bg-amber-50/60 rounded-2xl border border-amber-200/90 space-y-2">
+                <label className="block text-[10px] font-black text-amber-900 uppercase mb-1">
+                  Impacto no Atendimento *
+                </label>
+                <select
+                  className="w-full border-2 border-white p-2.5 rounded-xl font-bold text-xs outline-none bg-white text-slate-800 shadow-xs"
+                  value={formEdicao.impacto_assistencial}
+                  onChange={e => setFormEdicao({ ...formEdicao, impacto_assistencial: e.target.value })}
+                >
+                  <option value="Sem Impacto Direto">⚪ Sem Impacto Direto (Rotina Normal)</option>
+                  <option value="Risco Potencial">🟡 Risco Potencial (Pode atrasar procedimentos)</option>
+                  <option value="Leito/Sala Bloqueado">🚨 Leito ou Sala Bloqueada</option>
+                  <option value="Risco Iminente à Vida">⚡ Risco Iminente à Vida (Suporte Vital)</option>
+                </select>
+
+                {['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(formEdicao.impacto_assistencial) && (
+                  <div className="pt-2 border-t border-amber-200/60 text-[11px] font-bold text-red-600 flex items-center gap-1.5 animate-in fade-in duration-150">
+                    <span>⚠️</span>
+                    <span>Classificado como paragem crítica no setor selecionado acima.</span>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
                   Especialidade Técnica *
@@ -1324,7 +1394,6 @@ const Chamados = ({ user: userProp }) => {
                 </select>
               </div>
 
-              {/* TÍTULO COM REF: Digitação instantânea */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Assunto do Chamado *</label>
                 <input 
@@ -1335,7 +1404,6 @@ const Chamados = ({ user: userProp }) => {
                 />
               </div>
 
-              {/* DESCRIÇÃO COM REF: Digitação instantânea */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Relato Descritivo do Problema *</label>
                 <textarea 
@@ -1345,7 +1413,6 @@ const Chamados = ({ user: userProp }) => {
                 />
               </div>
 
-              {/* CAMPO DE EDIÇÃO DA FOTO DE ABERTURA */}
               <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   Foto de Abertura (Evidência Inicial do Problema)
@@ -1475,15 +1542,23 @@ const Chamados = ({ user: userProp }) => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
-                    Setor Solicitante *
+                    Setor / Local Solicitante *
                   </label>
                   <select 
                     required 
                     className="w-full border-2 border-slate-100 p-2.5 rounded-xl font-bold bg-white text-xs outline-none focus:border-amber-500 text-slate-700" 
                     value={form.setor_id} 
-                    onChange={e => setForm({...form, setor_id: e.target.value, equipamento_id: ''})}
+                    onChange={e => {
+                      const novoSetorId = e.target.value;
+                      setForm(prev => ({
+                        ...prev,
+                        setor_id: novoSetorId,
+                        equipamento_id: '',
+                        leito_sala_afetada: ''
+                      }));
+                    }}
                   >
-                    <option value="">-- Selecione o Setor --</option>
+                    <option value="">-- Selecione o Setor / Local --</option>
                     {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                   </select>
                 </div>
@@ -1563,94 +1638,92 @@ const Chamados = ({ user: userProp }) => {
                 </div>
               </div>
 
-              {/* OPÇÃO DE LANÇAMENTO RETROATIVO */}
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.isRetroativo}
-                      onChange={e => setForm({
-                        ...form,
-                        isRetroativo: e.target.checked,
-                        data_abertura: e.target.checked ? form.data_abertura : ''
-                      })}
-                      className="w-4 h-4 rounded text-amber-500 focus:ring-0 cursor-pointer"
-                    />
-                    <span>Lançamento Retroativo</span>
-                  </label>
-                  {form.isRetroativo && (
-                    <span className="text-[9px] font-black uppercase text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
-                      ⚠️ Evento Passado
-                    </span>
-                  )}
+              {/* 🏥 MATRIZ DE CRITICIDADE & IMPACTO ASSISTENCIAL */}
+              <div className="p-3.5 bg-amber-50/60 rounded-2xl border border-amber-200/90 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-black text-amber-900 uppercase mb-1">
+                      Prioridade Solicitada
+                    </label>
+                    <select 
+                      required
+                      className="w-full border-2 border-white p-2.5 rounded-xl font-bold text-xs outline-none bg-white text-slate-800 shadow-xs" 
+                      value={form.prioridade} 
+                      onChange={e => setForm({...form, prioridade: e.target.value})}
+                    >
+                      <option value="Urgente">🚨 Urgente (Meta: 2h)</option>
+                      <option value="Alta">⚠ Alta (Meta: 6h)</option>
+                      <option value="Média">🟡 Média (Meta: 24h)</option>
+                      <option value="Baixa">⚪ Baixa (Meta: 48h)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-amber-900 uppercase mb-1">
+                      Impacto no Atendimento *
+                    </label>
+                    <select
+                      value={form.impacto_assistencial}
+                      onChange={e => setForm({ ...form, impacto_assistencial: e.target.value })}
+                      className="w-full border-2 border-white p-2.5 rounded-xl font-bold text-xs outline-none bg-white text-slate-800 shadow-xs"
+                    >
+                      <option value="Sem Impacto Direto">⚪ Sem Impacto Direto (Rotina Normal)</option>
+                      <option value="Risco Potencial">🟡 Risco Potencial (Pode atrasar procedimentos)</option>
+                      <option value="Leito/Sala Bloqueado">🚨 Leito ou Sala Bloqueada</option>
+                      <option value="Risco Iminente à Vida">⚡ Risco Iminente à Vida (Suporte Vital)</option>
+                    </select>
+                  </div>
                 </div>
 
-                {form.isRetroativo && (
-                  <div className="pt-1">
-                    <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">
-                      Data e Hora da Ocorrência *
-                    </label>
-                    <input
-                      type="datetime-local"
-                      required={form.isRetroativo}
-                      max={new Date().toISOString().slice(0, 16)}
-                      value={form.data_abertura}
-                      onChange={e => setForm({ ...form, data_abertura: e.target.value })}
-                      className="w-full border-2 border-amber-200 bg-white p-2 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500"
-                    />
+                {['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(form.impacto_assistencial) && (
+                  <div className="pt-2 border-t border-amber-200/60 text-[11px] font-bold text-red-600 flex items-center gap-1.5 animate-in fade-in duration-150">
+                    <span>⚠️</span>
+                    <span>Classificado como paragem crítica no setor selecionado acima.</span>
                   </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/70">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                    Criticidade do Chamado (SLA)
-                  </label>
-                  <select 
-                    required
-                    className="w-full border-2 border-white p-2 rounded-xl font-black text-xs outline-none focus:border-amber-500 shadow-xs" 
-                    value={form.prioridade} 
-                    onChange={e => setForm({...form, prioridade: e.target.value})}
-                  >
-                    <option value="Urgente">🚨 Urgente (Meta: 2h)</option>
-                    <option value="Alta">⚠ Alta (Meta: 6h)</option>
-                    <option value="Média">🟡 Média (Meta: 24h)</option>
-                    <option value="Baixa">⚪ Baixa (Meta: 48h)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
-                    Impacto no Atendimento
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, impacto: 'Normal' })}
-                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
-                        form.impacto === 'Normal' 
-                          ? 'bg-white text-slate-800 shadow-xs border border-slate-200' 
-                          : 'text-slate-400 hover:text-slate-600'
-                      }`}
-                    >
-                      Operação Normal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, impacto: 'Paralisado' })}
-                      className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
-                        form.impacto === 'Paralisado' 
-                          ? 'bg-rose-500 text-white shadow-xs' 
-                          : 'text-rose-500 hover:bg-rose-50'
-                      }`}
-                    >
-                      Leito / Setor Parado 🚨
-                    </button>
+              {/* OPÇÃO DE LANÇAMENTO RETROATIVO: EXCLUSIVO ADMIN E COORDENADOR */}
+              {isAdminOuCoord && (
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={form.isRetroativo}
+                        onChange={e => setForm({
+                          ...form,
+                          isRetroativo: e.target.checked,
+                          data_abertura: e.target.checked ? form.data_abertura : ''
+                        })}
+                        className="w-4 h-4 rounded text-amber-500 focus:ring-0 cursor-pointer"
+                      />
+                      <span>Lançamento Retroativo (Gestão)</span>
+                    </label>
+                    {form.isRetroativo && (
+                      <span className="text-[9px] font-black uppercase text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md">
+                        ⚠️ Data Passada
+                      </span>
+                    )}
                   </div>
+
+                  {form.isRetroativo && (
+                    <div className="pt-1 animate-in fade-in duration-150">
+                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-1">
+                        Data e Hora da Ocorrência Original *
+                      </label>
+                      <input
+                        type="datetime-local"
+                        required={form.isRetroativo}
+                        max={new Date().toISOString().slice(0, 16)}
+                        value={form.data_abertura}
+                        onChange={e => setForm({ ...form, data_abertura: e.target.value })}
+                        className="w-full border-2 border-amber-200 bg-white p-2 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">
@@ -1659,7 +1732,7 @@ const Chamados = ({ user: userProp }) => {
                 <input 
                   ref={tituloRef}
                   type="text" 
-                  placeholder="Ex: Cadeira quebrada no consultório, Telefone mudo, Monitor não liga..." 
+                  placeholder="Ex: Monitor multiparamétrico apitando sem parar, Incubadora sem aquecer..."
                   className="w-full border-2 border-slate-100 p-2.5 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-amber-500" 
                   required 
                 />
@@ -1741,7 +1814,7 @@ const Chamados = ({ user: userProp }) => {
                 </label>
                 <textarea 
                   ref={descricaoRef}
-                  placeholder="Descreva detalhadamente a falha, orientações de acesso ao local..." 
+                  placeholder="Descreva detalhadamente a falha, orientações de acesso ao local..."
                   className="w-full border-2 border-slate-100 p-3 rounded-xl h-24 text-xs font-medium text-slate-700 outline-none focus:border-amber-500 resize-none" 
                   required 
                 />
@@ -1773,7 +1846,7 @@ const Chamados = ({ user: userProp }) => {
         </div>
       )}
 
-      {/* 📱 VISUALIZADOR INTERNO DE ANEXOS */}
+      {/* VISUALIZADOR INTERNO DE ANEXOS */}
       {visualizadorAnexo && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col z-[100] animate-in fade-in duration-150">
           <div className="bg-slate-900 border-b border-slate-800 p-3.5 flex justify-between items-center text-white shrink-0">

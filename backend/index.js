@@ -753,7 +753,9 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
             le.nome as escopo_nome,
             u.nome as solicitante_nome,
 
+            -- ⏱️ Meta SLA com base em Impacto Assistencial e Prioridade
             CASE 
+                WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 1
                 WHEN c.prioridade = 'Urgente' THEN 2
                 WHEN c.prioridade = 'Alta' THEN 6
                 WHEN c.prioridade = 'Média' THEN 24
@@ -762,18 +764,31 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
 
             TIMESTAMPDIFF(MINUTE, c.data_abertura, IFNULL(c.data_conclusao, NOW())) / 60.0 AS horas_gastas,
 
+            -- 🎯 Status SLA considerando o impacto hospitalar (Minutos)
             CASE 
                 WHEN c.status = 'Concluído' THEN
                     CASE 
                         WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, c.data_conclusao) <= (
-                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                            CASE 
+                                WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 60
+                                WHEN c.prioridade = 'Urgente' THEN 120 
+                                WHEN c.prioridade = 'Alta' THEN 360 
+                                WHEN c.prioridade = 'Média' THEN 1440 
+                                ELSE 2880 
+                            END
                         ) THEN 'Dentro do Prazo'
                         ELSE 'Estourou SLA'
                     END
                 ELSE
                     CASE 
                         WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, NOW()) > (
-                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                            CASE 
+                                WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 60
+                                WHEN c.prioridade = 'Urgente' THEN 120 
+                                WHEN c.prioridade = 'Alta' THEN 360 
+                                WHEN c.prioridade = 'Média' THEN 1440 
+                                ELSE 2880 
+                            END
                         ) THEN 'SLA Atrasado'
                         ELSE 'No Prazo'
                     END
@@ -784,7 +799,9 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
         LEFT JOIN locais_estoque le ON e.local_estoque_id = le.id
         LEFT JOIN usuarios u ON COALESCE(c.usuario_abertura_id, c.usuario_id) = u.id
         ORDER BY 
-            CASE
+            -- Prioriza na fila o que bloqueia leito ou tem risco à vida
+            CASE 
+                WHEN c.status != 'Concluído' AND c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 0
                 WHEN c.status = 'Aberto' THEN 1
                 WHEN c.status = 'Em Atendimento' THEN 2
                 WHEN c.status = 'Concluído' THEN 3
@@ -821,7 +838,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 ELSE s.nome 
             END AS setor_completo,
 
-            -- 🏢 Puxa fornecedor direto do chamado ou via orçamento aprovado
+            -- 🏢 Fornecedor
             COALESCE(
                 f.nome_fantasia, 
                 f.razao_social, 
@@ -837,7 +854,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 
             u.nome as solicitante_nome,
 
-            -- 💰 Resgata custo_servico: se c.custo_servico for 0, pega o valor do orçamento aprovado
+            -- 💰 Custo do serviço
             COALESCE(
                 NULLIF(c.custo_servico, 0),
                 NULLIF(c.valor_servico_externo, 0),
@@ -850,7 +867,7 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 0.00
             ) AS custo_servico,
 
-            -- 📑 Código do orçamento para referência
+            -- 📑 Código do orçamento
             (
                 SELECT o.codigo_orcamento
                 FROM orcamentos_externos_itens oi
@@ -859,7 +876,9 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 ORDER BY o.id DESC LIMIT 1
             ) AS orcamento_codigo,
 
+            -- ⏱️ Meta SLA com base em Impacto Assistencial e Prioridade
             CASE 
+                WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 1
                 WHEN c.prioridade = 'Urgente' THEN 2
                 WHEN c.prioridade = 'Alta' THEN 6
                 WHEN c.prioridade = 'Média' THEN 24
@@ -868,18 +887,31 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 
             TIMESTAMPDIFF(MINUTE, c.data_abertura, IFNULL(c.data_conclusao, NOW())) / 60.0 AS horas_gastas,
 
+            -- 🎯 Status SLA
             CASE 
                 WHEN c.status = 'Concluído' THEN
                     CASE 
                         WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, c.data_conclusao) <= (
-                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                            CASE 
+                                WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 60
+                                WHEN c.prioridade = 'Urgente' THEN 120 
+                                WHEN c.prioridade = 'Alta' THEN 360 
+                                WHEN c.prioridade = 'Média' THEN 1440 
+                                ELSE 2880 
+                            END
                         ) THEN 'Dentro do Prazo'
                         ELSE 'Estourou SLA'
                     END
                 ELSE
                     CASE 
                         WHEN TIMESTAMPDIFF(MINUTE, c.data_abertura, NOW()) > (
-                            CASE WHEN c.prioridade = 'Urgente' THEN 120 WHEN c.prioridade = 'Alta' THEN 360 WHEN c.prioridade = 'Média' THEN 1440 ELSE 2880 END
+                            CASE 
+                                WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 60
+                                WHEN c.prioridade = 'Urgente' THEN 120 
+                                WHEN c.prioridade = 'Alta' THEN 360 
+                                WHEN c.prioridade = 'Média' THEN 1440 
+                                ELSE 2880 
+                            END
                         ) THEN 'SLA Atrasado'
                         ELSE 'No Prazo'
                     END
@@ -904,7 +936,6 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
             if (errLogs) return res.status(500).json({ error: errLogs.message });
             chamado.historico = logs || [];
             
-            // CORREÇÃO CRÍTICA AQUI: Adicionado ci.item_id
             const queryItens = `
                 SELECT ci.item_id, ci.quantidade, ci.valor_unitario_na_epoca AS valor_unitario, ie.nome 
                 FROM chamados_itens ci
@@ -921,7 +952,11 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
 });
 
 app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), upload.single('foto'), (req, res) => {
-    const { setor_id, equipamento_id, titulo, descricao_problema, prioridade, category, categoria, tipo_manutencao, data_abertura } = req.body;
+    const { 
+        setor_id, equipamento_id, titulo, descricao_problema, 
+        prioridade, category, categoria, tipo_manutencao, data_abertura,
+        impacto_assistencial, leito_sala_afetada
+    } = req.body;
     
     const usuario_id = req.headers['x-usuario-id'] || req.body.usuario_id || null;
     const foto_abertura = req.file ? `/uploads/${req.file.filename}` : null;
@@ -930,11 +965,14 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
     const v_setor_id = setor_id && setor_id !== "" && setor_id !== "null" && setor_id !== "undefined" ? Number(setor_id) : null;
     const v_equipamento_id = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" && equipamento_id !== "undefined" ? Number(equipamento_id) : null;
     const v_usuario_id = usuario_id && usuario_id !== "" && usuario_id !== "null" && usuario_id !== "undefined" ? Number(usuario_id) : null;
+    
+    const v_impacto = impacto_assistencial || 'Sem Impacto Direto';
+    const v_local_afetado = leito_sala_afetada && leito_sala_afetada.trim() !== '' ? leito_sala_afetada.trim() : null;
 
     const query = `
         INSERT INTO chamados 
-        (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, categoria, tipo_manutencao, foto_abertura, status, data_abertura) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', IFNULL(?, NOW()))
+        (setor_id, equipamento_id, usuario_abertura_id, titulo, descricao_problema, prioridade, impacto_assistencial, leito_sala_afetada, categoria, tipo_manutencao, foto_abertura, status, data_abertura) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Aberto', IFNULL(?, NOW()))
     `;
     const values = [
         v_setor_id, 
@@ -943,6 +981,8 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
         titulo, 
         descricao_problema, 
         prioridade || 'Média', 
+        v_impacto,
+        v_local_afetado,
         categoryFinal, 
         tipo_manutencao || 'Corretiva', 
         foto_abertura,
@@ -957,9 +997,10 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
 
         const novaOsId = result.insertId;
 
-        // Notificação Telegram com HTML seguro
+        // Notificação Telegram com Destaque de Impacto Hospitalar
         const queryDadosTelegram = `
-            SELECT c.id, c.titulo, DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
+            SELECT c.id, c.titulo, c.impacto_assistencial, c.leito_sala_afetada,
+                   DATE_FORMAT(c.data_abertura, '%d/%m/%Y às %H:%i') as hora_formatada, 
                    s.nome as setor_nome, e.nome as equip_nome, e.patrimonio as equip_pat
             FROM chamados c
             LEFT JOIN setores s ON c.setor_id = s.id
@@ -974,8 +1015,21 @@ app.post('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'us
                     ? `${dados.equip_nome} (PAT: ${dados.equip_pat || 'S/P'})` 
                     : 'Nenhum ativo vinculado';
 
-                const textoTelegram =
-                    `🚨 <b>NOVA ORDEM DE SERVIÇO</b> 🚨\n\n` +
+                const ehCritico = dados.impacto_assistencial === 'Leito/Sala Bloqueado' || dados.impacto_assistencial === 'Risco Iminente à Vida';
+
+                let textoTelegram = '';
+                if (ehCritico) {
+                    textoTelegram += `🚨🚨 <b>ALERTA ASSISTENCIAL CRÍTICO</b> 🚨🚨\n`;
+                    textoTelegram += `⚠️ <b>IMPACTO:</b> ${dados.impacto_assistencial.toUpperCase()}\n`;
+                    if (dados.leito_sala_afetada) {
+                        textoTelegram += `🏥 <b>LEITO / SALA AFETADA:</b> ${dados.leito_sala_afetada}\n`;
+                    }
+                    textoTelegram += `\n`;
+                } else {
+                    textoTelegram += `🔔 <b>NOVA ORDEM DE SERVIÇO</b> 🔔\n\n`;
+                }
+
+                textoTelegram += 
                     `🎫 <b>Número da OS:</b> #${dados.id}\n` +
                     `📍 <b>Setor:</b> ${dados.setor_nome || 'Não Informado'}\n` +
                     `⚙️ <b>Ativo:</b> ${ativoInfo}\n` +
@@ -2889,7 +2943,7 @@ app.get('/api/setores', permitirApenas(['admin', 'coordenador', 'tecnico', 'usua
             FROM setores filho
             INNER JOIN ArvoreSetores pai ON filho.setor_pai_id = pai.id
         )
-        SELECT id, caminho as nome
+        SELECT id, setor_pai_id, caminho as nome
         FROM ArvoreSetores
         ORDER BY caminho ASC;
     `;
