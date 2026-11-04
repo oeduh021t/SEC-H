@@ -60,6 +60,28 @@ const upload = multer({
     limits: { fileSize: 10 * 1024 * 1024 }
 });
 
+// --- CONFIGURAÇÃO DE UPLOADS (CERTIFICADOS DE CALIBRAÇÃO) ---
+const pastaCalibracoes = path.join(__dirname, 'uploads', 'certificados');
+const fs = require('fs');
+if (!fs.existsSync(pastaCalibracoes)) {
+    fs.mkdirSync(pastaCalibracoes, { recursive: true });
+}
+
+const storageCalibracoes = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, pastaCalibracoes),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const limpo = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9]/g, '_');
+        cb(null, `calib-${Date.now()}-${limpo}${ext}`);
+    }
+});
+
+const uploadCertificado = multer({
+    storage: storageCalibracoes,
+    fileFilter: filtroDocumentos,
+    limits: { fileSize: 20 * 1024 * 1024 } // 20MB para suportar laudos com múltiplas páginas
+});
+
 // -------------------------------------------------------------------------
 // CONFIGURAÇÃO DO BANCO DE DADOS (POOLED CONTRA ECONNRESET)
 // -------------------------------------------------------------------------
@@ -553,7 +575,11 @@ app.get('/api/equipamentos', permitirApenas(['admin', 'coordenador', 'tecnico', 
 });
 
 app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
-    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id, valor } = req.body;
+    const { 
+        nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, 
+        tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id, valor,
+        exige_calibracao, periodicidade_calibracao_meses, data_ultima_calibracao, data_proxima_calibracao, certificado_calibracao_atual
+    } = req.body;
     
     const foto_equipamento = req.file ? `/uploads/${req.file.filename}` : null;
     const v_nome = nome && nome.trim() !== "" ? nome : 'Sem Nome';
@@ -569,11 +595,22 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
     const v_valor = valor && valor !== "" ? Number(valor) : 0.00;
     const v_data_preventiva = data_ultima_preventiva && data_ultima_preventiva.trim() !== "" ? data_ultima_preventiva : null;
 
+    // Campos Metrológicos
+    const v_exige_calibracao = exige_calibracao === true || exige_calibracao === '1' || exige_calibracao === 1 ? 1 : 0;
+    const v_periodo_calib = periodicidade_calibracao_meses ? Number(periodicidade_calibracao_meses) : 12;
+    const v_data_ult_calib = data_ultima_calibracao && data_ultima_calibracao.trim() !== "" ? data_ultima_calibracao : null;
+    const v_data_prox_calib = data_proxima_calibracao && data_proxima_calibracao.trim() !== "" ? data_proxima_calibracao : null;
+    const v_cert_calib = certificado_calibracao_atual && certificado_calibracao_atual.trim() !== "" ? certificado_calibracao_atual.trim() : null;
+
     const query = `INSERT INTO equipamentos 
-        (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, tipo_equipamento_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento, local_estoque_id, valor) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        (nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, tipo_equipamento_id, periodicidade_preventiva, data_ultima_preventiva, foto_equipamento, local_estoque_id, valor, exige_calibracao, periodicidade_calibracao_meses, data_ultima_calibracao, data_proxima_calibracao, certificado_calibracao_atual) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         
-    const values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, foto_equipamento, v_local_estoque_id, v_valor];
+    const values = [
+        v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, 
+        v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, foto_equipamento, 
+        v_local_estoque_id, v_valor, v_exige_calibracao, v_periodo_calib, v_data_ult_calib, v_data_prox_calib, v_cert_calib
+    ];
 
     db.query(query, values, (err, result) => {
         if (err) {
@@ -586,7 +623,11 @@ app.post('/api/equipamentos', permitirApenas(['admin', 'coordenador']), upload.s
 
 app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), upload.single('foto_equipamento'), (req, res) => {
     const { id } = req.params;
-    const { nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id, valor } = req.body;
+    const { 
+        nome, modelo, patrimonio, num_serie, fabricante, setor_id, status, 
+        tipo_id, periodicidade_preventiva, data_ultima_preventiva, local_estoque_id, valor,
+        exige_calibracao, periodicidade_calibracao_meses, data_ultima_calibracao, data_proxima_calibracao, certificado_calibracao_atual
+    } = req.body;
     
     const v_nome = nome || 'Sem Nome';
     const v_modelo = modelo && modelo.trim() !== "" ? modelo : null;
@@ -601,15 +642,40 @@ app.put('/api/equipamentos/:id', permitirApenas(['admin', 'coordenador']), uploa
     const v_valor = valor && valor !== "" ? Number(valor) : 0.00;
     const v_data_preventiva = data_ultima_preventiva && data_ultima_preventiva.trim() !== "" ? data_ultima_preventiva : null;
 
+    // Campos Metrológicos
+    const v_exige_calibracao = exige_calibracao === true || exige_calibracao === '1' || exige_calibracao === 1 ? 1 : 0;
+    const v_periodo_calib = periodicidade_calibracao_meses ? Number(periodicidade_calibracao_meses) : 12;
+    const v_data_ult_calib = data_ultima_calibracao && data_ultima_calibracao.trim() !== "" ? data_ultima_calibracao : null;
+    const v_data_prox_calib = data_proxima_calibracao && data_proxima_calibracao.trim() !== "" ? data_proxima_calibracao : null;
+    const v_cert_calib = certificado_calibracao_atual && certificado_calibracao_atual.trim() !== "" ? certificado_calibracao_atual.trim() : null;
+
     let query, values;
 
     if (req.file) {
         const foto_equipamento = `/uploads/${req.file.filename}`;
-        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, tipo_equipamento_id=?, periodicidade_preventiva=?, data_ultima_preventiva=?, foto_equipamento=?, local_estoque_id=?, valor=? WHERE id=?`;
-        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, foto_equipamento, v_local_estoque_id, v_valor, id];
+        query = `UPDATE equipamentos SET 
+            nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, 
+            tipo_id=?, tipo_equipamento_id=?, periodicidade_preventiva=?, data_ultima_preventiva=?, 
+            foto_equipamento=?, local_estoque_id=?, valor=?, 
+            exige_calibracao=?, periodicidade_calibracao_meses=?, data_ultima_calibracao=?, data_proxima_calibracao=?, certificado_calibracao_atual=? 
+            WHERE id=?`;
+        values = [
+            v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, 
+            v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, foto_equipamento, 
+            v_local_estoque_id, v_valor, v_exige_calibracao, v_periodo_calib, v_data_ult_calib, v_data_prox_calib, v_cert_calib, id
+        ];
     } else {
-        query = `UPDATE equipamentos SET nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, tipo_id=?, tipo_equipamento_id=?, periodicidade_preventiva=?, data_ultima_preventiva=?, local_estoque_id=?, valor=? WHERE id=?`;
-        values = [v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, v_local_estoque_id, v_valor, id];
+        query = `UPDATE equipamentos SET 
+            nome=?, modelo=?, patrimonio=?, num_serie=?, fabricante=?, setor_id=?, status=?, 
+            tipo_id=?, tipo_equipamento_id=?, periodicidade_preventiva=?, data_ultima_preventiva=?, 
+            local_estoque_id=?, valor=?, 
+            exige_calibracao=?, periodicidade_calibracao_meses=?, data_ultima_calibracao=?, data_proxima_calibracao=?, certificado_calibracao_atual=? 
+            WHERE id=?`;
+        values = [
+            v_nome, v_modelo, v_patrimonio, v_num_serie, v_fabricante, v_setor_id, v_status, 
+            v_tipo_id, v_tipo_id, v_periodicidade, v_data_preventiva, 
+            v_local_estoque_id, v_valor, v_exige_calibracao, v_periodo_calib, v_data_ult_calib, v_data_prox_calib, v_cert_calib, id
+        ];
     }
 
     db.query(query, values, (err) => {
@@ -1606,6 +1672,204 @@ app.get('/api/equipamentos/:id/prontuario', (req, res) => {
                 });
             });
         });
+    });
+});
+
+// =========================================================================
+// ⚖️ MÓDULO: METROLOGIA, CALIBRAÇÃO E VALIDAÇÃO (RDC 2 / ANVISA)
+// =========================================================================
+
+// 1. Painel Geral de Cronograma Metrológico
+app.get('/api/calibracoes', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const query = `
+        SELECT 
+            e.id AS equipamento_id,
+            e.nome AS equipamento_nome,
+            e.patrimonio,
+            e.modelo,
+            e.fabricante,
+            e.status,
+            s.nome AS setor_nome,
+            t.nome AS tipo_nome,
+            e.periodicidade_calibracao_meses,
+            e.data_ultima_calibracao,
+            e.data_proxima_calibracao,
+            e.certificado_calibracao_atual,
+            DATEDIFF(e.data_proxima_calibracao, CURDATE()) AS dias_restantes,
+            CASE 
+                WHEN e.data_proxima_calibracao IS NULL THEN 'Pendente Primeira Calibração'
+                WHEN DATEDIFF(e.data_proxima_calibracao, CURDATE()) < 0 THEN 'Vencido'
+                WHEN DATEDIFF(e.data_proxima_calibracao, CURDATE()) <= 30 THEN 'Crítico (Até 30 dias)'
+                WHEN DATEDIFF(e.data_proxima_calibracao, CURDATE()) <= 60 THEN 'Atenção (31 a 60 dias)'
+                ELSE 'Em Dia'
+            END AS situacao_metrologica
+        FROM equipamentos e
+        LEFT JOIN setores s ON e.setor_id = s.id
+        LEFT JOIN tipos_equipamentos t ON e.tipo_id = t.id
+        WHERE e.exige_calibracao = 1
+          AND e.status NOT IN ('Baixado/Quebrado')
+        ORDER BY dias_restantes ASC, e.nome ASC
+    `;
+
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error("❌ Erro ao listar calibrações:", err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(results || []);
+    });
+});
+
+// 2. Histórico de Todas as Calibrações de um Equipamento Específico
+app.get('/api/equipamentos/:id/calibracoes', permitirApenas(['admin', 'coordenador', 'tecnico', 'usuario']), (req, res) => {
+    const { id } = req.params;
+    const query = `
+        SELECT 
+            c.*,
+            COALESCE(f.nome_fantasia, f.razao_social, c.orgao_laboratorio, 'Laboratório Externo') AS laboratorio_nome
+        FROM calibracoes c
+        LEFT JOIN fornecedores f ON c.fornecedor_id = f.id
+        WHERE c.equipamento_id = ?
+        ORDER BY c.data_calibracao DESC, c.id DESC
+    `;
+
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results || []);
+    });
+});
+
+// 3. Registrar Laudo / Certificado de Calibração (Transacional)
+app.post('/api/calibracoes', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadCertificado.single('certificado_pdf'), (req, res) => {
+    const {
+        equipamento_id,
+        fornecedor_id,
+        numero_certificado,
+        orgao_laboratorio,
+        data_calibracao,
+        data_validade,
+        resultado_parecer,
+        erro_maximo_encontrado,
+        incerteza_medicao,
+        observacoes,
+        tecnico_responsavel
+    } = req.body;
+
+    if (!equipamento_id || !numero_certificado || !data_calibracao || !data_validade) {
+        return res.status(400).json({ error: "Equipamento, número do certificado, data da calibração e validade são obrigatórios." });
+    }
+
+    const url_certificado = req.file ? `/uploads/certificados/${req.file.filename}` : null;
+    const v_equip_id = Number(equipamento_id);
+    const v_fornecedor_id = fornecedor_id && fornecedor_id !== "" && fornecedor_id !== "null" ? Number(fornecedor_id) : null;
+    const v_tecnico = tecnico_responsavel || 'Técnico Responsável';
+
+    db.beginTransaction((err, conn) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // 1. Grava no histórico detalhado de calibrações
+        const queryInsert = `
+            INSERT INTO calibracoes (
+                equipamento_id, fornecedor_id, numero_certificado, orgao_laboratorio,
+                data_calibracao, data_validade, resultado_parecer, erro_maximo_encontrado,
+                incerteza_medicao, url_certificado_pdf, observacoes, tecnico_responsavel
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        const valuesInsert = [
+            v_equip_id,
+            v_fornecedor_id,
+            numero_certificado.trim(),
+            orgao_laboratorio || null,
+            data_calibracao,
+            data_validade,
+            resultado_parecer || 'Aprovado',
+            erro_maximo_encontrado || null,
+            incerteza_medicao || null,
+            url_certificado,
+            observacoes || null,
+            v_tecnico
+        ];
+
+        conn.query(queryInsert, valuesInsert, (errIns, resIns) => {
+            if (errIns) {
+                return conn.rollback(() => {
+                    conn.release();
+                    res.status(500).json({ error: errIns.message });
+                });
+            }
+
+            // 2. Atualiza os ponteiros diretos do equipamento
+            const queryUpdateEquip = `
+                UPDATE equipamentos 
+                SET data_ultima_calibracao = ?,
+                    data_proxima_calibracao = ?,
+                    certificado_calibracao_atual = ?
+                WHERE id = ?
+            `;
+
+            conn.query(queryUpdateEquip, [data_calibracao, data_validade, numero_certificado.trim(), v_equip_id], (errUp) => {
+                if (errUp) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(500).json({ error: errUp.message });
+                    });
+                }
+
+                // 3. Adiciona evento na linha do tempo patrimonial
+                const descLog = `[CALIBRAÇÃO / VALIDAÇÃO METROLÓGICA] Certificado nº ${numero_certificado.trim()} (${resultado_parecer || 'Aprovado'}). Validade até ${new Date(data_validade).toLocaleDateString('pt-BR')}.`;
+                const queryHist = `
+                    INSERT INTO equipamentos_historico (
+                        equipamento_id, status_anterior, status_novo, descricao_log, tecnico_nome, data_movimentacao
+                    ) VALUES (?, 'Ativo', 'Ativo', ?, ?, NOW())
+                `;
+
+                conn.query(queryHist, [v_equip_id, descLog, v_tecnico], (errHist) => {
+                    if (errHist) {
+                        return conn.rollback(() => {
+                            conn.release();
+                            res.status(500).json({ error: errHist.message });
+                        });
+                    }
+
+                    conn.commit((errCommit) => {
+                        if (errCommit) {
+                            return conn.rollback(() => {
+                                conn.release();
+                                res.status(500).json({ error: errCommit.message });
+                            });
+                        }
+                        conn.release();
+                        res.status(201).json({
+                            message: "Calibração registrada e ativo atualizado com sucesso! ⚖️📋",
+                            id: resIns.insertId,
+                            url_certificado_pdf: url_certificado
+                        });
+                    });
+                });
+            });
+        });
+    });
+});
+
+// 4. Configurar se o Equipamento exige Calibração e a Periodicidade
+app.patch('/api/equipamentos/:id/parametros-calibracao', permitirApenas(['admin', 'coordenador']), (req, res) => {
+    const { id } = req.params;
+    const { exige_calibracao, periodicidade_calibracao_meses } = req.body;
+
+    const v_exige = exige_calibracao ? 1 : 0;
+    const v_periodo = Number(periodicidade_calibracao_meses) || 12;
+
+    const query = `
+        UPDATE equipamentos 
+        SET exige_calibracao = ?,
+            periodicidade_calibracao_meses = ?
+        WHERE id = ?
+    `;
+
+    db.query(query, [v_exige, v_periodo, id], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "Parâmetros metrológicos do ativo atualizados com sucesso!" });
     });
 });
 
@@ -5554,8 +5818,7 @@ app.post('/api/manutencoes-planejadas', permitirApenas(['admin', 'coordenador', 
 
     const v_equip = equipamento_id && equipamento_id !== "" && equipamento_id !== "null" ? Number(equipamento_id) : null;
     const v_setor = setor_id && setor_id !== "" && setor_id !== "null" ? Number(setor_id) : null;
-    const v_chamado_origem = chamado_origem_id && chamado_origem_id !== "" && chamado_origem_id !== "null" ? Number(chamado_origem_id) : null;
-    const v_tecnico = tecnico_id && tecnico_id !== "" && tecnico_id !== "null" ? Number(tecnico_id) : null;
+    const v_chamado_origem = chamado_origem_id && chamado_origem_id !== "" && chamado_origem_id !== "null" ? Number(chamado_origem_id) : null;    const v_tecnico = tecnico_id && tecnico_id !== "" && tecnico_id !== "null" ? Number(tecnico_id) : null;
     const v_fornecedor = fornecedor_id && fornecedor_id !== "" && fornecedor_id !== "null" ? Number(fornecedor_id) : null;
 
     const query = `
@@ -7155,19 +7418,22 @@ app.get('/api/timeline-operacional', permitirApenas(['admin', 'coordenador', 'te
 });
 
 // =========================================================================
-// 🔔 ALERTA DIÁRIO DE PREVENTIVAS / PMOC VIA TELEGRAM (Às 08:00)
+// 🔔 ALERTA DIÁRIO DE PREVENTIVAS (PMOC) & CALIBRAÇÕES (ANVISA) VIA TELEGRAM (Às 08:00)
 // =========================================================================
-let ultimoEnvioPreventivas = null;
+let ultimoEnvioCronMatinal = null;
 
 setInterval(() => {
     const agora = new Date();
     const horaAtual = agora.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
-    const dataAtual = agora.toISOString().split('T')[0];
+    const dataAtual = agora.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }); // YYYY-MM-DD no fuso correto
 
-    // Dispara uma vez por dia, entre 08:00 e 08:05
-    if (horaAtual >= '08:00:00' && horaAtual <= '08:05:00' && ultimoEnvioPreventivas !== dataAtual) {
-        ultimoEnvioPreventivas = dataAtual;
+    // Dispara uma vez por dia, na janela entre 08:00 e 08:05
+    if (horaAtual >= '08:00:00' && horaAtual <= '08:05:00' && ultimoEnvioCronMatinal !== dataAtual) {
+        ultimoEnvioCronMatinal = dataAtual;
 
+        // -------------------------------------------------------------
+        // 1. VERIFICAÇÃO DE PREVENTIVAS / PMOC (Restam <= 15 dias ou atrasadas)
+        // -------------------------------------------------------------
         const sqlPreventivasCriticas = `
             SELECT 
                 e.nome, 
@@ -7183,11 +7449,13 @@ setInterval(() => {
             LIMIT 15;
         `;
 
-        db.query(sqlPreventivasCriticas, (err, rows) => {
-            if (!err && rows && rows.length > 0) {
+        db.query(sqlPreventivasCriticas, (errPrev, rowsPrev) => {
+            if (errPrev) {
+                console.error("⚠️ Erro ao consultar preventivas no alerta matinal:", errPrev.message);
+            } else if (rowsPrev && rowsPrev.length > 0) {
                 let msg = `📅 <b>RELATÓRIO DIÁRIO DE PREVENTIVAS / PMOC</b>\n\n`;
                 
-                rows.forEach(r => {
+                rowsPrev.forEach(r => {
                     const statusIcon = r.dias_restantes < 0 
                         ? `🚨 <b>ATRASADA</b> (${Math.abs(r.dias_restantes)}d)` 
                         : r.dias_restantes === 0 
@@ -7200,6 +7468,62 @@ setInterval(() => {
 
                 msg += `<i>Verifique o cronograma completo no sistema SEC-H.</i>`;
                 enviarTelegram(msg);
+            }
+        });
+
+        // -------------------------------------------------------------
+        // 2. VERIFICAÇÃO DE CALIBRAÇÕES / METROLOGIA (Restam <= 30 dias ou vencidas)
+        // -------------------------------------------------------------
+        const sqlCalibracoesCriticas = `
+            SELECT 
+                e.nome, 
+                e.patrimonio, 
+                s.nome AS setor_nome,
+                e.data_proxima_calibracao,
+                e.certificado_calibracao_atual,
+                DATEDIFF(e.data_proxima_calibracao, CURDATE()) AS dias_restantes
+            FROM equipamentos e
+            LEFT JOIN setores s ON e.setor_id = s.id
+            WHERE e.exige_calibracao = 1
+              AND e.status NOT IN ('Baixado/Quebrado')
+              AND (
+                  e.data_proxima_calibracao IS NULL 
+                  OR DATEDIFF(e.data_proxima_calibracao, CURDATE()) <= 30
+              )
+            ORDER BY 
+                CASE WHEN e.data_proxima_calibracao IS NULL THEN 0 ELSE 1 END ASC,
+                dias_restantes ASC
+            LIMIT 15;
+        `;
+
+        db.query(sqlCalibracoesCriticas, (errCal, rowsCal) => {
+            if (errCal) {
+                console.error("⚠️ Erro ao consultar calibrações no alerta matinal:", errCal.message);
+            } else if (rowsCal && rowsCal.length > 0) {
+                let msgCal = `⚖️ <b>ALERTA DE METROLOGIA & CALIBRAÇÃO (ANVISA)</b>\n\n`;
+
+                rowsCal.forEach(c => {
+                    let statusIcon = '';
+                    if (!c.data_proxima_calibracao) {
+                        statusIcon = `⚠️ <b>PENDENTE DE 1ª CALIBRAÇÃO</b>`;
+                    } else if (c.dias_restantes < 0) {
+                        statusIcon = `🚨 <b>VENCIDA</b> (${Math.abs(c.dias_restantes)}d atrás)`;
+                    } else if (c.dias_restantes === 0) {
+                        statusIcon = `⚡ <b>VENCE HOJE</b>`;
+                    } else {
+                        statusIcon = `⏳ Vence em ${c.dias_restantes} dias`;
+                    }
+
+                    msgCal += `• <b>${c.nome}</b> (PAT: ${c.patrimonio || 'S/P'})\n`;
+                    msgCal += `  📍 Setor: ${c.setor_nome || 'Geral'} | Situação: ${statusIcon}\n`;
+                    if (c.certificado_calibracao_atual) {
+                        msgCal += `  📄 Certificado Atual: <code>${c.certificado_calibracao_atual}</code>\n`;
+                    }
+                    msgCal += `\n`;
+                });
+
+                msgCal += `<i>Mantenha os laudos e certificados RBC arquivados no SEC-H.</i>`;
+                enviarTelegram(msgCal);
             }
         });
     }

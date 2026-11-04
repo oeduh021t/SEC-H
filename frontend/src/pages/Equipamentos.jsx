@@ -33,7 +33,14 @@ const Equipamentos = () => {
 
   const estadoInicial = {
     nome: '', modelo: '', patrimonio: '', num_serie: '', fabricante: '',
-    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', periodicidade_preventiva: 0, status: 'Ativo'
+    setor_id: '', tipo_id: '', local_estoque_id: '', valor: '', data_ultima_preventiva: '', 
+    periodicidade_preventiva: 0, status: 'Ativo',
+    // ⚖️ Campos Metrológicos
+    exige_calibracao: 0,
+    periodicidade_calibracao_meses: 12,
+    certificado_calibracao_atual: '',
+    data_ultima_calibracao: '',
+    data_proxima_calibracao: ''
   }
   const [form, setForm] = useState(estadoInicial)
 
@@ -110,7 +117,12 @@ const Equipamentos = () => {
       periodicidade_preventiva: e.periodicidade_preventiva || 0,
       tipo_id: e.tipo_id || '',
       local_estoque_id: e.local_estoque_id || '',
-      valor: e.valor !== undefined && e.valor !== null ? e.valor : ''
+      valor: e.valor !== undefined && e.valor !== null ? e.valor : '',
+      exige_calibracao: e.exige_calibracao === 1 || e.exige_calibracao === true ? 1 : 0,
+      periodicidade_calibracao_meses: e.periodicidade_calibracao_meses || 12,
+      certificado_calibracao_atual: e.certificado_calibracao_atual || '',
+      data_ultima_calibracao: e.data_ultima_calibracao ? e.data_ultima_calibracao.split('T')[0] : '',
+      data_proxima_calibracao: e.data_proxima_calibracao ? e.data_proxima_calibracao.split('T')[0] : ''
     })
     setFotoEquipamento(null)
     setModalAberta(true)
@@ -142,6 +154,13 @@ const Equipamentos = () => {
     formData.append('periodicidade_preventiva', form.periodicidade_preventiva || 0)
     formData.append('local_estoque_id', form.local_estoque_id || '')
     formData.append('valor', form.valor || 0)
+    
+    // ⚖️ Campos Metrológicos
+    formData.append('exige_calibracao', form.exige_calibracao ? 1 : 0)
+    formData.append('periodicidade_calibracao_meses', form.periodicidade_calibracao_meses || 12)
+    formData.append('certificado_calibracao_atual', form.certificado_calibracao_atual || '')
+    formData.append('data_ultima_calibracao', form.data_ultima_calibracao || '')
+    formData.append('data_proxima_calibracao', form.data_proxima_calibracao || '')
     
     if (fotoEquipamento) {
       formData.append('foto_equipamento', fotoEquipamento)
@@ -381,7 +400,14 @@ const Equipamentos = () => {
                       )}
                       
                       <div>
-                        <div className="font-black text-slate-700 uppercase tracking-tight hover:text-blue-600 transition-colors">{e.nome}</div>
+                        <div className="font-black text-slate-700 uppercase tracking-tight hover:text-blue-600 transition-colors flex items-center gap-1.5">
+                          {e.nome}
+                          {(e.exige_calibracao === 1 || e.exige_calibracao === true) && (
+                            <span className="text-[9px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded" title="Equipamento com Calibração Obrigatória (ANVISA)">
+                              ⚖️ Metrologia
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-blue-600 font-bold uppercase tracking-wide mt-0.5">{e.setor_nome || 'Setor não definido'}</div>
                       </div>
 
@@ -409,6 +435,21 @@ const Equipamentos = () => {
                             <span className="text-slate-400 block text-[9px] uppercase font-bold">Última Preventiva:</span>
                             <span className="font-mono text-slate-200">{e.data_ultima_preventiva ? new Date(e.data_ultima_preventiva).toLocaleDateString('pt-BR') : 'Pendente'}</span>
                           </div>
+
+                          {(e.exige_calibracao === 1 || e.exige_calibracao === true) && (
+                            <div className="col-span-2 pt-1.5 border-t border-slate-800 flex justify-between items-center">
+                              <div>
+                                <span className="text-purple-400 block text-[9px] uppercase font-bold">Calibração:</span>
+                                <span className="font-mono text-[10px] text-slate-300">{e.certificado_calibracao_atual ? `Cert: ${e.certificado_calibracao_atual}` : 'Pendente Laudo'}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-slate-400 block text-[9px] uppercase font-bold">Validade:</span>
+                                <span className="font-mono text-[10px] text-amber-300 font-bold">
+                                  {e.data_proxima_calibracao ? new Date(e.data_proxima_calibracao).toLocaleDateString('pt-BR') : 'Sem data'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="absolute left-6 top-full w-0 h-0 border-x-8 border-x-transparent border-t-8 border-t-slate-900"></div>
@@ -495,14 +536,14 @@ const Equipamentos = () => {
 
       {/* MODAL: CADASTRO / EDIÇÃO */}
       {modalAberta && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150 my-8">
             <div className={`p-5 text-white font-black uppercase text-xs tracking-widest flex justify-between items-center ${editandoId ? 'bg-amber-500' : 'bg-blue-600'}`}>
               <span>{editandoId ? '✏️ Editar Equipamento' : '🆕 Novo Equipamento'}</span>
               <button onClick={() => setModalAberta(false)} className="hover:scale-110 transition-transform">✕</button>
             </div>
 
-            <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark">
+            <form onSubmit={salvar} className="p-8 grid grid-cols-2 gap-4 text-dark max-h-[80vh] overflow-y-auto">
               <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Nome do Equipamento</label>
                 <input type="text" required value={form.nome} className="w-full p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-blue-400 text-xs font-bold bg-white text-black" onChange={e => setForm({...form, nome: e.target.value})} />
@@ -580,9 +621,110 @@ const Equipamentos = () => {
                 <input type="number" min="0" value={form.periodicidade_preventiva || 0} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black font-bold" onChange={e => setForm({...form, periodicidade_preventiva: parseInt(e.target.value) || 0})} />
               </div>
 
-              <div>
+              <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Data da Última Preventiva</label>
                 <input type="date" value={form.data_ultima_preventiva || ''} className="w-full p-3 border-2 border-slate-100 rounded-xl text-xs outline-none bg-white text-black font-bold" onChange={e => setForm({...form, data_ultima_preventiva: e.target.value})} />
+              </div>
+
+              {/* ⚖️ BLOCO DE CONTROLE METROLÓGICO (ANVISA / RDC 2) */}
+              <div className="col-span-2 p-4 border-2 border-purple-100 rounded-2xl bg-purple-50/40 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-black text-xs text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
+                      ⚖️ Metrologia & Calibração Obrigatória
+                    </h4>
+                    <p className="text-[10px] text-purple-700 font-semibold mt-0.5">
+                      Ative para Autoclaves, Monitores, Bisturis e ativos biomédicos regulados.
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.exige_calibracao === 1 || form.exige_calibracao === true}
+                      onChange={(e) => setForm({ ...form, exige_calibracao: e.target.checked ? 1 : 0 })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+
+                {(form.exige_calibracao === 1 || form.exige_calibracao === true) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-purple-200/60">
+                    <div>
+                      <label className="text-[10px] font-black text-purple-800 uppercase tracking-widest block mb-1">
+                        Ciclo Metrológico (Meses)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={form.periodicidade_calibracao_meses || 12}
+                        onChange={(e) => {
+                          const meses = parseInt(e.target.value) || 12;
+                          let dataProx = form.data_proxima_calibracao;
+                          if (form.data_ultima_calibracao) {
+                            const d = new Date(form.data_ultima_calibracao);
+                            d.setMonth(d.getMonth() + meses);
+                            dataProx = d.toISOString().split('T')[0];
+                          }
+                          setForm({ ...form, periodicidade_calibracao_meses: meses, data_proxima_calibracao: dataProx });
+                        }}
+                        className="w-full p-2.5 border-2 border-purple-100 rounded-xl text-xs font-bold outline-none bg-white text-black"
+                        placeholder="Ex: 12"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-purple-800 uppercase tracking-widest block mb-1">
+                        Nº Certificado Atual
+                      </label>
+                      <input
+                        type="text"
+                        value={form.certificado_calibracao_atual || ''}
+                        onChange={(e) => setForm({ ...form, certificado_calibracao_atual: e.target.value })}
+                        className="w-full p-2.5 border-2 border-purple-100 rounded-xl text-xs font-mono font-bold outline-none bg-white text-black"
+                        placeholder="Ex: CERT-2026/088"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-purple-800 uppercase tracking-widest block mb-1">
+                        Última Calibração / Validação
+                      </label>
+                      <input
+                        type="date"
+                        value={form.data_ultima_calibracao || ''}
+                        onChange={(e) => {
+                          const dataUlt = e.target.value;
+                          let dataProx = '';
+                          if (dataUlt) {
+                            const d = new Date(dataUlt);
+                            const meses = Number(form.periodicidade_calibracao_meses || 12);
+                            d.setMonth(d.getMonth() + meses);
+                            dataProx = d.toISOString().split('T')[0];
+                          }
+                          setForm({ 
+                            ...form, 
+                            data_ultima_calibracao: dataUlt, 
+                            data_proxima_calibracao: dataProx 
+                          });
+                        }}
+                        className="w-full p-2.5 border-2 border-purple-100 rounded-xl text-xs font-bold outline-none bg-white text-black"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-purple-800 uppercase tracking-widest block mb-1">
+                        Próxima Calibração (Validade)
+                      </label>
+                      <input
+                        type="date"
+                        value={form.data_proxima_calibracao || ''}
+                        onChange={(e) => setForm({ ...form, data_proxima_calibracao: e.target.value })}
+                        className="w-full p-2.5 border-2 border-purple-100 rounded-xl text-xs font-bold outline-none bg-white text-black"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="col-span-2 bg-slate-50 p-4 border-2 border-dashed border-slate-200 rounded-2xl">
