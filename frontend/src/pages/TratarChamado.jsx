@@ -65,6 +65,9 @@ export function TratarChamado() {
   const [descricaoSolucao, setDescricaoSolucao] = useState("");
   const [tecnicoId, setTecnicoId] = useState("");
 
+  // 🏥 Liberação de leito/sala bloqueada
+  const [liberarLeitoAssistencial, setLiberarLeitoAssistencial] = useState(true);
+
   // 📷 Foto de Conclusão e Câmera Direta no Navegador
   const [fotoConclusao, setFotoConclusao] = useState(null);
   const [modalCameraAberta, setModalCameraAberta] = useState(false);
@@ -104,7 +107,6 @@ export function TratarChamado() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [modalCameraAberta, visualizadorAnexo, modalSaidaExterna, modalRetornoExterno, modalSolicitarCompra, exibirPainelTroca]);
 
-  // Limpeza de hardware da câmera ao desmontar
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -122,11 +124,19 @@ export function TratarChamado() {
     setVisualizadorAnexo(null);
   };
 
+  // 💰 Cálculo Total da OS corrigido considerando o orçamento aprovado
   const totalPecas = (Array.isArray(chamado?.itens_vinculados) ? chamado.itens_vinculados : []).reduce(
     (acc, item) => acc + Number(item.quantidade || 0) * Number(item.valor_unitario || 0),
     0
   );
-  const custoTotalOS = (Number(custoServico) || 0) + (Number(chamado?.valor_servico_externo) || 0) + totalPecas;
+  
+  const custoBaseServico = Math.max(
+    Number(custoServico) || 0,
+    Number(chamado?.custo_servico) || 0,
+    Number(chamado?.valor_servico_externo) || 0
+  );
+
+  const custoTotalOS = custoBaseServico + totalPecas;
 
   useEffect(() => {
     if (!loading && chamado && chamado.status !== "Concluído") {
@@ -171,23 +181,38 @@ export function TratarChamado() {
           }
         }
 
+        // Detecta se possui serviço externo ou orçamento vinculado aprovado
+        const possuiServicoExterno = Boolean(
+          resChamado.tipo_atendimento === "Externo" ||
+          resChamado.fornecedor_id ||
+          resChamado.empresa_terceirizada ||
+          Number(resChamado.custo_servico) > 0 ||
+          Number(resChamado.valor_servico_externo) > 0
+        );
+
+        const valorServicoInicial = Number(resChamado.custo_servico || resChamado.valor_servico_externo || 0);
+
         if (rascunho && resChamado.status !== "Concluído") {
-          setTipoAtendimento(rascunho.tipoAtendimento || resChamado.tipo_atendimento || "Interno");
+          setTipoAtendimento(rascunho.tipoAtendimento || (possuiServicoExterno ? "Externo" : "Interno"));
           setStatus(rascunho.status || resChamado.status || "Em Atendimento");
           setFornecedorId(rascunho.fornecedorId || resChamado.fornecedor_id || "");
           setNfReferencia(rascunho.nfReferencia || resChamado.nf_referencia || "");
-          setCustoServico(rascunho.custoServico !== undefined ? rascunho.custoServico : resChamado.custo_servico || 0);
+          setCustoServico(
+            rascunho.custoServico !== undefined && Number(rascunho.custoServico) > 0
+              ? rascunho.custoServico
+              : valorServicoInicial
+          );
           setDescricaoSolucao(rascunho.descricaoSolucao !== undefined ? rascunho.descricaoSolucao : resChamado.descricao_solucao || "");
           setTecnicoId(rascunho.tecnicoId || resChamado.tecnico_id || "");
           if (rascunho.descricaoSolucao && rascunho.descricaoSolucao.trim() !== "") {
             setTemRascunhoRecuperado(true);
           }
         } else {
-          setTipoAtendimento(resChamado.tipo_atendimento || "Interno");
+          setTipoAtendimento(possuiServicoExterno ? "Externo" : resChamado.tipo_atendimento || "Interno");
           setStatus(resChamado.status || "Em Atendimento");
           setFornecedorId(resChamado.fornecedor_id || "");
           setNfReferencia(resChamado.nf_referencia || "");
-          setCustoServico(resChamado.custo_servico || 0);
+          setCustoServico(valorServicoInicial);
           setDescricaoSolucao(resChamado.descricao_solucao || "");
           setTecnicoId(resChamado.tecnico_id || "");
         }
@@ -213,6 +238,7 @@ export function TratarChamado() {
     setDescricaoSolucao(chamado?.descricao_solucao || "");
     setStatus(chamado?.status || "Em Atendimento");
     setTipoAtendimento(chamado?.tipo_atendimento || "Interno");
+    setCustoServico(Number(chamado?.custo_servico || chamado?.valor_servico_externo || 0));
     setTemRascunhoRecuperado(false);
   };
 
@@ -237,7 +263,6 @@ export function TratarChamado() {
     setDescricaoSolucao((prev) => (prev === "" ? texto : `${prev} ${texto}`));
   };
 
-  // 📷 MÉTODOS DE CONTROLE DA CÂMERA EMBUTIDA
   const abrirCameraEmbutida = async () => {
     setCarregandoCamera(true);
     setModalCameraAberta(true);
@@ -262,7 +287,7 @@ export function TratarChamado() {
       }
     } catch (err) {
       console.error("Erro ao iniciar a câmera nativa:", err);
-      alert("Não foi possível acessar a câmera. Verifique se o navegador possui permissão de acesso à câmera.");
+      alert("Não foi possível acessar a câmera. Verifique as permissões do navegador.");
       fecharCameraEmbutida();
     } finally {
       setCarregandoCamera(false);
@@ -699,24 +724,48 @@ export function TratarChamado() {
     let executorFinal = "";
     if (tipoAtendimento === "Externo") {
       const fornecedorSelecionado = fornecedores.find((f) => Number(f.id) === Number(fornecedorId));
-      executorFinal = fornecedorSelecionado ? `Terceirizado (${fornecedorSelecionado.nome_fantasia})` : "Fornecedor Externo";
+      executorFinal = fornecedorSelecionado 
+        ? `Terceirizado (${fornecedorSelecionado.nome_fantasia})` 
+        : (chamado?.empresa_terceirizada ? `Terceirizado (${chamado.empresa_terceirizada})` : "Fornecedor Externo");
     } else {
       const tecnicoSelecionado = tecnicos.find((t) => Number(t.id) === Number(tecnicoId));
       executorFinal = tecnicoSelecionado ? tecnicoSelecionado.nome : autorNome;
     }
 
+    // 🏥 Se o leito estiver bloqueado e for marcada a liberação, carimba o histórico
+    let relatoFinal = descricaoSolucao;
+    const ehCritico = ["Leito/Sala Bloqueado", "Risco Iminente à Vida"].includes(chamado?.impacto_assistencial);
+    if (ehCritico && liberarLeitoAssistencial && (status === "Concluído" || status === "Em Atendimento")) {
+      const tagLiberacao = `\n\n[🏥 LEITO/SALA LIBERADO PARA ASSISTÊNCIA]: ${chamado?.leito_sala_afetada || obterSetorFormatado(chamado)} restabelecido para uso clínico seguro.`;
+      if (!relatoFinal.includes("[🏥 LEITO/SALA LIBERADO PARA ASSISTÊNCIA]")) {
+        relatoFinal += tagLiberacao;
+      }
+    }
+
+    // Preserva o custo do serviço/orçamento mesmo se o formulário for enviado em Equipe Interna
+    const custoServicoDefinitivo = Math.max(
+      Number(custoServico) || 0,
+      Number(chamado?.custo_servico) || 0,
+      Number(chamado?.valor_servico_externo) || 0
+    );
+
     const formData = new FormData();
     formData.append("status", status);
     formData.append("tipo_atendimento", tipoAtendimento);
-    formData.append("descricao_solucao", descricaoSolucao);
-    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? fornecedorId || "" : "");
-    formData.append("nf_referencia", tipoAtendimento === "Externo" ? nfReferencia || "" : "");
-    formData.append("custo_servico", tipoAtendimento === "Externo" ? Number(custoServico) || 0 : 0);
+    formData.append("descricao_solucao", relatoFinal);
+    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? fornecedorId || chamado?.fornecedor_id || "" : (chamado?.fornecedor_id || ""));
+    formData.append("nf_referencia", tipoAtendimento === "Externo" ? nfReferencia || "" : (chamado?.nf_referencia || ""));
+    formData.append("custo_servico", custoServicoDefinitivo);
     formData.append("custo_pecas", totalPecas);
     formData.append("tecnico_id", tipoAtendimento === "Interno" ? tecnicoId || usuarioLogado?.id || "" : "");
     formData.append("tecnico_responsavel", executorFinal);
     formData.append("registrado_por_nome", autorNome);
     formData.append("registrado_por_id", usuarioLogado?.id || "");
+
+    // Atualiza o impacto assistencial caso tenha sido liberado
+    if (ehCritico && liberarLeitoAssistencial && status === "Concluído") {
+      formData.append("impacto_assistencial", "Sem Impacto Direto");
+    }
 
     if (fotoConclusao) {
       formData.append("foto_conclusao", fotoConclusao);
@@ -820,6 +869,7 @@ export function TratarChamado() {
 
   const isConcluido = chamado?.status === "Concluído";
   const isEmExterna = chamado?.status === "Aguardando Externa" || Number(chamado?.em_manutencao_externa) === 1;
+  const ehImpactoCritico = ["Leito/Sala Bloqueado", "Risco Iminente à Vida"].includes(chamado?.impacto_assistencial);
 
   return (
     <div className="p-3 sm:p-6 bg-slate-50 min-h-screen font-sans text-slate-800">
@@ -905,6 +955,26 @@ export function TratarChamado() {
           </button>
         </div>
       </div>
+
+      {/* 🚨 ALERTA CRÍTICO: IMPACTO ASSISTENCIAL / LEITO PARADO */}
+      {ehImpactoCritico && !isConcluido && (
+        <div className="mb-6 bg-red-600 text-white p-4 sm:p-5 rounded-3xl shadow-lg shadow-red-200/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl animate-bounce">🚨</span>
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest bg-white/20 px-2 py-0.5 rounded-full inline-block mb-0.5">
+                Alerta de Interrupção Assistencial • SLA Crítico (1h)
+              </span>
+              <h2 className="text-sm sm:text-base font-black uppercase">
+                {chamado?.impacto_assistencial}: {chamado?.leito_sala_afetada || obterSetorFormatado(chamado)}
+              </h2>
+            </div>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-wider bg-white text-red-600 px-3 py-1.5 rounded-xl self-start sm:self-auto">
+            Prioridade Máxima do Plantão
+          </span>
+        </div>
+      )}
 
       {/* ⚠️ ALERTA DE MANUTENÇÃO EXTERNA */}
       {isEmExterna && (
@@ -1093,7 +1163,6 @@ export function TratarChamado() {
               </div>
             </div>
 
-            {/* FORMULÁRIO DE INSUMOS */}
             {isGestao && !isConcluido && (
               <form onSubmit={handleAdicionarPeca} className="grid grid-cols-12 gap-2 items-center">
                 <div className="col-span-8">
@@ -1292,7 +1361,9 @@ export function TratarChamado() {
                     value={fornecedorId}
                     onChange={(e) => setFornecedorId(e.target.value)}
                   >
-                    <option value="">Selecione o fornecedor...</option>
+                    <option value="">
+                      {chamado?.empresa_terceirizada ? `Prestador Aprovado: ${chamado.empresa_terceirizada}` : "Selecione o fornecedor..."}
+                    </option>
                     {fornecedores.map((f) => (
                       <option key={f.id} value={f.id}>
                         {f.nome_fantasia}
@@ -1316,7 +1387,7 @@ export function TratarChamado() {
                       type="number"
                       step="0.01"
                       placeholder="R$ Serviço"
-                      className="w-1/2 p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs font-mono outline-none"
+                      className="w-1/2 p-2.5 border-2 border-slate-100 bg-white rounded-xl text-xs font-mono font-bold text-emerald-600 outline-none"
                       value={custoServico}
                       onChange={(e) => setCustoServico(e.target.value)}
                     />
@@ -1363,6 +1434,29 @@ export function TratarChamado() {
               )}
             </div>
 
+            {/* 🏥 CHECKBOX DE DESBLOQUEIO DE LEITO/SALA ASSISTENCIAL */}
+            {ehImpactoCritico && !isConcluido && (
+              <div className="bg-red-50 border-2 border-red-200 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🏥</span>
+                  <div>
+                    <label className="text-xs font-black text-red-900 uppercase block cursor-pointer select-none">
+                      Liberar e Desbloquear Leito / Sala Cirúrgica
+                    </label>
+                    <span className="text-[10px] text-red-600 font-semibold block">
+                      Ao salvar com esta opção marcada, o leito/sala é oficialmente liberado para a assistência no plantão.
+                    </span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={liberarLeitoAssistencial}
+                  onChange={(e) => setLiberarLeitoAssistencial(e.target.checked)}
+                  className="w-5 h-5 rounded text-red-600 focus:ring-0 cursor-pointer shrink-0"
+                />
+              </div>
+            )}
+
             {/* TEXTOS RÁPIDOS */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase mb-1.5 block tracking-wider">Inserções Rápidas (1 clique):</label>
@@ -1390,14 +1484,13 @@ export function TratarChamado() {
               />
             </div>
 
-            {/* 📷 EVIDÊNCIA DE CONCLUSÃO (CÂMERA EMBUTIDA OU GALERIA) */}
+            {/* 📷 EVIDÊNCIA DE CONCLUSÃO */}
             {!isConcluido && (
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-2">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
                   📷 Evidência Fotográfica do Atendimento / Conclusão (Foto do "Depois")
                 </label>
 
-                {/* Input oculto apenas para carregar fotos prontas da galeria */}
                 <input
                   ref={fileInputGaleriaRef}
                   type="file"
@@ -1473,7 +1566,9 @@ export function TratarChamado() {
                 <div key={i} className="flex gap-3 text-xs">
                   <div
                     className={`w-2 rounded-full shrink-0 mt-1 ${
-                      h.texto_historico?.includes("PEÇA DISPONÍVEL")
+                      h.texto_historico?.includes("LEITO/SALA LIBERADO")
+                        ? "bg-emerald-500 ring-2 ring-emerald-300"
+                        : h.texto_historico?.includes("PEÇA DISPONÍVEL")
                         ? "bg-emerald-500 animate-pulse"
                         : h.texto_historico?.includes("COMPRA SOLICITADA")
                         ? "bg-blue-600"
@@ -1535,7 +1630,7 @@ export function TratarChamado() {
         </div>
       </div>
 
-      {/* 📷 MODAL COM A CÂMERA INTEGRADA DIRETO NO NAVEGADOR (SEM SAIR DA TELA) */}
+      {/* 📷 MODAL COM A CÂMERA INTEGRADA DIRETO NO NAVEGADOR */}
       {modalCameraAberta && (
         <div className="fixed inset-0 bg-slate-950/95 z-[120] flex flex-col justify-between p-4 animate-in fade-in duration-150">
           <div className="flex justify-between items-center text-white pb-2 border-b border-slate-800">
@@ -1662,7 +1757,7 @@ export function TratarChamado() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor Unit. Est. (R\$)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Valor Unit. Est. (R$)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1880,7 +1975,7 @@ export function TratarChamado() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Custo do Reparo (R\$)</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">Custo do Reparo (R$)</label>
                   <input
                     type="number"
                     step="0.01"

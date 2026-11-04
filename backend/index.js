@@ -753,6 +753,20 @@ app.get('/api/chamados', permitirApenas(['admin', 'coordenador', 'tecnico', 'usu
             le.nome as escopo_nome,
             u.nome as solicitante_nome,
 
+            -- 💰 Custo do serviço com prioridade no orçamento aprovado
+            COALESCE(
+                (
+                    SELECT CAST(SUM(oi.valor_unitario) AS DECIMAL(10,2))
+                    FROM orcamentos_externos_itens oi
+                    INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
+                    WHERE oi.chamado_id = c.id 
+                      AND (o.status = 'Aprovado Financeiro' OR o.status LIKE 'Aprovad%')
+                ),
+                NULLIF(CAST(c.valor_servico_externo AS DECIMAL(10,2)), 0),
+                NULLIF(CAST(c.custo_servico AS DECIMAL(10,2)), 0),
+                0.00
+            ) AS custo_servico,
+
             -- ⏱️ Meta SLA com base em Impacto Assistencial e Prioridade
             CASE 
                 WHEN c.impacto_assistencial IN ('Risco Iminente à Vida', 'Leito/Sala Bloqueado') THEN 1
@@ -847,23 +861,25 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                     FROM orcamentos_externos_itens oi
                     INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
                     INNER JOIN fornecedores fo ON o.fornecedor_id = fo.id
-                    WHERE oi.chamado_id = c.id AND o.status = 'Aprovado Financeiro'
+                    WHERE oi.chamado_id = c.id 
+                      AND (o.status = 'Aprovado Financeiro' OR o.status LIKE 'Aprovad%')
                     ORDER BY o.id DESC LIMIT 1
                 )
             ) as empresa_terceirizada,
 
             u.nome as solicitante_nome,
 
-            -- 💰 Custo do serviço
+            -- 💰 Custo do serviço com prioridade no orçamento aprovado
             COALESCE(
-                NULLIF(c.custo_servico, 0),
-                NULLIF(c.valor_servico_externo, 0),
                 (
-                    SELECT SUM(oi.valor_unitario)
+                    SELECT CAST(SUM(oi.valor_unitario) AS DECIMAL(10,2))
                     FROM orcamentos_externos_itens oi
                     INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
-                    WHERE oi.chamado_id = c.id AND o.status = 'Aprovado Financeiro'
+                    WHERE oi.chamado_id = c.id 
+                      AND (o.status = 'Aprovado Financeiro' OR o.status LIKE 'Aprovad%')
                 ),
+                NULLIF(CAST(c.valor_servico_externo AS DECIMAL(10,2)), 0),
+                NULLIF(CAST(c.custo_servico AS DECIMAL(10,2)), 0),
                 0.00
             ) AS custo_servico,
 
@@ -872,7 +888,8 @@ app.get('/api/chamados/:id', permitirApenas(['admin', 'coordenador', 'tecnico', 
                 SELECT o.codigo_orcamento
                 FROM orcamentos_externos_itens oi
                 INNER JOIN orcamentos_externos o ON oi.orcamento_id = o.id
-                WHERE oi.chamado_id = c.id AND o.status = 'Aprovado Financeiro'
+                WHERE oi.chamado_id = c.id 
+                  AND (o.status = 'Aprovado Financeiro' OR o.status LIKE 'Aprovad%')
                 ORDER BY o.id DESC LIMIT 1
             ) AS orcamento_codigo,
 
