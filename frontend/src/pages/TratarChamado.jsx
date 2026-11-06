@@ -6,6 +6,24 @@ const obterSetorFormatado = (chamado) => {
   return chamado.setor_completo || chamado.setor_nome || "Geral";
 };
 
+// Funções utilitárias para busca inteligente no estoque (sem quebras de caracteres/acentos)
+const normalizarTexto = (str) => {
+  return (str || "")
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+};
+
+const filtroTokens = (textoAlvo, termoBusca) => {
+  const buscaLimpa = normalizarTexto(termoBusca);
+  if (!buscaLimpa) return true;
+  const tokens = buscaLimpa.split(/\s+/).filter(Boolean);
+  const alvoLimpo = normalizarTexto(textoAlvo);
+  return tokens.every((token) => alvoLimpo.includes(token));
+};
+
 export function TratarChamado() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -81,8 +99,12 @@ export function TratarChamado() {
   const [enviandoDocumento, setEnviandoDocumento] = useState(false);
   const inputDocumentoRef = useRef(null);
 
+  // 📦 Estados das Peças & Autocomplete Inteligente
   const [pecaSelecionada, setPecaSelecionada] = useState("");
   const [qtdPeca, setQtdPeca] = useState(1);
+  const [termoBuscaInsumo, setTermoBuscaInsumo] = useState("");
+  const [dropdownInsumoAberto, setDropdownInsumoAberto] = useState(false);
+  const refContainerInsumo = useRef(null);
 
   const [fornecedorId, setFornecedorId] = useState("");
   const [nfReferencia, setNfReferencia] = useState("");
@@ -115,6 +137,17 @@ export function TratarChamado() {
     };
   }, []);
 
+  // Fechar o dropdown de busca de insumos ao clicar fora
+  useEffect(() => {
+    const handleClickFora = (e) => {
+      if (refContainerInsumo.current && !refContainerInsumo.current.contains(e.target)) {
+        setDropdownInsumoAberto(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickFora);
+    return () => document.removeEventListener("mousedown", handleClickFora);
+  }, []);
+
   const abrirVisualizadorInterno = (url, titulo = "Visualização de Documento", tipo = "imagem") => {
     window.history.pushState({ visualizando: true }, "");
     setVisualizadorAnexo({ url, titulo, tipo });
@@ -124,12 +157,12 @@ export function TratarChamado() {
     setVisualizadorAnexo(null);
   };
 
-  // 💰 Cálculo Total da OS corrigido considerando o orçamento aprovado
+  // 💰 Cálculo Total da OS
   const totalPecas = (Array.isArray(chamado?.itens_vinculados) ? chamado.itens_vinculados : []).reduce(
     (acc, item) => acc + Number(item.quantidade || 0) * Number(item.valor_unitario || 0),
     0
   );
-  
+
   const custoBaseServico = Math.max(
     Number(custoServico) || 0,
     Number(chamado?.custo_servico) || 0,
@@ -181,13 +214,12 @@ export function TratarChamado() {
           }
         }
 
-        // Detecta se possui serviço externo ou orçamento vinculado aprovado
         const possuiServicoExterno = Boolean(
           resChamado.tipo_atendimento === "Externo" ||
-          resChamado.fornecedor_id ||
-          resChamado.empresa_terceirizada ||
-          Number(resChamado.custo_servico) > 0 ||
-          Number(resChamado.valor_servico_externo) > 0
+            resChamado.fornecedor_id ||
+            resChamado.empresa_terceirizada ||
+            Number(resChamado.custo_servico) > 0 ||
+            Number(resChamado.valor_servico_externo) > 0
         );
 
         const valorServicoInicial = Number(resChamado.custo_servico || resChamado.valor_servico_externo || 0);
@@ -545,6 +577,7 @@ export function TratarChamado() {
         alert("Peça debitada do estoque com sucesso! 📦");
         carregarTodosOsDados();
         setPecaSelecionada("");
+        setTermoBuscaInsumo("");
         setQtdPeca(1);
       } else {
         const erro = await res.json().catch(() => ({}));
@@ -724,15 +757,16 @@ export function TratarChamado() {
     let executorFinal = "";
     if (tipoAtendimento === "Externo") {
       const fornecedorSelecionado = fornecedores.find((f) => Number(f.id) === Number(fornecedorId));
-      executorFinal = fornecedorSelecionado 
-        ? `Terceirizado (${fornecedorSelecionado.nome_fantasia})` 
-        : (chamado?.empresa_terceirizada ? `Terceirizado (${chamado.empresa_terceirizada})` : "Fornecedor Externo");
+      executorFinal = fornecedorSelecionado
+        ? `Terceirizado (${fornecedorSelecionado.nome_fantasia})`
+        : chamado?.empresa_terceirizada
+        ? `Terceirizado (${chamado.empresa_terceirizada})`
+        : "Fornecedor Externo";
     } else {
       const tecnicoSelecionado = tecnicos.find((t) => Number(t.id) === Number(tecnicoId));
       executorFinal = tecnicoSelecionado ? tecnicoSelecionado.nome : autorNome;
     }
 
-    // 🏥 Se o leito estiver bloqueado e for marcada a liberação, carimba o histórico
     let relatoFinal = descricaoSolucao;
     const ehCritico = ["Leito/Sala Bloqueado", "Risco Iminente à Vida"].includes(chamado?.impacto_assistencial);
     if (ehCritico && liberarLeitoAssistencial && (status === "Concluído" || status === "Em Atendimento")) {
@@ -742,7 +776,6 @@ export function TratarChamado() {
       }
     }
 
-    // Preserva o custo do serviço/orçamento mesmo se o formulário for enviado em Equipe Interna
     const custoServicoDefinitivo = Math.max(
       Number(custoServico) || 0,
       Number(chamado?.custo_servico) || 0,
@@ -753,8 +786,8 @@ export function TratarChamado() {
     formData.append("status", status);
     formData.append("tipo_atendimento", tipoAtendimento);
     formData.append("descricao_solucao", relatoFinal);
-    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? fornecedorId || chamado?.fornecedor_id || "" : (chamado?.fornecedor_id || ""));
-    formData.append("nf_referencia", tipoAtendimento === "Externo" ? nfReferencia || "" : (chamado?.nf_referencia || ""));
+    formData.append("fornecedor_id", tipoAtendimento === "Externo" ? fornecedorId || chamado?.fornecedor_id || "" : chamado?.fornecedor_id || "");
+    formData.append("nf_referencia", tipoAtendimento === "Externo" ? nfReferencia || "" : chamado?.nf_referencia || "");
     formData.append("custo_servico", custoServicoDefinitivo);
     formData.append("custo_pecas", totalPecas);
     formData.append("tecnico_id", tipoAtendimento === "Interno" ? tecnicoId || usuarioLogado?.id || "" : "");
@@ -762,7 +795,6 @@ export function TratarChamado() {
     formData.append("registrado_por_nome", autorNome);
     formData.append("registrado_por_id", usuarioLogado?.id || "");
 
-    // Atualiza o impacto assistencial caso tenha sido liberado
     if (ehCritico && liberarLeitoAssistencial && status === "Concluído") {
       formData.append("impacto_assistencial", "Sem Impacto Direto");
     }
@@ -858,6 +890,12 @@ export function TratarChamado() {
     const patrimonioStr = String(eq.patrimonio || "").toLowerCase();
     const nomeStr = String(eq.nome || "").toLowerCase();
     return patrimonioStr.includes(termo) || nomeStr.includes(termo);
+  });
+
+  // Filtragem inteligente multi-token para a lista de insumos
+  const itensEstoqueFiltrados = (Array.isArray(itensEstoque) ? itensEstoque : []).filter((item) => {
+    const textoCompleto = `${item.codigo || ""} ${item.nome || item.descricao || ""}`;
+    return filtroTokens(textoCompleto, termoBuscaInsumo);
   });
 
   if (loading)
@@ -1165,20 +1203,61 @@ export function TratarChamado() {
 
             {isGestao && !isConcluido && (
               <form onSubmit={handleAdicionarPeca} className="grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-8">
-                  <select
+                {/* 🔍 CAMPO COM AUTOCOMPLETE INTELIGENTE MULTI-TOKEN */}
+                <div className="col-span-8 relative" ref={refContainerInsumo}>
+                  <input
                     disabled={isConcluido}
+                    type="text"
+                    placeholder="Buscar peça (ex: 110v, vela, lamp...)"
                     className="w-full p-2.5 border-2 border-slate-100 rounded-xl text-xs font-bold bg-slate-50 outline-none focus:border-blue-500 text-slate-700 truncate"
-                    value={pecaSelecionada}
-                    onChange={(e) => setPecaSelecionada(e.target.value)}
-                  >
-                    <option value="">Selecione o insumo...</option>
-                    {itensEstoque.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.nome} (Saldo: {item.quantidade})
-                      </option>
-                    ))}
-                  </select>
+                    value={termoBuscaInsumo}
+                    onChange={(e) => {
+                      setTermoBuscaInsumo(e.target.value);
+                      setPecaSelecionada(""); // Invalida seleção até novo clique
+                      setDropdownInsumoAberto(true);
+                    }}
+                    onFocus={() => setDropdownInsumoAberto(true)}
+                  />
+
+                  {dropdownInsumoAberto && (
+                    <div className="absolute left-0 top-full mt-1.5 w-full bg-white border border-slate-200 rounded-2xl shadow-xl z-50 max-h-56 overflow-y-auto p-1 animate-in fade-in zoom-in-95 duration-100">
+                      {itensEstoqueFiltrados.length === 0 ? (
+                        <div className="p-3 text-[11px] text-slate-400 font-bold text-center italic">
+                          Nenhum insumo encontrado para "{termoBuscaInsumo}"
+                        </div>
+                      ) : (
+                        itensEstoqueFiltrados.slice(0, 35).map((item) => (
+                          <div
+                            key={item.id}
+                            onClick={() => {
+                              setPecaSelecionada(item.id);
+                              setTermoBuscaInsumo(item.nome || item.descricao);
+                              setDropdownInsumoAberto(false);
+                            }}
+                            className={`p-2.5 rounded-xl cursor-pointer text-xs flex justify-between items-start gap-2 transition-all ${
+                              String(pecaSelecionada) === String(item.id)
+                                ? "bg-blue-600 text-white font-black"
+                                : "hover:bg-slate-100 text-slate-700 font-bold"
+                            }`}
+                          >
+                            <span className="break-words flex-1 leading-snug">
+                              {item.codigo ? `[${item.codigo}] ` : ""}
+                              {item.nome || item.descricao}
+                            </span>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-md font-mono shrink-0 ${
+                                String(pecaSelecionada) === String(item.id)
+                                  ? "bg-white/20 text-white"
+                                  : "bg-slate-200 text-slate-600"
+                              }`}
+                            >
+                              Saldo: {item.quantidade ?? item.saldo ?? 0}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="col-span-2">
