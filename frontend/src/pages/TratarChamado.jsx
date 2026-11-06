@@ -42,6 +42,7 @@ export function TratarChamado() {
   const [itensEstoque, setItensEstoque] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
   const [tecnicos, setTecnicos] = useState([]);
+  const [setores, setSetores] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [visualizadorAnexo, setVisualizadorAnexo] = useState(null);
@@ -65,6 +66,9 @@ export function TratarChamado() {
   const [observacaoRetorno, setObservacaoRetorno] = useState("");
   const [arquivoLaudo, setArquivoLaudo] = useState(null);
   const [enviandoRetorno, setEnviandoRetorno] = useState(false);
+
+  // 📍 Seleção dinâmica do setor de estoque reserva (ex: #129 ou #233)
+  const [setorDestinoReservaId, setSetorDestinoReservaId] = useState("");
 
   const [modalSolicitarCompra, setModalSolicitarCompra] = useState(false);
   const [enviandoCompra, setEnviandoCompra] = useState(false);
@@ -180,11 +184,12 @@ export function TratarChamado() {
         tecnicoId,
         fornecedorId,
         nfReferencia,
-        custoServico
+        custoServico,
+        setorDestinoReservaId
       };
       localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify(dadosRascunho));
     }
-  }, [descricaoSolucao, status, tipoAtendimento, tecnicoId, fornecedorId, nfReferencia, custoServico, loading, chamado]);
+  }, [descricaoSolucao, status, tipoAtendimento, tecnicoId, fornecedorId, nfReferencia, custoServico, setorDestinoReservaId, loading, chamado]);
 
   const carregarTodosOsDados = async () => {
     try {
@@ -193,12 +198,13 @@ export function TratarChamado() {
         "x-usuario-nivel": nivelUsuario
       };
 
-      const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos] = await Promise.all([
+      const [resChamado, resEstoque, resFornecedores, resDocumentos, resTecnicos, resSetores] = await Promise.all([
         fetch(`${API_URL}/chamados/${id}`, { headers }).then((res) => (res.ok ? res.json() : null)),
         fetch(`${API_URL}/itens-estoque`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
         fetch(`${API_URL}/fornecedores`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
         fetch(`${API_URL}/documentos?chamado_id=${id}`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
-        fetch(`${API_URL}/tecnicos`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => [])
+        fetch(`${API_URL}/tecnicos`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => []),
+        fetch(`${API_URL}/setores`, { headers }).then((res) => (res.ok ? res.json() : [])).catch(() => [])
       ]);
 
       if (resChamado) {
@@ -229,6 +235,7 @@ export function TratarChamado() {
           setStatus(rascunho.status || resChamado.status || "Em Atendimento");
           setFornecedorId(rascunho.fornecedorId || resChamado.fornecedor_id || "");
           setNfReferencia(rascunho.nfReferencia || resChamado.nf_referencia || "");
+          setSetorDestinoReservaId(rascunho.setorDestinoReservaId || "");
           setCustoServico(
             rascunho.custoServico !== undefined && Number(rascunho.custoServico) > 0
               ? rascunho.custoServico
@@ -258,6 +265,7 @@ export function TratarChamado() {
       setFornecedores(Array.isArray(resFornecedores) ? resFornecedores : []);
       setListaDocumentos(Array.isArray(resDocumentos) ? resDocumentos : []);
       setTecnicos(Array.isArray(resTecnicos) ? resTecnicos : []);
+      setSetores(Array.isArray(resSetores) ? resSetores : []);
     } catch (err) {
       console.error("Erro ao carregar dados do atendimento:", err);
     } finally {
@@ -271,6 +279,7 @@ export function TratarChamado() {
     setStatus(chamado?.status || "Em Atendimento");
     setTipoAtendimento(chamado?.tipo_atendimento || "Interno");
     setCustoServico(Number(chamado?.custo_servico || chamado?.valor_servico_externo || 0));
+    setSetorDestinoReservaId("");
     setTemRascunhoRecuperado(false);
   };
 
@@ -494,6 +503,8 @@ export function TratarChamado() {
     formData.append("valor_servico", custoRetorno || 0);
     formData.append("observacao", observacaoRetorno);
     formData.append("tecnico_nome", usuarioLogado?.nome || "Técnico");
+    formData.append("setor_destino_reserva_id", setorDestinoReservaId || "");
+    
     if (arquivoLaudo) {
       const laudoFinal = await comprimirImagemSeNecessario(arquivoLaudo);
       formData.append("laudo_tecnico", laudoFinal);
@@ -511,11 +522,12 @@ export function TratarChamado() {
       const data = await res.json();
 
       if (res.ok) {
-        alert("Retorno de manutenção externa concluído e ativo reativado! 🛬✅");
+        alert("Retorno de manutenção externa concluído e ativo guardado em Reserva! 🛬📦");
         setModalRetornoExterno(false);
         setNfRetorno("");
         setCustoRetorno("");
         setObservacaoRetorno("");
+        setSetorDestinoReservaId("");
         setArquivoLaudo(null);
         await carregarTodosOsDados();
       } else {
@@ -794,6 +806,9 @@ export function TratarChamado() {
     formData.append("tecnico_responsavel", executorFinal);
     formData.append("registrado_por_nome", autorNome);
     formData.append("registrado_por_id", usuarioLogado?.id || "");
+    
+    // 📍 Envia o local de reserva para onde o ativo deve ir caso esteja saindo de externa
+    formData.append("setor_destino_reserva_id", setorDestinoReservaId || "");
 
     if (ehCritico && liberarLeitoAssistencial && status === "Concluído") {
       formData.append("impacto_assistencial", "Sem Impacto Direto");
@@ -816,6 +831,7 @@ export function TratarChamado() {
         localStorage.removeItem(CHAVE_RASCUNHO);
         setTemRascunhoRecuperado(false);
         setFotoConclusao(null);
+        setSetorDestinoReservaId("");
 
         if (status === "Concluído") {
           alert("Chamado concluído com sucesso com evidência fotográfica! 🎉");
@@ -1513,6 +1529,42 @@ export function TratarChamado() {
               )}
             </div>
 
+            {/* 📍 SELETOR DINÂMICO DE SETOR RESERVA (QUANDO CONCLUIR CHAMADO COM ATIVO EM MANUTENÇÃO EXTERNA) */}
+            {status === "Concluído" && isEmExterna && chamado?.equipamento_id && !isConcluido && (
+              <div className="bg-amber-50/80 border-2 border-amber-200 p-3.5 rounded-2xl animate-in fade-in duration-150 space-y-1">
+                <label className="text-[10px] font-black text-amber-800 uppercase block">
+                  📦 Local de Armazenamento / Estoque Reserva do Ativo
+                </label>
+                <select
+                  className="w-full p-2.5 border-2 border-amber-200 bg-white rounded-xl text-xs font-bold outline-none text-slate-800 focus:border-amber-500"
+                  value={setorDestinoReservaId}
+                  onChange={(e) => setSetorDestinoReservaId(e.target.value)}
+                >
+                  <option value="">Manter setor atual do ativo...</option>
+                  {setores
+                    .filter((s) => (s.nome || "").toUpperCase().includes("ESTOQUE RESERVA"))
+                    .map((s) => {
+                      const nomeLimpo = (s.nome || "").trim();
+                      const ehPaiAgrupador = nomeLimpo.toUpperCase().endsWith("ESTOQUE RESERVA");
+
+                      return (
+                        <option
+                          key={s.id}
+                          value={ehPaiAgrupador ? "" : s.id}
+                          disabled={ehPaiAgrupador}
+                          className={ehPaiAgrupador ? "font-black text-slate-400 bg-slate-100" : "font-bold text-slate-800"}
+                        >
+                          {ehPaiAgrupador ? `📁 ${s.nome} (Selecione um subsetor)` : `↳ ${s.nome}`}
+                        </option>
+                      );
+                    })}
+                </select>
+                <span className="text-[9px] text-amber-600 font-bold block">
+                  O ativo voltará da assistência técnica como "Reserva" e será alocado no estoque selecionado.
+                </span>
+              </div>
+            )}
+
             {/* 🏥 CHECKBOX DE DESBLOQUEIO DE LEITO/SALA ASSISTENCIAL */}
             {ehImpactoCritico && !isConcluido && (
               <div className="bg-red-50 border-2 border-red-200 p-3.5 rounded-2xl flex items-center justify-between gap-3">
@@ -2032,7 +2084,7 @@ export function TratarChamado() {
         </div>
       )}
 
-      {/* 🛬 MODAL: RETORNO EXTERNO */}
+      {/* 🛬 MODAL: RETORNO EXTERNO COM DESTINO DE ESTOQUE RESERVA */}
       {modalRetornoExterno && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-150">
@@ -2064,6 +2116,40 @@ export function TratarChamado() {
                     className="w-full p-3 border-2 border-slate-100 rounded-xl font-mono font-bold bg-slate-50 outline-none focus:border-emerald-500 text-slate-800"
                   />
                 </div>
+              </div>
+
+              {/* 📍 SELEÇÃO DINÂMICA DO ESTOQUE RESERVA DE DESTINO */}
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase block mb-1">
+                  Setor de Armazenamento / Estoque Reserva de Destino *
+                </label>
+                <select
+                  value={setorDestinoReservaId}
+                  onChange={(e) => setSetorDestinoReservaId(e.target.value)}
+                  className="w-full p-3 border-2 border-slate-100 rounded-xl font-bold bg-slate-50 outline-none focus:border-emerald-500 text-slate-800"
+                >
+                  <option value="">Selecione o estoque reserva...</option>
+                  {setores
+                    .filter((s) => (s.nome || "").toUpperCase().includes("ESTOQUE RESERVA"))
+                    .map((s) => {
+                      const nomeLimpo = (s.nome || "").trim();
+                      const ehPaiAgrupador = nomeLimpo.toUpperCase().endsWith("ESTOQUE RESERVA");
+
+                      return (
+                        <option
+                          key={s.id}
+                          value={ehPaiAgrupador ? "" : s.id}
+                          disabled={ehPaiAgrupador}
+                          className={ehPaiAgrupador ? "font-black text-slate-400 bg-slate-100" : "font-bold text-slate-800"}
+                        >
+                          {ehPaiAgrupador ? `📁 ${s.nome} (Selecione um subsetor)` : `↳ ${s.nome}`}
+                        </option>
+                      );
+                    })}
+                </select>
+                <span className="text-[9px] text-slate-400 font-bold block mt-1">
+                  O ativo voltará com status "Reserva", disponível para trocas e alocado no setor escolhido acima.
+                </span>
               </div>
 
               <div>
@@ -2104,7 +2190,7 @@ export function TratarChamado() {
                   disabled={enviandoRetorno}
                   className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black uppercase text-[11px] shadow-lg shadow-emerald-100"
                 >
-                  {enviandoRetorno ? "Reativando..." : "Confirmar Retorno & Reativar Ativo"}
+                  {enviandoRetorno ? "Reativando..." : "Confirmar Retorno & Salvar Reserva"}
                 </button>
               </div>
             </form>

@@ -1073,64 +1073,144 @@ app.put('/api/chamados/:id/atualizar', permitirApenas(['admin', 'coordenador', '
         nf_referencia, 
         custo_servico, 
         tecnico_responsavel, 
-        tecnico_id 
+        tecnico_id,
+        setor_destino_reserva_id // 📍 Setor de estoque reserva (ex: #129 ou #233)
     } = req.body;
     
     const foto_conclusao = req.file ? `/uploads/${req.file.filename}` : null;
     const tecnico_nome = tecnico_responsavel || "Técnico do Sistema";
     const v_tecnico_id = tecnico_id && tecnico_id !== "" ? Number(tecnico_id) : null;
+    const ehConclusao = status === 'Concluído';
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        const queryUpdate = `
-            UPDATE chamados
-            SET status = ?, 
-                tipo_atendimento = ?, 
-                tecnico_responsavel = ?, 
-                tecnico_id = ?, 
-                fornecedor_id = COALESCE(?, fornecedor_id), 
-                nf_referencia = COALESCE(?, nf_referencia), 
-                custo_servico = CASE WHEN ? > 0 THEN ? ELSE custo_servico END,
-                foto_conclusao = COALESCE(?, foto_conclusao),
-                data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
-            WHERE id = ?
-        `;
-        const valuesUpdate = [
-            status, 
-            tipo_atendimento, 
-            tecnico_nome, 
-            v_tecnico_id, 
-            fornecedor_id || null, 
-            nf_referencia || null, 
-            Number(custo_servico || 0),
-            Number(custo_servico || 0),
-            foto_conclusao, 
-            status, 
-            id
-        ];
-
-        conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
-            if (errUpdate) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpdate.message }); });
-
-            if (descricao_solucao && descricao_solucao.trim() !== "") {
-                const queryHist = `INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) VALUES (?, ?, ?, ?, NOW())`;
-                conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (errHist) => {
-                    if (errHist) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errHist.message }); });
-
-                    conn.commit((errCommit) => {
-                        if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
-                        conn.release();
-                        res.json({ message: "Chamado e cronologia atualizados com sucesso!", foto_conclusao });
-                    });
-                });
-            } else {
-                conn.commit((errCommit) => {
-                    if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
+        // 1. Busca dados do chamado para verificar o equipamento vinculado e a situação de manutenção externa
+        conn.query("SELECT id, equipamento_id, em_manutencao_externa FROM chamados WHERE id = ?", [id], (errCh, resCh) => {
+            if (errCh || resCh.length === 0) {
+                return conn.rollback(() => {
                     conn.release();
-                    res.json({ message: "Chamado atualizado com sucesso!", foto_conclusao });
+                    res.status(404).json({ error: "Chamado não encontrado." });
                 });
             }
+
+            const equipamentoId = resCh[0].equipamento_id;
+            const estavaEmExterna = Number(resCh[0].em_manutencao_externa) === 1;
+
+            // 2. Atualiza a OS: zera em_manutencao_externa caso esteja sendo concluída
+            const queryUpdate = `
+                UPDATE chamados
+                SET status = ?, 
+                    tipo_atendimento = ?, 
+                    tecnico_responsavel = ?, 
+                    tecnico_id = ?, 
+                    fornecedor_id = COALESCE(?, fornecedor_id), 
+                    nf_referencia = COALESCE(?, nf_referencia), 
+                    custo_servico = CASE WHEN ? > 0 THEN ? ELSE custo_servico END,
+                    foto_conclusao = COALESCE(?, foto_conclusao),
+                    em_manutencao_externa = CASE WHEN ? = 'Concluído' THEN 0 ELSE em_manutencao_externa END,
+                    data_conclusao = CASE WHEN ? = 'Concluído' THEN IFNULL(data_conclusao, NOW()) ELSE NULL END
+                WHERE id = ?
+            `;
+            const valuesUpdate = [
+                status, 
+                tipo_atendimento, 
+                tecnico_nome, 
+                v_tecnico_id, 
+                fornecedor_id || null, 
+                nf_referencia || null, 
+                Number(custo_servico || 0),
+                Number(custo_servico || 0),
+                foto_conclusao, 
+                status, 
+                status, 
+                id
+            ];
+
+            conn.query(queryUpdate, valuesUpdate, (errUpdate) => {
+                if (errUpdate) {
+                    return conn.rollback(() => {
+                        conn.release();
+                        res.status(500).json({ error: errUpdate.message });
+                    });
+                }
+
+                // 3. Atualização do equipamento vinculado
+                const atualizarEquipamento = (ehConclusao && equipamentoId) ?
+                    new Promise((resolve, reject) => {
+                        if (estavaEmExterna) {
+                            // Se estava em externa, volta como 'Reserva'
+                            // Se informou o setor de destino (ex: 129 ou 233), atualiza; se não, mantém o setor_id atual
+                            const setorDestino = setor_destino_reserva_id && setor_destino_reserva_id !== "" 
+                                ? Number(setor_destino_reserva_id) 
+                                : null;
+
+                            const sqlEquip = setorDestino
+                                ? "UPDATE equipamentos SET status = 'Reserva', setor_id = ? WHERE id = ?"
+                                : "UPDATE equipamentos SET status = 'Reserva' WHERE id = ?";
+                            
+                            const paramsEquip = setorDestino 
+                                ? [setorDestino, equipamentoId] 
+                                : [equipamentoId];
+
+                            conn.query(sqlEquip, paramsEquip, (errEq) => {
+                                if (errEq) return reject(errEq);
+                                resolve();
+                            });
+                        } else {
+                            // Atendimento interno comum sem troca externa
+                            conn.query("UPDATE equipamentos SET status = 'Ativo' WHERE id = ?", [equipamentoId], (errEq) => {
+                                if (errEq) return reject(errEq);
+                                resolve();
+                            });
+                        }
+                    }) : Promise.resolve();
+
+                atualizarEquipamento.then(() => {
+                    // 4. Grava no histórico do chamado
+                    if (descricao_solucao && descricao_solucao.trim() !== "") {
+                        const queryHist = `
+                            INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, data_registro) 
+                            VALUES (?, ?, ?, ?, NOW())
+                        `;
+                        conn.query(queryHist, [id, tecnico_nome, descricao_solucao, status], (errHist) => {
+                            if (errHist) {
+                                return conn.rollback(() => {
+                                    conn.release();
+                                    res.status(500).json({ error: errHist.message });
+                                });
+                            }
+
+                            conn.commit((errCommit) => {
+                                if (errCommit) {
+                                    return conn.rollback(() => {
+                                        conn.release();
+                                        res.status(500).json({ error: errCommit.message });
+                                    });
+                                }
+                                conn.release();
+                                res.json({ message: "Chamado e cronologia atualizados com sucesso!", foto_conclusao });
+                            });
+                        });
+                    } else {
+                        conn.commit((errCommit) => {
+                            if (errCommit) {
+                                return conn.rollback(() => {
+                                    conn.release();
+                                    res.status(500).json({ error: errCommit.message });
+                                });
+                            }
+                            conn.release();
+                            res.json({ message: "Chamado atualizado com sucesso!", foto_conclusao });
+                        });
+                    }
+                }).catch(errEqCatch => {
+                    conn.rollback(() => {
+                        conn.release();
+                        res.status(500).json({ error: errEqCatch.message });
+                    });
+                });
+            });
         });
     });
 });
@@ -6147,21 +6227,27 @@ app.post('/api/chamados/:id/saida-externa', permitirApenas(['admin', 'coordenado
 // 🛬 2. REGISTRAR RETORNO DA MANUTENÇÃO EXTERNA NA OS
 app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordenador', 'tecnico']), uploadDocumento.single('laudo_tecnico'), (req, res) => {
     const { id } = req.params;
-    const { numero_nf, valor_servico, observacao, tecnico_nome } = req.body;
+    const { numero_nf, valor_servico, observacao, tecnico_nome, setor_destino_reserva_id } = req.body;
     const url_laudo = req.file ? `/uploads/${req.file.filename}` : null;
 
     db.beginTransaction((err, conn) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        conn.query("SELECT id, equipamento_id FROM chamados WHERE id = ?", [id], (errCh, resCh) => {
+        conn.query("SELECT id, equipamento_id, setor_id FROM chamados WHERE id = ?", [id], (errCh, resCh) => {
             if (errCh || resCh.length === 0) {
                 return conn.rollback(() => { conn.release(); res.status(404).json({ error: "Chamado não encontrado." }); });
             }
 
             const equipamentoId = resCh[0].equipamento_id;
             const valorTotalServico = Number(valor_servico || 0);
+            
+            // Se o técnico escolheu um setor de estoque (ex: 129 ou 233), usa ele. 
+            // Senão, mantém o que o equipamento já tinha.
+            const setorFinalEquip = setor_destino_reserva_id && setor_destino_reserva_id !== "" 
+                ? Number(setor_destino_reserva_id) 
+                : null;
 
-            // 1. Atualiza dados na OS e altera o status para 'Em Andamento' (ou encerra, caso prefira)
+            // 1. Atualiza dados na OS e altera o status para 'Em Andamento' (ou encerra)
             const qUpChamado = `
                 UPDATE chamados 
                 SET status = 'Em Andamento',
@@ -6176,10 +6262,17 @@ app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordena
             conn.query(qUpChamado, [numero_nf || null, valorTotalServico, url_laudo, valorTotalServico, id], (errUpCh) => {
                 if (errUpCh) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errUpCh.message }); });
 
-                // 2. Reativa o equipamento para 'Ativo'
+                // 2. Coloca o equipamento em 'Reserva' e move para o setor de estoque escolhido
                 const reativarEquip = equipamentoId ? 
                     new Promise((resolve, reject) => {
-                        conn.query("UPDATE equipamentos SET status = 'Ativo' WHERE id = ?", [equipamentoId], (errEq) => {
+                        const sqlEquip = setorFinalEquip 
+                            ? "UPDATE equipamentos SET status = 'Reserva', setor_id = ? WHERE id = ?"
+                            : "UPDATE equipamentos SET status = 'Reserva' WHERE id = ?";
+                        const paramsEquip = setorFinalEquip 
+                            ? [setorFinalEquip, equipamentoId] 
+                            : [equipamentoId];
+
+                        conn.query(sqlEquip, paramsEquip, (errEq) => {
                             if (errEq) return reject(errEq);
                             resolve();
                         });
@@ -6187,7 +6280,7 @@ app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordena
 
                 reativarEquip.then(() => {
                     // 3. Adiciona histórico com o retorno e custo
-                    const textoLog = `[🛬 RETORNO DE MANUTENÇÃO EXTERNA] NF: ${numero_nf || 'S/N'} | Custo: R$ ${valorTotalServico.toFixed(2)}. Parecer: ${observacao || 'Equipamento testado e reativado.'}`;
+                    const textoLog = `[🛬 RETORNO DE MANUTENÇÃO EXTERNA] NF: ${numero_nf || 'S/N'} | Custo: R$ ${valorTotalServico.toFixed(2)}. Parecer: ${observacao || 'Equipamento testado e retornado para Reserva.'}`;
                     const qHist = `
                         INSERT INTO chamados_historico (chamado_id, tecnico_nome, texto_historico, status_momento, url_anexo, data_registro)
                         VALUES (?, ?, ?, 'Em Andamento', ?, NOW())
@@ -6199,7 +6292,7 @@ app.post('/api/chamados/:id/retorno-externo', permitirApenas(['admin', 'coordena
                         conn.commit((errCommit) => {
                             if (errCommit) return conn.rollback(() => { conn.release(); res.status(500).json({ error: errCommit.message }); });
                             conn.release();
-                            res.json({ message: "Retorno externo registrado e equipamento reativado no chamado!" });
+                            res.json({ message: "Retorno externo registrado e equipamento guardado em Reserva!" });
                         });
                     });
                 }).catch(errEqCatch => {
