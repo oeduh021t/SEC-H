@@ -10,7 +10,6 @@ import {
   FiCamera,
   FiImage,
   FiTrash2,
-  FiCalendar,
   FiAlertTriangle
 } from 'react-icons/fi';
 
@@ -112,7 +111,7 @@ const PainelChamados = () => {
     };
   }, []);
 
-  // 🔊 HEARTBEAT DE ÁUDIO (IMPEDE O CHROME DE SUSPENDER A ABA E A ENGINE DE FALA)
+  // 🔊 HEARTBEAT DE ÁUDIO
   const manterAudioVivo = useCallback(() => {
     try {
       const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
@@ -152,7 +151,7 @@ const PainelChamados = () => {
     return chamado.setor_nome || 'Setor Geral';
   }, [setores]);
 
-  // 🗣️ SÍNTESE DE VOZ BLINDADA CONTRA SUSPENSÃO E GARBAGE COLLECTION
+  // 🗣️ SÍNTESE DE VOZ
   const falarTexto = useCallback((texto) => {
     if (!('speechSynthesis' in window)) return;
 
@@ -205,9 +204,12 @@ const PainelChamados = () => {
   const narrarChamado = useCallback((c) => {
     const setor = obterSetorCompleto(c, setores).replace(/\s*>\s*/g, ', ');
     const titulo = c.titulo || 'Sem assunto';
+    const ehCritico = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial);
+    const avisoCritico = ehCritico ? `Atenção: ${c.impacto_assistencial}! Local afetado: ${c.leito_sala_afetada || setor}.` : '';
     const equip = c.equip_nome ? `Equipamento: ${c.equip_nome}.` : '';
     const desc = c.descricao_problema ? `Detalhe: ${c.descricao_problema}.` : '';
-    falarTexto(`Chamado no setor ${setor}. Problema: ${titulo}. ${equip} ${desc}`);
+
+    falarTexto(`${avisoCritico} Chamado no setor ${setor}. Problema: ${titulo}. ${equip} ${desc}`);
   }, [obterSetorCompleto, setores, falarTexto]);
 
   // 🔊 RECONHECIMENTO DE VOZ
@@ -625,7 +627,7 @@ const PainelChamados = () => {
     };
   }, [buscarDados]);
 
-  // 📜 ROLAGEM AUTOMÁTICA CONTÍNUA (SEM REQUESTANIMATIONFRAME, TOLERANTE A ESCALA E EM SEGUNDO PLANO)
+  // 📜 ROLAGEM AUTOMÁTICA CONTÍNUA
   useEffect(() => {
     if (!autoScroll || usuarioPausouHover) return;
 
@@ -634,7 +636,6 @@ const PainelChamados = () => {
     const VELOCIDADE_PX = 0.8;
 
     const timerScroll = setInterval(() => {
-      // 1. Coluna Abertos
       const elAbertos = scrollContainerAbertosRef.current;
       if (elAbertos) {
         const maxScroll = elAbertos.scrollHeight - elAbertos.clientHeight;
@@ -652,7 +653,6 @@ const PainelChamados = () => {
         }
       }
 
-      // 2. Coluna Em Atendimento
       const elAndamento = scrollContainerAndamentoRef.current;
       if (elAndamento) {
         const maxScroll = elAndamento.scrollHeight - elAndamento.clientHeight;
@@ -682,10 +682,17 @@ const PainelChamados = () => {
     }
   };
 
-  const calcularTempoDecorrido = (dataInicioStr, prioridade = 'Média') => {
-    if (!dataInicioStr) return { texto: '---', atrasado: false };
-    const metasHoras = { Urgente: 2, Alta: 6, 'Média': 24, Baixa: 48 };
-    const metaHoras = metasHoras[prioridade] || 24;
+  // ⏱️ CÁLCULO DE SLA PRIORIZANDO IMPACTO ASSISTENCIAL
+  const calcularTempoDecorrido = (dataInicioStr, prioridade = 'Média', impacto = 'Sem Impacto Direto') => {
+    if (!dataInicioStr) return { texto: '---', atrasado: false, metaHoras: 24 };
+
+    let metaHoras = 24;
+    if (['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(impacto)) {
+      metaHoras = 1;
+    } else {
+      const metasHoras = { Urgente: 2, Alta: 6, 'Média': 24, Baixa: 48 };
+      metaHoras = metasHoras[prioridade] || 24;
+    }
 
     const inicio = new Date(dataInicioStr);
     const diffMs = agora - inicio;
@@ -695,7 +702,7 @@ const PainelChamados = () => {
     const minutos = minutosTotais % 60;
 
     let texto = horas > 0 ? `${horas}h ${minutos}m` : `${minutos}m`;
-    return { texto, atrasado: horasDecorridas > metaHoras };
+    return { texto, atrasado: horasDecorridas > metaHoras, metaHoras };
   };
 
   const chamadosFiltrados = chamados.filter(c => {
@@ -703,9 +710,19 @@ const PainelChamados = () => {
     return ehChamadoDoPlantao(c.data_abertura);
   });
 
+  // 🎯 ORDENAÇÃO PRIORITÁRIA: Chamados críticos (leito bloqueado) sempre no topo
+  const ordenarPorCriticidade = (lista) => {
+    return [...lista].sort((a, b) => {
+      const criticoA = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(a.impacto_assistencial) ? 1 : 0;
+      const criticoB = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(b.impacto_assistencial) ? 1 : 0;
+      if (criticoA !== criticoB) return criticoB - criticoA;
+      return new Date(b.data_abertura) - new Date(a.data_abertura);
+    });
+  };
+
   const totalOcultados = chamados.length - chamadosFiltrados.length;
-  const abertos = chamadosFiltrados.filter(c => c.status === 'Aberto');
-  const emAtendimento = chamadosFiltrados.filter(c => c.status === 'Em Atendimento');
+  const abertos = ordenarPorCriticidade(chamadosFiltrados.filter(c => c.status === 'Aberto'));
+  const emAtendimento = ordenarPorCriticidade(chamadosFiltrados.filter(c => c.status === 'Em Atendimento'));
 
   return (
     <div className="min-h-screen p-3 md:p-5 flex flex-col justify-between font-sans select-none bg-slate-950 text-white">
@@ -852,11 +869,27 @@ const PainelChamados = () => {
               className="space-y-4 overflow-y-auto flex-1 pr-2"
             >
               {abertos.map(c => {
-                const tempo = calcularTempoDecorrido(c.data_abertura, c.prioridade);
+                const tempo = calcularTempoDecorrido(c.data_abertura, c.prioridade, c.impacto_assistencial);
                 const setorExibicao = obterSetorCompleto(c, setores);
+                const ehCritico = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial);
 
                 return (
-                  <div key={c.id} className="bg-slate-900 border-l-[10px] border-red-500 border-y border-r border-slate-800 p-4 md:p-5 rounded-2xl shadow-xl space-y-3">
+                  <div 
+                    key={c.id} 
+                    className={`bg-slate-900 border-l-[10px] border-y border-r p-4 md:p-5 rounded-2xl shadow-xl space-y-3 transition-all ${
+                      ehCritico
+                        ? 'border-l-red-600 border-red-500/60 ring-2 ring-red-500/80 shadow-red-500/20 animate-pulse'
+                        : 'border-l-red-500 border-slate-800'
+                    }`}
+                  >
+                    {/* 🚨 TARJA DE ALERTA DE LEITO BLOQUEADO */}
+                    {ehCritico && (
+                      <div className="bg-red-600 text-white px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between">
+                        <span>🚨 {c.impacto_assistencial}</span>
+                        <span>🏥 {c.leito_sala_afetada || setorExibicao}</span>
+                      </div>
+                    )}
+
                     <div className="flex justify-between items-start gap-2">
                       <span className="text-amber-400 font-black text-xs uppercase bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 truncate">
                         📍 {setorExibicao}
@@ -865,7 +898,7 @@ const PainelChamados = () => {
                         <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase font-mono border ${
                           tempo.atrasado ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse' : 'bg-slate-950 text-slate-300 border-slate-800'
                         }`}>
-                          ⏱️ {tempo.texto}
+                          ⏱️ {tempo.texto} {ehCritico && '(Meta: 1h)'}
                         </span>
                         <span className="text-slate-500 font-mono text-xs font-bold">#{c.id}</span>
                       </div>
@@ -929,11 +962,27 @@ const PainelChamados = () => {
               className="space-y-4 overflow-y-auto flex-1 pr-2"
             >
               {emAtendimento.map(c => {
-                const tempo = calcularTempoDecorrido(c.data_abertura, c.prioridade);
+                const tempo = calcularTempoDecorrido(c.data_abertura, c.prioridade, c.impacto_assistencial);
                 const setorExibicao = obterSetorCompleto(c, setores);
+                const ehCritico = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial);
 
                 return (
-                  <div key={c.id} className="bg-slate-900 border-l-[10px] border-amber-400 border-y border-r border-slate-800 p-4 md:p-5 rounded-2xl shadow-xl space-y-3">
+                  <div 
+                    key={c.id} 
+                    className={`bg-slate-900 border-l-[10px] border-y border-r p-4 md:p-5 rounded-2xl shadow-xl space-y-3 transition-all ${
+                      ehCritico
+                        ? 'border-l-red-600 border-amber-500/50 ring-2 ring-red-500/60'
+                        : 'border-l-amber-400 border-slate-800'
+                    }`}
+                  >
+                    {/* 🚨 TARJA CRÍTICA SE EM ATENDIMENTO */}
+                    {ehCritico && (
+                      <div className="bg-red-600/90 text-white px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-between">
+                        <span>🚨 {c.impacto_assistencial}</span>
+                        <span>🏥 {c.leito_sala_afetada || setorExibicao}</span>
+                      </div>
+                    )}
+
                     <div className="flex justify-between items-start gap-2">
                       <span className="text-amber-300 font-black text-xs uppercase bg-slate-950 px-3 py-1 rounded-xl border border-slate-800 truncate">
                         📍 {setorExibicao}

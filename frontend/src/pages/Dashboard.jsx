@@ -124,6 +124,10 @@ const Dashboard = ({ user }) => {
     const percentualCumprimentoSLA = totalConcluidasSLA > 0 ? Math.round((dentroSla / totalConcluidasSLA) * 100) : 100;
     const tmaGeralTexto = formatarMinutosParaHoras(slaStats?.tma_minutos);
 
+    // Lista de leitos críticos / salas bloqueadas baseada na fila recente ou geral de chamados ativos
+    const chamadosAtivos = asArray(stats?.recentes).filter(c => c.status !== 'Concluído');
+    const leitosBloqueadosLista = chamadosAtivos.filter(c => ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial));
+
     const dataEquipamentos = {
         labels: asArray(stats?.porEquipamento).map(e => e.nome),
         datasets: [{
@@ -162,17 +166,6 @@ const Dashboard = ({ user }) => {
             backgroundColor: 'rgba(99, 102, 241, 0.85)',
             borderRadius: 6,
             barThickness: 16,
-        }]
-    };
-
-    const dataTopPecas = {
-        labels: asArray(stats?.topPecasConsumidas).map(p => p.nome),
-        datasets: [{
-            label: 'Quantidade Consumida',
-            data: asArray(stats?.topPecasConsumidas).map(p => p.total_qtd),
-            backgroundColor: 'rgba(245, 158, 11, 0.85)',
-            borderRadius: 6,
-            barThickness: 18,
         }]
     };
 
@@ -293,6 +286,16 @@ const Dashboard = ({ user }) => {
                     }`}
                 >
                     <span>🛠️</span> Visão Técnica (Bancada)
+                </button>
+
+                <button 
+                    type="button"
+                    onClick={() => setVisaoAtual('leitos')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all flex items-center gap-2 whitespace-nowrap ${
+                        visaoAtual === 'leitos' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                >
+                    <span>🏥</span> Leitos & Salas Críticas
                 </button>
 
                 <button 
@@ -461,7 +464,102 @@ const Dashboard = ({ user }) => {
             )}
 
             {/* ========================================================= */}
-            {/* 🤖 VISÃO 2: ATIVOS & PARQUE TECNOLÓGICO (REFORMULADA)     */}
+            {/* 🏥 VISÃO 2: LEITOS & SALAS CRÍTICAS (NOVA ABA)             */}
+            {/* ========================================================= */}
+            {visaoAtual === 'leitos' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-rose-600 flex flex-col justify-between">
+                            <div className="flex justify-between items-start">
+                                <h6 className="text-[10px] font-black text-rose-700 uppercase tracking-widest">Leitos / Salas Bloqueados</h6>
+                                <span className="text-sm">🚨</span>
+                            </div>
+                            <div className="mt-1">
+                                <span className="text-3xl font-black text-rose-600 font-mono">{leitosBloqueadosLista.length}</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Paragem assistencial ativa</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-amber-500 flex flex-col justify-between">
+                            <div className="flex justify-between items-start">
+                                <h6 className="text-[10px] font-black text-amber-700 uppercase tracking-widest">SLA Emergencial</h6>
+                                <span className="text-sm">⚡</span>
+                            </div>
+                            <div className="mt-1">
+                                <span className="text-3xl font-black text-amber-600 font-mono">1h</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Meta de resposta a leitos</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-emerald-500 flex flex-col justify-between">
+                            <div className="flex justify-between items-start">
+                                <h6 className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Prontidão Assistencial</h6>
+                                <span className="text-sm">🏥</span>
+                            </div>
+                            <div className="mt-1">
+                                <span className="text-3xl font-black text-emerald-600 font-mono">Ativa</span>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5">Monitoramento em tempo real</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+                        <div className="p-5 bg-rose-50/70 border-b border-rose-100 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-xs font-black text-rose-900 uppercase tracking-wider flex items-center gap-1.5">
+                                    <span>🚨</span> Fila de Plantão: Unidades e Leitos Paralisados ({leitosBloqueadosLista.length})
+                                </h3>
+                                <p className="text-[10px] font-bold text-rose-700 uppercase mt-0.5">
+                                    Ordens de serviço ativas com interrupção de leito ou sala cirúrgica
+                                </p>
+                            </div>
+                            <Link to="/chamados" className="text-[10px] font-black text-rose-700 hover:underline uppercase">
+                                Gerenciar Chamados ↗
+                            </Link>
+                        </div>
+
+                        <div className="divide-y divide-slate-100 p-3">
+                            {leitosBloqueadosLista.map(item => (
+                                <div key={item.id} className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 rounded-2xl">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="bg-red-600 text-white font-black text-[9px] px-2 py-0.5 rounded uppercase">
+                                                {item.impacto_assistencial}
+                                            </span>
+                                            <h4 className="text-xs font-black text-slate-800 uppercase">{item.titulo}</h4>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 font-bold uppercase mt-1">
+                                            📍 Local Afetado: <strong className="text-rose-600">{item.leito_sala_afetada || 'Setor Geral'}</strong> • OS #{item.id}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                                        <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-100 text-slate-700">
+                                            Status: {item.status}
+                                        </span>
+                                        <Link 
+                                            to={`/chamados/${item.id}/tratar`}
+                                            className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase transition-all shadow-sm active:scale-95"
+                                        >
+                                            Atender Urgente 🛠️
+                                        </Link>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {leitosBloqueadosLista.length === 0 && (
+                                <div className="text-center py-16 text-slate-400">
+                                    <span className="text-3xl block mb-2">🏥✨</span>
+                                    <p className="text-xs font-bold uppercase">Nenhum leito ou sala cirúrgica bloqueada no momento.</p>
+                                    <p className="text-[10px] text-slate-400 mt-0.5">Todas as unidades estão operando sem restrições assistenciais.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* 🤖 VISÃO 3: ATIVOS & PARQUE TECNOLÓGICO                   */}
             {/* ========================================================= */}
             {visaoAtual === 'ativos' && (() => {
                 const totalManutencaoGeral = Number(stats?.statusAtivos?.[0]?.manutencao || 0);
@@ -470,8 +568,6 @@ const Dashboard = ({ user }) => {
 
                 return (
                     <div className="space-y-6 animate-in fade-in duration-200">
-                        
-                        {/* 1. CARDS DE TOPO: STATUS DETALHADO DO PARQUE */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                             <StatCard 
                                 title="Inventário Total" 
@@ -517,7 +613,6 @@ const Dashboard = ({ user }) => {
                             />
                         </div>
 
-                        {/* 2. INDICADORES DE CONFIABILIDADE & AUDITORIA ONA/JCI (ELEVADOS PARA O TOPO) */}
                         <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-5 rounded-3xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border border-indigo-900/60">
                             <div className="space-y-1">
                                 <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 bg-indigo-800/60 px-2.5 py-0.5 rounded-full inline-block">
@@ -540,10 +635,7 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* 3. GRÁFICOS: TOP 5 REINCIDENTES COM PATRIMÔNIO + DENSIDADE SETORIAL */}
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                            
-                            {/* Gráfico Top 5 Ativos Críticos com Patrimônio (TAG) */}
                             <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                                 <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                     <div>
@@ -563,7 +655,6 @@ const Dashboard = ({ user }) => {
                                 </div>
                             </div>
 
-                            {/* Densidade por Setor Hospitalar */}
                             <div className="xl:col-span-5 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                                 <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                                     <div>
@@ -582,7 +673,6 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* 4. ATIVOS EM CUSTÓDIA EXTERNA: NOME REAL, PATRIMÔNIO, PRESTADOR E TEMPO FORA */}
                         <div className="bg-white rounded-3xl shadow-sm border-2 border-purple-100 overflow-hidden">
                             <div className="p-4 bg-purple-50/70 border-b border-purple-100 flex justify-between items-center">
                                 <div>
@@ -628,7 +718,6 @@ const Dashboard = ({ user }) => {
                                         </div>
 
                                         <div className="flex items-center gap-3 shrink-0">
-                                            {/* Tag de Tempo Fora */}
                                             <div className="text-right">
                                                 <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black font-mono block ${
                                                     Number(ext.dias_na_rua || 0) > 15 
@@ -641,7 +730,6 @@ const Dashboard = ({ user }) => {
                                                 </span>
                                             </div>
 
-                                            {/* Botão de Dar Entrada */}
                                             <Link 
                                                 to={`/chamados/${ext.id}/tratar`}
                                                 className="px-3 py-1.5 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-purple-700 transition-all shadow-xs active:scale-95"
@@ -659,13 +747,12 @@ const Dashboard = ({ user }) => {
                                 )}
                             </div>
                         </div>
-
                     </div>
                 );
             })()}
 
             {/* ========================================================= */}
-            {/* 📦 VISÃO 3: ALMOXARIFADO & SUPRIMENTOS (REFORMULADA)       */}
+            {/* 📦 VISÃO 4: ALMOXARIFADO & SUPRIMENTOS                     */}
             {/* ========================================================= */}
             {visaoAtual === 'estoque' && (() => {
                 const kpisEstoque = stats?.kpisEstoqueRuptura?.[0] || { 
@@ -697,8 +784,6 @@ const Dashboard = ({ user }) => {
 
                 return (
                     <div className="space-y-6 animate-in fade-in duration-200">
-                        
-                        {/* 1. CARDS OPERACIONAIS DE CONTROLE E RISCO DE DESABASTECIMENTO */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <FinanceCard 
                                 title="Capital Imobilizado" 
@@ -716,7 +801,6 @@ const Dashboard = ({ user }) => {
                                 bgGradient="from-indigo-50/50" 
                             />
                             
-                            {/* Card de Ruptura (Zerados) */}
                             <div className="bg-gradient-to-br from-rose-50/50 to-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-rose-500 flex flex-col justify-between min-h-[110px]">
                                 <div>
                                     <div className="flex justify-between items-start">
@@ -732,7 +816,6 @@ const Dashboard = ({ user }) => {
                                 </p>
                             </div>
 
-                            {/* Card de Ponto de Pedido (Abaixo do Mínimo) */}
                             <div className="bg-gradient-to-br from-amber-50/50 to-white p-5 rounded-3xl shadow-sm border border-slate-100 border-l-[6px] border-amber-500 flex flex-col justify-between min-h-[110px]">
                                 <div>
                                     <div className="flex justify-between items-start">
@@ -749,10 +832,7 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* 2. GRÁFICO CURVA DE CONSUMO + PONTO DE PEDIDO COM AÇÃO DIRETA */}
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-                            
-                            {/* Gráfico de Consumo com Alternador de Métrica */}
                             <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[460px]">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 border-b border-slate-50 pb-3">
                                     <div>
@@ -764,7 +844,6 @@ const Dashboard = ({ user }) => {
                                         </p>
                                     </div>
 
-                                    {/* Toggle: Quantidade vs Custo Financeiro */}
                                     <div className="flex bg-slate-100 p-1 rounded-xl shrink-0">
                                         <button
                                             type="button"
@@ -803,7 +882,6 @@ const Dashboard = ({ user }) => {
                                 </div>
                             </div>
 
-                            {/* Ponto de Pedido Inteligente com Status de Compra */}
                             <div className="xl:col-span-5 bg-white rounded-3xl shadow-sm border-2 border-amber-100 overflow-hidden flex flex-col justify-between">
                                 <div>
                                     <div className="p-4 bg-amber-50/70 border-b border-amber-100 flex justify-between items-center">
@@ -829,7 +907,6 @@ const Dashboard = ({ user }) => {
                                                         Mínimo: <strong className="text-slate-600">{item.estoque_minimo} un</strong> • Custo: R$ {Number(item.valor_unitario || 0).toFixed(2)}
                                                     </p>
                                                     
-                                                    {/* Indicador se já existe solicitação de compras em andamento */}
                                                     <div className="mt-1">
                                                         {item.pedido_aberto_id ? (
                                                             <Link 
@@ -886,7 +963,6 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
 
-                        {/* 3. DISTRIBUIÇÃO FÍSICA POR LOCAL DE ARMAZENAMENTO */}
                         <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">
                             <div className="flex justify-between items-center mb-3 border-b border-slate-50 pb-2.5">
                                 <div>
@@ -928,18 +1004,15 @@ const Dashboard = ({ user }) => {
                                 )}
                             </div>
                         </div>
-
                     </div>
                 );
             })()}
 
             {/* ========================================================= */}
-            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (ESTRUTURA EXECUTIVA CFO) */}
+            {/* 💼 VISÃO 4: DIRETORIA & CUSTOS (ESTRUTURA EXECUTIVA CFO)   */}
             {/* ========================================================= */}
             {visaoAtual === 'financeira' && (
                 <div className="space-y-6 animate-in fade-in duration-200">
-                    
-                    {/* 1. CARDS DE TOPO: GESTÃO FISCAL & CONTAS A PAGAR */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <FinanceCard 
                             title="Total em Notas Fiscais" 
@@ -971,7 +1044,6 @@ const Dashboard = ({ user }) => {
                         />
                     </div>
 
-                    {/* 2. RATEIO POR CENTRO DE CUSTO & CURVA ABC DE PRESTADORES */}
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
                         <div className="xl:col-span-7 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[440px]">
                             <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
@@ -1037,7 +1109,6 @@ const Dashboard = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* 3. FLUXO DE COMPROMISSOS COM PREVISÃO FINANCEIRA (R$) */}
                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                         <div className="flex justify-between items-center mb-4 border-b border-slate-50 pb-3">
                             <div>
@@ -1054,7 +1125,6 @@ const Dashboard = ({ user }) => {
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-                            {/* Vencidos / Atrasados */}
                             <div className="p-4 bg-rose-50/80 border border-rose-200 rounded-2xl flex flex-col justify-between">
                                 <span className="text-[10px] font-black uppercase tracking-wider text-rose-600">
                                     🚨 Boletos em Atraso
@@ -1070,7 +1140,6 @@ const Dashboard = ({ user }) => {
                                 <span className="text-[9px] font-bold text-rose-500 uppercase">Ação imediata requerida</span>
                             </div>
 
-                            {/* Vencendo Hoje */}
                             <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl flex flex-col justify-between">
                                 <span className="text-[10px] font-black uppercase tracking-wider text-amber-700">
                                     ⏰ Vencendo Hoje
@@ -1086,7 +1155,6 @@ const Dashboard = ({ user }) => {
                                 <span className="text-[9px] font-bold text-amber-600 uppercase">Previsão de saída diária</span>
                             </div>
 
-                            {/* Próximos 7 Dias */}
                             <div className="p-4 bg-blue-50/80 border border-blue-200 rounded-2xl flex flex-col justify-between">
                                 <span className="text-[10px] font-black uppercase tracking-wider text-blue-700">
                                     🗓️ Vencimento em 7 Dias
@@ -1103,7 +1171,6 @@ const Dashboard = ({ user }) => {
                             </div>
                         </div>
                     </div>
-
                 </div>
             )}
 
