@@ -685,6 +685,12 @@ const Chamados = ({ user: userProp }) => {
           const setorFormatado = obterSetorFormatado(c, setores);
           const ehImpactoCritico = ['Leito/Sala Bloqueado', 'Risco Iminente à Vida'].includes(c.impacto_assistencial);
 
+          const corBarraSla = sla.atrasado 
+            ? 'bg-red-500 animate-pulse' 
+            : sla.percentual > 75 
+              ? 'bg-amber-500' 
+              : 'bg-emerald-500';
+
           return (
             <div 
               key={c.id} 
@@ -695,14 +701,14 @@ const Chamados = ({ user: userProp }) => {
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="bg-white/80 text-slate-800 font-black text-[10px] px-2 py-0.5 rounded-md border border-slate-200/60 shadow-xs">
+                        <span className="bg-white/90 text-slate-800 font-black text-[10px] px-2 py-0.5 rounded-md border border-slate-200 shadow-xs">
                           #{c.id}
                         </span>
                         <h3 className="font-black text-slate-800 text-sm sm:text-base uppercase truncate" title={c.titulo}>
                           {c.titulo}
                         </h3>
                       </div>
-                      <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold uppercase mt-0.5 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                      <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold uppercase mt-1 flex flex-wrap items-center gap-1.5 sm:gap-2">
                         <span title={setorFormatado}>
                           📍 {setorFormatado}
                         </span>
@@ -744,29 +750,51 @@ const Chamados = ({ user: userProp }) => {
                     </div>
                   )}
 
-                  <div className="bg-white/70 p-2 rounded-xl border border-slate-200/50 mb-3 flex justify-between items-center text-[10px]">
-                    <div className="flex items-center gap-1.5 font-black text-slate-600">
-                      <span>⏱️ SLA:</span>
-                      <span className={sla.atrasado ? 'text-red-600' : 'text-slate-800'}>{sla.texto}</span>
+                  {/* BARRA DE PROGRESSO VISUAL DO SLA */}
+                  <div className="bg-white/80 p-2.5 rounded-2xl border border-slate-200/60 mb-3 space-y-1.5">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <div className="flex items-center gap-1.5 font-black text-slate-700">
+                        <span>⏱️ SLA:</span>
+                        <span className={sla.atrasado ? 'text-red-600 font-black' : 'text-slate-800'}>{sla.texto}</span>
+                      </div>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase">
+                        Meta: {sla.metaHoras}h {sla.atrasado && <strong className="text-red-500">⚠️ (Estourado)</strong>}
+                      </div>
                     </div>
-                    <div className="text-[9px] font-bold text-slate-400 uppercase">
-                      Meta: {sla.metaHoras}h {sla.atrasado && <strong className="text-red-500">⚠️ (Estourado)</strong>}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${corBarraSla}`}
+                        style={{ width: `${Math.min(sla.percentual, 100)}%` }}
+                      />
                     </div>
                   </div>
 
+                  {/* EQUIPAMENTO VINCULADO COM LINK AO PRONTUÁRIO */}
                   {c.equip_nome && (
-                    <div className="mb-3 p-2 bg-white/80 border border-slate-200/60 rounded-xl flex items-center gap-2 text-xs">
-                      <span className={emExterna ? 'text-purple-600' : 'text-blue-600'}>
-                        {emExterna ? '🚚' : '🤖'}
-                      </span>
-                      <span className="font-bold text-slate-700 truncate">
-                        [{c.equip_pat || 'S/P'}] {c.equip_nome}
-                      </span>
+                    <div className="mb-3 p-2.5 bg-white/90 border border-slate-200/80 rounded-xl flex items-center justify-between text-xs hover:border-blue-300 transition-colors">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className={emExterna ? 'text-purple-600' : 'text-blue-600'}>
+                          {emExterna ? '🚚' : '🤖'}
+                        </span>
+                        <span className="font-black text-slate-700 truncate">
+                          [{c.equip_pat || 'S/P'}] {c.equip_nome}
+                        </span>
+                      </div>
+                      {c.equipamento_id && (
+                        <Link
+                          to={`/prontuario/${c.equipamento_id}`}
+                          className="text-[10px] font-black uppercase text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded-lg shrink-0 transition-colors"
+                          title="Ver prontuário do equipamento"
+                        >
+                          Prontuário ↗
+                        </Link>
+                      )}
                     </div>
                   )}
 
+                  {/* RELATO DO SOLICITANTE COM FOTO OTIMIZADA */}
                   <div className="flex gap-3 bg-white/80 p-2.5 sm:p-3 rounded-2xl border border-slate-200/60 mb-3">
-                    {c.foto_abertura ? (
+                    {c.foto_abertura && (
                       <img 
                         src={`${BASE_URL}${c.foto_abertura}`} 
                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
@@ -774,11 +802,6 @@ const Chamados = ({ user: userProp }) => {
                         alt="Miniatura Abertura" 
                         title="Toque para ampliar"
                       />
-                    ) : (
-                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl border border-dashed border-slate-200 bg-white flex flex-col items-center justify-center text-[8px] font-bold text-slate-300 uppercase shrink-0">
-                        <span>📷</span>
-                        <span>Sem foto</span>
-                      </div>
                     )}
 
                     <div className="flex-1 min-w-0">
@@ -802,9 +825,15 @@ const Chamados = ({ user: userProp }) => {
                   )}
                 </div>
 
+                {/* RODAPÉ: RESPONSÁVEIS E AÇÕES */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200/60 mt-2">
-                  <div className="text-[10px] text-slate-500 font-bold">
-                    👤 Por: <strong className="text-slate-700">{c.solicitante_nome || 'Usuário'}</strong>
+                  <div className="text-[10px] text-slate-500 font-bold flex flex-wrap items-center gap-2">
+                    <span>👤 <strong className="text-slate-700">{c.solicitante_nome || 'Usuário'}</strong></span>
+                    {c.tecnico_responsavel && (
+                      <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md font-black border border-blue-200/60">
+                        🛠️ {c.tecnico_responsavel}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
@@ -1035,6 +1064,7 @@ const Chamados = ({ user: userProp }) => {
                               className="rounded-xl border border-slate-200 w-full h-28 object-cover cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
                               onClick={() => abrirVisualizadorInterno(chamadoSelecionado.foto_abertura, `Foto de Abertura - OS #${chamadoSelecionado.id}`, 'imagem')} 
                               alt="Foto Abertura" 
+                              title="Toque para ampliar"
                             />
                           ) : (
                             <div className="w-full h-28 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400 font-bold uppercase italic text-center p-2">
@@ -1051,6 +1081,7 @@ const Chamados = ({ user: userProp }) => {
                               className="rounded-xl border border-slate-200 w-full h-28 object-cover cursor-pointer hover:opacity-80 transition-opacity shadow-sm" 
                               onClick={() => abrirVisualizadorInterno(chamadoSelecionado.foto_conclusao, `Foto de Conclusão - OS #${chamadoSelecionado.id}`, 'imagem')} 
                               alt="Foto Conclusão" 
+                              title="Toque para ampliar"
                             />
                           ) : (
                             <div className="w-full h-28 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400 font-bold uppercase italic text-center p-2">
