@@ -3134,7 +3134,12 @@ app.delete('/api/setores/:id', permitirApenas(['admin']), (req, res) => {
 
 // ALMOXARIFADO / ESTOQUE
 app.get('/api/estoque', permitirApenas(['admin', 'coordenador']), (req, res) => {
-    db.query("SELECT id, nome, referencia, descricao, quantidade, valor_unitario, local_estoque_id FROM itens_estoque WHERE quantidade > 0 ORDER BY nome ASC", (err, result) => {
+    const query = `
+        SELECT id, nome, referencia, descricao, quantidade, valor_unitario, estoque_minimo, local_estoque_id 
+        FROM itens_estoque 
+        ORDER BY nome ASC
+    `;
+    db.query(query, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
